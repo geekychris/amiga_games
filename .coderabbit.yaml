@@ -1,0 +1,196 @@
+# CodeRabbit configuration for the AmigaBridge examples/games repo.
+# See: https://docs.coderabbit.ai/guides/configuration-overview
+#
+# This repo is 100% classic-AmigaOS C (m68k / PowerPC targets) plus a few
+# ProTracker MOD-generator helper scripts in Python. There is NO modern-Python
+# host code here (that lives in the parent amiga_mcp repo). Reviews should
+# treat every .c/.h file as retro C on AmigaOS, not modern C on Linux/macOS.
+
+language: en-US
+early_access: false
+
+tone_instructions: >-
+  Retro Amiga C for m68k/PowerPC - no POSIX or modern-C suggestions. FLAG any
+  commercial-game trademark (Pac-Man, Tetris, Metroid, Nintendo/Sega/Atari
+  titles, etc.) in code, comments, on-screen text, or filenames.
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  changed_files_summary: true
+  sequence_diagrams: false
+  collapse_walkthrough: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_reviewers: false
+  auto_apply_labels: false
+  suggested_labels: true
+
+  labeling_instructions:
+    - label: trademark-risk
+      instructions: >-
+        Apply if the PR introduces (or fails to remove) references to a
+        commercial game title, mascot name, iconic character, or clearly
+        derivative on-screen text. Examples: Pac-Man, Tetris, Metroid, Mario,
+        Zelda, Frogger, Sonic, Space Invaders, Lode Runner, Joust, Defender,
+        Asteroids, Red Baron, Moon Patrol, Blaster Master, Gold Rush, Alien
+        Storm, Planet Patrol, Sinistar, Astro Blaster, etc. Also apply if a
+        binary/dir/file name matches a commercial title.
+    - label: amiga-c
+      instructions: Apply to any PR touching Amiga C code.
+    - label: new-example
+      instructions: Apply to PRs that add a new example project directory.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  path_filters:
+    # Build artefacts.
+    - "!**/*.o"
+    - "!**/*.d"
+    - "!**/*.a"
+    # Amiga executable binaries (they get built by make; source in git only).
+    - "!**/hunk"
+    # Assets that CodeRabbit shouldn't churn on.
+    - "!**/*.mod"
+    - "!**/*.iff"
+    - "!**/*.png"
+    - "!**/*.jpg"
+    - "!**/*.jpeg"
+    - "!**/*.gif"
+    - "!**/*.raw"
+
+  path_instructions:
+    # ---------------------------------------------------------------
+    # Every C file in this repo targets AmigaOS.
+    # ---------------------------------------------------------------
+    - path: "**/*.{c,h}"
+      instructions: |
+        This is code for **classic AmigaOS** (m68k or PowerPC), NOT a modern OS.
+        Do NOT suggest POSIX, glibc, C11/C17, threads, mmap, fork, epoll, or
+        modern-security-hardening idioms. Do NOT suggest replacing Amiga APIs
+        (Exec, DOS, Intuition, exec/ports/signals, amiga.lib) with portable
+        equivalents.
+
+        Prioritise these AmigaOS-specific concerns:
+        - Format specifiers: amiga.lib `%d` reads a 16-bit WORD. Flag any int
+          printed without `%ld` + explicit `(long)` cast. `%c` causes stack
+          misalignment - `%s` with a 2-char string is the workaround.
+        - amiga.lib `sprintf` returns `char*`, not `int`. Flag any use of the
+          return value as a length.
+        - No memory protection. Any buffer overflow, use-after-free, off-by-one,
+          or wild pointer crashes the whole OS. Treat these as high severity.
+        - Forbid()/Permit(), Disable()/Enable(), and ObtainSemaphore()/
+          ReleaseSemaphore() MUST be balanced on every path (including error
+          returns and early exits). A missed Permit() freezes the machine.
+        - AllocSignal() must be paired with FreeSignal() on every exit path.
+          AllocMem/AllocVec/CreateMsgPort/CreateIORequest/CreatePort/OpenLibrary/
+          OpenDevice/Lock/Open etc. must each be paired with the matching free/
+          close on every exit path.
+        - WaitPort() blocks forever - flag any WaitPort() whose sender could
+          die without notifying. Polling with a timeout signal is preferred.
+        - Every example must call `ab_init("<client_name>")` and `ab_cleanup()`
+          on ALL exit paths, and `ab_poll()` regularly if it registered vars/
+          hooks. These are the bridge client-library contract.
+        - Ignore complaints from clang/cppcheck about "unknown identifier" for
+          Amiga types (APTR, ULONG, UWORD, STRPTR, BPTR, struct Task, struct
+          MsgPort, struct Library, etc.) - the cross-compiler resolves these.
+
+    # ---------------------------------------------------------------
+    # Trademark screening — applies to every source file and header.
+    # ---------------------------------------------------------------
+    - path: "**/*"
+      instructions: |
+        **Trademark screening.** This is a public repo. FLAG any of the
+        following anywhere in code, comments, string literals, on-screen text,
+        file names, dir names, or binary targets:
+        - Direct game titles: Pac-Man, Tetris, Metroid, Zelda, Mario, Donkey
+          Kong, Space Invaders, Lode Runner, Blaster Master, Pitfall, Frogger,
+          Centipede, Galaga, Bomberman, Contra, Sonic, Castlevania, Final
+          Fantasy, Street Fighter, Mortal Kombat, Lemmings, Prince of Persia,
+          Doom, Wolfenstein, Quake, Joust, Defender, Asteroids, Red Baron,
+          Moon Patrol, Super Bros, Gold Rush, Alien Storm, Planet Patrol,
+          Sinistar, Choplifter, Dig Dug, Q*bert, Astro Blaster.
+        - Publisher names when used to identify a game: Nintendo, Sega,
+          Atari-arcade, Namco, Bandai Namco, Konami, Midway, Williams, Taito,
+          Capcom, Broderbund, Sunsoft, Irem, Tigervision.
+        - Iconic signature moves/items closely tied to a franchise: "morph
+          ball", "power pellets" (borderline - generic now), specific
+          character names.
+        - Language patterns to flag: "clone of X", "X clone", "homage to X",
+          "inspired by the 1980 [Company] arcade", "X-inspired".
+        Suggest the `trademark-risk` label. This must be resolved before merge.
+
+    # ---------------------------------------------------------------
+    # Every example depends on amiga-bridge from the parent repo.
+    # ---------------------------------------------------------------
+    - path: "**/Makefile"
+      instructions: |
+        Every example Makefile uses `-I../../amiga-bridge/include` and
+        `-L../../amiga-bridge -lbridge -lamiga`. That path resolves when this
+        repo is checked out as a submodule at `examples/` inside amiga_mcp.
+        Flag any change that:
+        - drops `-noixemul` or `-m68020` (68k) from CFLAGS,
+        - hardcodes an absolute path to the bridge library or headers,
+        - changes the TARGET name in a way that no longer matches the
+          containing directory (breaks the deploy-by-dir convention).
+
+    - path: "**/*.py"
+      instructions: |
+        These are host-side helper scripts (MOD file generators, sound
+        generators). Modern Python 3 - standard practices apply. Do NOT flag
+        Amiga-specific constants they emit.
+
+  tools:
+    # C static analysis. Will produce noise on AmigaOS code (unknown types);
+    # tone/path instructions tell reviewers to filter that noise but keep
+    # real memory-safety findings (which matter more on Amiga - no MMU).
+    cppcheck:
+      enabled: true
+    # Security / config / docs.
+    gitleaks:
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    # Not applicable to this repo.
+    ruff:
+      enabled: true
+    eslint:
+      enabled: false
+    biome:
+      enabled: false
+    oxc:
+      enabled: false
+    golangci-lint:
+      enabled: false
+    rubocop:
+      enabled: false
+    phpstan:
+      enabled: false
+    swiftlint:
+      enabled: false
+    hadolint:
+      enabled: false
+    shellcheck:
+      enabled: false
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: local
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto

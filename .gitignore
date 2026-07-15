@@ -1,0 +1,47 @@
+# Build artefacts
+*.o
+*.d
+*.a
+
+# Amiga executables (built by make; source-only repo)
+# Match: file in a game dir with the same name as the dir, no extension.
+# Since we can't glob that cleanly, list per-dir binaries here.
+# (New examples: add their target here.)
+*/ace_pilot
+*/aga3d
+*/boing_ball
+*/bouncing_ball
+*/bullion_dash
+*/dot_chase
+*/foo
+*/frank_the_frog
+*/game_of_life
+*/hello_world
+*/hubert
+*/jump_quest
+*/launcher
+*/lunar_rider
+*/memory_monitor
+*/nova_defense
+*/orb_hunter
+*/orbital_patrol
+*/pea_shooter_blast
+*/plasma
+*/rj_birthday
+*/rock_blaster
+*/sfx_player
+*/shell_proxy
+*/sky_knights
+*/stakattack
+*/starfield
+*/symbol_demo
+*/system_monitor
+*/uranus_lander
+*/debug_test
+*/test_example
+*/test_new_features
+*/disk_benchmark
+*/arexx_test
+
+# macOS
+.DS_Store
