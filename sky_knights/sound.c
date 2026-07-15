@@ -94,7 +94,13 @@ static BYTE *load_sample(const char *filename, LONG *out_len)
 
     buf = (BYTE *)AllocMem(len, MEMF_CHIP);
     if (buf) {
-        Read(fh, buf, len);
+        LONG got = Read(fh, buf, len);
+        if (got < len) {
+            /* Short read - discard buffer, leave *out_len untouched */
+            FreeMem(buf, len);
+            Close(fh);
+            return NULL;
+        }
         *out_len = len;
     }
 

@@ -687,12 +687,12 @@ void render_title(struct RastPort *rp)
 
     /* Title */
     SetAPen(rp, 8);  /* red */
-    w = big_string_width("RED", 5);
-    draw_big_string(rp, "RED", cx - w / 2, 30, 5);
+    w = big_string_width("ACE", 5);
+    draw_big_string(rp, "ACE", cx - w / 2, 30, 5);
 
     SetAPen(rp, 1);  /* white */
-    w = big_string_width("BARON", 5);
-    draw_big_string(rp, "BARON", cx - w / 2, 72, 5);
+    w = big_string_width("PILOT", 5);
+    draw_big_string(rp, "PILOT", cx - w / 2, 72, 5);
 
     /* Decorative lines */
     SetAPen(rp, 8);

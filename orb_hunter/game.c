@@ -58,7 +58,7 @@ typedef struct {
 } EnemySpawn;
 
 static EnemySpawn room_enemies[] = {
-    /* Brinstar rooms */
+    /* Cavern rooms */
     { 1, 1,  5, 13, ENEMY_CRAWLER }, { 1, 1, 14, 13, ENEMY_FLYER },
     { 2, 1,  8, 13, ENEMY_CRAWLER }, { 2, 1, 15, 10, ENEMY_HOPPER },
     { 3, 1,  6, 13, ENEMY_CRAWLER }, { 3, 1, 12, 13, ENEMY_TURRET },
@@ -66,7 +66,7 @@ static EnemySpawn room_enemies[] = {
     { 3, 2,  4, 13, ENEMY_HOPPER },  { 3, 2, 15, 13, ENEMY_FLYER },
     { 1, 3,  8, 13, ENEMY_CRAWLER }, { 1, 3, 14, 10, ENEMY_TURRET },
     { 2, 3, 10, 13, ENEMY_HOPPER },  { 2, 3, 16, 13, ENEMY_CRAWLER },
-    /* Norfair rooms */
+    /* Magma rooms */
     { 5, 1,  6, 12, ENEMY_FLYER },   { 5, 1, 14, 12, ENEMY_CRAWLER },
     { 6, 1,  8, 12, ENEMY_TURRET },  { 6, 1, 15, 12, ENEMY_FLYER },
     { 5, 2,  5, 12, ENEMY_HOPPER },  { 5, 2, 12, 12, ENEMY_CRAWLER },
@@ -75,31 +75,32 @@ static EnemySpawn room_enemies[] = {
     /* Corridor rooms */
     { 4, 1,  8, 13, ENEMY_CRAWLER }, { 4, 2, 10, 13, ENEMY_FLYER },
     { 3, 3,  8, 13, ENEMY_CRAWLER },
-    /* Tourian rooms */
+    /* Citadel rooms */
     { 3, 4,  6, 13, ENEMY_TURRET },  { 3, 4, 14, 13, ENEMY_CRAWLER },
     { 4, 4,  5, 13, ENEMY_HOPPER },  { 4, 4, 15, 13, ENEMY_TURRET },
     { 5, 4,  8, 13, ENEMY_FLYER },   { 5, 4, 14, 13, ENEMY_CRAWLER },
-    /* Morph ball area */
+    /* Roll form area */
     { 1, 4,  8,  9, ENEMY_CRAWLER },
     /* Boss rooms */
-    { 4, 3, 10,  8, ENEMY_BOSS_KRAID },
-    { 6, 3, 10,  6, ENEMY_BOSS_RIDLEY },
+    { 4, 3, 10,  8, ENEMY_BOSS_BEAST },
+    { 6, 3, 10,  6, ENEMY_BOSS_DRAKE },
     /* Sentinel */
     { -1, -1, -1, -1, -1 }
 };
 
 /* --- Init --- */
 
-static WORD levels_initialized = 0;
-
 void game_init(GameState *gs)
 {
+    WORD i;
+
     memset(gs, 0, sizeof(GameState));
 
-    /* Generate all room data (once) */
-    if (!levels_initialized) {
-        levels_init();
-        levels_initialized = 1;
+    /* Regenerate all mutable world state so opened doors, destroyed tiles,
+       and every prior collected item are reset for the new game. */
+    levels_init();
+    for (i = 0; i < g_num_items; i++) {
+        g_items[i].collected = 0;
     }
 
     /* Start in room (2,2) - the starting area */
@@ -155,8 +156,8 @@ void game_load_room(GameState *gs)
                 case ENEMY_FLYER:       e->health = 4;  break;
                 case ENEMY_HOPPER:      e->health = 3;  break;
                 case ENEMY_TURRET:      e->health = 5;  break;
-                case ENEMY_BOSS_KRAID:  e->health = 20; break;
-                case ENEMY_BOSS_RIDLEY: e->health = 30; break;
+                case ENEMY_BOSS_BEAST:  e->health = 20; break;
+                case ENEMY_BOSS_DRAKE: e->health = 30; break;
             }
             ei++;
         }
@@ -183,25 +184,25 @@ static void update_hunter(GameState *gs, WORD inp_left, WORD inp_right,
     /* Bomb timer */
     if (h->bomb_timer > 0) h->bomb_timer--;
 
-    cur_h = h->morphed ? HUNTER_MORPH_H : HUNTER_H;
+    cur_h = h->rolled ? HUNTER_ROLL_H : HUNTER_H;
 
-    /* Morph ball toggle: press down when on ground and have morph ball */
-    if (inp_down && h->on_ground && h->has_morph_ball && !inp_left && !inp_right) {
-        if (!h->morphed) {
-            h->morphed = 1;
+    /* Roll form toggle: press down when on ground and have roll form */
+    if (inp_down && h->on_ground && h->has_roll_form && !inp_left && !inp_right) {
+        if (!h->rolled) {
+            h->rolled = 1;
             /* Adjust Y so hunter doesn't float */
-            h->y += FIX(HUNTER_H - HUNTER_MORPH_H);
+            h->y += FIX(HUNTER_H - HUNTER_ROLL_H);
         }
     }
-    /* Un-morph: press up when morphed */
-    if (inp_up && h->morphed && h->on_ground) {
+    /* Un-roll: press up when rolled */
+    if (inp_up && h->rolled && h->on_ground) {
         /* Check ceiling clearance */
         WORD tx1 = FIX_INT(h->x) / TILE_W;
         WORD tx2 = (FIX_INT(h->x) + HUNTER_W - 1) / TILE_W;
-        WORD check_y = (FIX_INT(h->y) - (HUNTER_H - HUNTER_MORPH_H)) / TILE_H;
+        WORD check_y = (FIX_INT(h->y) - (HUNTER_H - HUNTER_ROLL_H)) / TILE_H;
         if (!tile_is_solid(gs, tx1, check_y) && !tile_is_solid(gs, tx2, check_y)) {
-            h->y -= FIX(HUNTER_H - HUNTER_MORPH_H);
-            h->morphed = 0;
+            h->y -= FIX(HUNTER_H - HUNTER_ROLL_H);
+            h->rolled = 0;
         }
     }
 
@@ -216,8 +217,8 @@ static void update_hunter(GameState *gs, WORD inp_left, WORD inp_right,
         h->dx = 0;
     }
 
-    /* Jump (not when morphed) */
-    if (inp_jump && h->on_ground && !h->jump_held && !h->morphed) {
+    /* Jump (not when rolled) */
+    if (inp_jump && h->on_ground && !h->jump_held && !h->rolled) {
         if (h->has_high_jump) {
             h->dy = HUNTER_HIGH_JUMP;
         } else {
@@ -244,25 +245,32 @@ static void update_hunter(GameState *gs, WORD inp_left, WORD inp_right,
         WORD px_left, px_right, px_top, px_bot;
         WORD tx_l, tx_r, ty_t, ty_b;
 
-        if (new_x < 0) new_x = 0;
+        /* Only clamp the right edge here; leaving new_x negative lets
+           check_room_transition() detect a left-room transition. */
         if (FIX_INT(new_x) + HUNTER_W > ROOM_W * TILE_W)
             new_x = FIX(ROOM_W * TILE_W - HUNTER_W);
 
-        px_left = FIX_INT(new_x);
-        px_right = px_left + HUNTER_W - 1;
-        px_top = FIX_INT(h->y);
-        px_bot = px_top + cur_h - 1;
-
-        tx_l = px_left / TILE_W;
-        tx_r = px_right / TILE_W;
-        ty_t = px_top / TILE_H;
-        ty_b = px_bot / TILE_H;
-
-        if (tile_is_solid(gs, tx_l, ty_t) || tile_is_solid(gs, tx_l, ty_b) ||
-            tile_is_solid(gs, tx_r, ty_t) || tile_is_solid(gs, tx_r, ty_b)) {
-            h->dx = 0;
-        } else {
+        if (new_x < 0) {
+            /* Moving off left edge: let position stand for the transition
+               check but skip tile collision on negative coords. */
             h->x = new_x;
+        } else {
+            px_left = FIX_INT(new_x);
+            px_right = px_left + HUNTER_W - 1;
+            px_top = FIX_INT(h->y);
+            px_bot = px_top + cur_h - 1;
+
+            tx_l = px_left / TILE_W;
+            tx_r = px_right / TILE_W;
+            ty_t = px_top / TILE_H;
+            ty_b = px_bot / TILE_H;
+
+            if (tile_is_solid(gs, tx_l, ty_t) || tile_is_solid(gs, tx_l, ty_b) ||
+                tile_is_solid(gs, tx_r, ty_t) || tile_is_solid(gs, tx_r, ty_b)) {
+                h->dx = 0;
+            } else {
+                h->x = new_x;
+            }
         }
     }
 
@@ -314,7 +322,7 @@ static void update_hunter(GameState *gs, WORD inp_left, WORD inp_right,
         WORD ty = py / TILE_H;
         UBYTE tt = tile_at(gs, tx, ty);
         if ((tile_props[tt] & TPROP_DAMAGE) && h->invuln_timer == 0) {
-            WORD dmg = h->has_varia_suit ? 1 : 5;
+            WORD dmg = h->has_heat_suit ? 1 : 5;
             h->health -= dmg;
             h->invuln_timer = INVULN_TIME / 2;
             sfx_player_hit();
@@ -330,14 +338,14 @@ static void update_hunter(GameState *gs, WORD inp_left, WORD inp_right,
 
     /* Fire weapon */
     if (inp_fire && h->gun_timer == 0) {
-        if (h->morphed) {
-            /* Lay bomb if morphed and has bombs */
+        if (h->rolled) {
+            /* Lay bomb if rolled and has bombs */
             if (h->has_bombs && h->bomb_timer == 0) {
                 WORD bi;
                 for (bi = 0; bi < MAX_BOMBS; bi++) {
                     if (!gs->bombs[bi].active) {
                         gs->bombs[bi].x = h->x + FIX(HUNTER_W / 2);
-                        gs->bombs[bi].y = h->y + FIX(HUNTER_MORPH_H / 2);
+                        gs->bombs[bi].y = h->y + FIX(HUNTER_ROLL_H / 2);
                         gs->bombs[bi].timer = BOMB_FUSE;
                         gs->bombs[bi].active = 1;
                         h->bomb_timer = 15;
@@ -383,7 +391,7 @@ static void update_hunter(GameState *gs, WORD inp_left, WORD inp_right,
     }
 
     /* Animation */
-    if (h->morphed) {
+    if (h->rolled) {
         h->anim_frame = (gs->frame / 3) & 3;
     } else if (h->dx != 0) {
         h->anim_frame = (gs->frame / 4) & 3;
@@ -397,7 +405,7 @@ static void update_hunter(GameState *gs, WORD inp_left, WORD inp_right,
 static void check_room_transition(GameState *gs)
 {
     Hunter *h = &gs->hunter;
-    WORD cur_h = h->morphed ? HUNTER_MORPH_H : HUNTER_H;
+    WORD cur_h = h->rolled ? HUNTER_ROLL_H : HUNTER_H;
 
     /* Right edge */
     if (FIX_INT(h->x) + HUNTER_W >= ROOM_W * TILE_W) {
@@ -526,7 +534,7 @@ static void update_bombs(GameState *gs)
             /* Bomb jump: push hunter up if nearby */
             {
                 WORD hdx = FIX_INT(bm->x) - FIX_INT(gs->hunter.x) - HUNTER_W/2;
-                WORD hdy = FIX_INT(bm->y) - FIX_INT(gs->hunter.y) - HUNTER_MORPH_H/2;
+                WORD hdy = FIX_INT(bm->y) - FIX_INT(gs->hunter.y) - HUNTER_ROLL_H/2;
                 if (hdx > -BOMB_RADIUS && hdx < BOMB_RADIUS &&
                     hdy > -BOMB_RADIUS && hdy < BOMB_RADIUS) {
                     gs->hunter.dy = FIX(-3);
@@ -571,7 +579,7 @@ static void update_enemies(GameState *gs)
             e->active = 0;
             sfx_explode();
             game_spawn_particles(gs, e->x + FIX(8), e->y + FIX(8), 10, 9);
-            gs->score += (e->type >= ENEMY_BOSS_KRAID) ? 2000 : 100;
+            gs->score += (e->type >= ENEMY_BOSS_BEAST) ? 2000 : 100;
             continue;
         }
 
@@ -667,7 +675,7 @@ static void update_enemies(GameState *gs)
                 e->anim_frame = (gs->frame / 8) & 1;
                 break;
 
-            case ENEMY_BOSS_KRAID:
+            case ENEMY_BOSS_BEAST:
                 /* Slow movement, fires spread projectiles */
                 e->dx = (e->state == 0) ? FIX(1) / 2 : -FIX(1) / 2;
                 if (e->timer > 80) { e->state ^= 1; e->timer = 0; }
@@ -692,7 +700,7 @@ static void update_enemies(GameState *gs)
                 e->anim_frame = (gs->frame / 4) & 3;
                 break;
 
-            case ENEMY_BOSS_RIDLEY:
+            case ENEMY_BOSS_DRAKE:
                 /* Flying boss, swoops at player */
                 if (e->state == 0) {
                     e->y += (e->timer & 32) ? FIX(1)/4 : -FIX(1)/4;
@@ -744,7 +752,7 @@ static void update_enemy_bullets(GameState *gs)
 
         /* Hit player */
         if (gs->hunter.alive && gs->hunter.invuln_timer == 0) {
-            WORD cur_h = gs->hunter.morphed ? HUNTER_MORPH_H : HUNTER_H;
+            WORD cur_h = gs->hunter.rolled ? HUNTER_ROLL_H : HUNTER_H;
             WORD dx = FIX_INT(b->x) - FIX_INT(gs->hunter.x) - HUNTER_W/2;
             WORD dy = FIX_INT(b->y) - FIX_INT(gs->hunter.y) - cur_h/2;
             if (dx > -10 && dx < 10 && dy > -cur_h/2 && dy < cur_h/2) {
@@ -781,7 +789,7 @@ static void check_bullet_enemy(GameState *gs)
 
             dx = FIX_INT(b->x) - FIX_INT(e->x) - 8;
             dy = FIX_INT(b->y) - FIX_INT(e->y) - 8;
-            rad = (e->type >= ENEMY_BOSS_KRAID) ? 16 : 10;
+            rad = (e->type >= ENEMY_BOSS_BEAST) ? 16 : 10;
 
             if (dx > -rad && dx < rad && dy > -rad && dy < rad) {
                 e->health -= b->power;
@@ -804,9 +812,9 @@ static void check_hunter_enemy(GameState *gs)
 
     if (!h->alive || h->invuln_timer > 0) return;
 
-    cur_h = h->morphed ? HUNTER_MORPH_H : HUNTER_H;
+    cur_h = h->rolled ? HUNTER_ROLL_H : HUNTER_H;
 
-    /* Screw attack kills enemies on contact */
+    /* Spin strike kills enemies on contact */
     for (i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &gs->enemies[i];
         WORD dx, dy;
@@ -815,8 +823,8 @@ static void check_hunter_enemy(GameState *gs)
         dx = FIX_INT(h->x) + HUNTER_W/2 - FIX_INT(e->x) - 8;
         dy = FIX_INT(h->y) + cur_h/2 - FIX_INT(e->y) - 8;
         if (dx > -14 && dx < 14 && dy > -cur_h/2 && dy < cur_h/2) {
-            if (h->has_screw_attack && !h->on_ground && !h->morphed) {
-                /* Screw attack kills on contact */
+            if (h->has_spin_strike && !h->on_ground && !h->rolled) {
+                /* Spin strike kills on contact */
                 e->health = 0;
                 sfx_explode();
                 game_spawn_particles(gs, e->x + FIX(8), e->y + FIX(8), 10, 9);
@@ -847,7 +855,7 @@ static void check_items(GameState *gs)
 
     if (!h->alive) return;
 
-    cur_h = h->morphed ? HUNTER_MORPH_H : HUNTER_H;
+    cur_h = h->rolled ? HUNTER_ROLL_H : HUNTER_H;
 
     for (i = 0; i < g_num_items; i++) {
         ItemSpawn *it = &g_items[i];
@@ -878,9 +886,9 @@ static void check_items(GameState *gs)
                     h->missiles = h->max_missiles;
                     strcpy(gs->item_name, "MISSILE PACK");
                     break;
-                case ITEM_MORPH_BALL:
-                    h->has_morph_ball = 1;
-                    strcpy(gs->item_name, "MORPH BALL");
+                case ITEM_ROLL_FORM:
+                    h->has_roll_form = 1;
+                    strcpy(gs->item_name, "ROLL FORM");
                     break;
                 case ITEM_BOMBS:
                     h->has_bombs = 1;
@@ -898,13 +906,13 @@ static void check_items(GameState *gs)
                     h->has_high_jump = 1;
                     strcpy(gs->item_name, "HIGH JUMP BOOTS");
                     break;
-                case ITEM_SCREW_ATTACK:
-                    h->has_screw_attack = 1;
-                    strcpy(gs->item_name, "SCREW ATTACK");
+                case ITEM_SPIN_STRIKE:
+                    h->has_spin_strike = 1;
+                    strcpy(gs->item_name, "SPIN STRIKE");
                     break;
-                case ITEM_VARIA_SUIT:
-                    h->has_varia_suit = 1;
-                    strcpy(gs->item_name, "VARIA SUIT");
+                case ITEM_HEAT_SUIT:
+                    h->has_heat_suit = 1;
+                    strcpy(gs->item_name, "HEAT SUIT");
                     break;
                 default:
                     strcpy(gs->item_name, "UNKNOWN");

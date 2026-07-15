@@ -1,6 +1,7 @@
 /*
  * SKY KNIGHTS - Game logic
  * Physics, collision, enemy AI, wave management
+ * (Original aerial-combat mechanics; not affiliated with any prior arcade title.)
  */
 #include <string.h>
 #include "game.h"
@@ -117,9 +118,9 @@ static void spawn_enemy(GameState *gs, WORD type)
             e->flap_timer = 20 + (rng() % 30);
 
             /* Adjust speed by type */
-            if (type == ETYPE_HUNTER) {
+            if (type == ETYPE_RAIDER) {
                 e->dx = e->facing ? -ENEMY_MED : ENEMY_MED;
-            } else if (type == ETYPE_SHADOW) {
+            } else if (type == ETYPE_WRAITH) {
                 e->dx = e->facing ? -ENEMY_FAST : ENEMY_FAST;
             }
             return;
@@ -131,9 +132,9 @@ void game_start_wave(GameState *gs)
 {
     WORD i;
     WORD num_enemies;
-    WORD bounders, hunters, shadows;
+    WORD swoopers, raiders, wraiths;
 
-    /* Clear old enemies and eggs */
+    /* Clear old enemies and pods */
     for (i = 0; i < MAX_ENEMIES; i++)
         gs->enemies[i].active = 0;
     for (i = 0; i < MAX_EGGS; i++)
@@ -143,32 +144,32 @@ void game_start_wave(GameState *gs)
     num_enemies = 2 + gs->wave;
     if (num_enemies > MAX_ENEMIES) num_enemies = MAX_ENEMIES;
 
-    bounders = 0;
-    hunters = 0;
-    shadows = 0;
+    swoopers = 0;
+    raiders = 0;
+    wraiths = 0;
 
     if (gs->wave <= 2) {
-        bounders = num_enemies;
+        swoopers = num_enemies;
     } else if (gs->wave <= 4) {
-        bounders = num_enemies / 2;
-        hunters = num_enemies - bounders;
+        swoopers = num_enemies / 2;
+        raiders = num_enemies - swoopers;
     } else {
-        bounders = num_enemies / 3;
-        hunters = num_enemies / 3;
-        shadows = num_enemies - bounders - hunters;
-        if (shadows < 1) shadows = 1;
+        swoopers = num_enemies / 3;
+        raiders = num_enemies / 3;
+        wraiths = num_enemies - swoopers - raiders;
+        if (wraiths < 1) wraiths = 1;
     }
 
-    for (i = 0; i < bounders; i++) spawn_enemy(gs, ETYPE_BOUNDER);
-    for (i = 0; i < hunters; i++)  spawn_enemy(gs, ETYPE_HUNTER);
-    for (i = 0; i < shadows; i++) spawn_enemy(gs, ETYPE_SHADOW);
+    for (i = 0; i < swoopers; i++) spawn_enemy(gs, ETYPE_SWOOPER);
+    for (i = 0; i < raiders; i++)  spawn_enemy(gs, ETYPE_RAIDER);
+    for (i = 0; i < wraiths; i++)  spawn_enemy(gs, ETYPE_WRAITH);
 }
 
 /* Check if entity is standing on a platform */
-static WORD check_platform(GameState *gs, Fixed fx, Fixed fy, WORD w)
+static WORD check_platform(GameState *gs, Fixed fx, Fixed fy, WORD w, WORD h)
 {
     WORD px = FIX_INT(fx);
-    WORD py = FIX_INT(fy) + PLAYER_H;
+    WORD py = FIX_INT(fy) + h;
     WORD i;
 
     for (i = 0; i < gs->num_platforms; i++) {
@@ -280,7 +281,7 @@ static void update_player(GameState *gs, Player *p, UWORD input)
     }
 
     /* Platform collision from above (when falling) */
-    plat_y = check_platform(gs, p->x, p->y, PLAYER_W);
+    plat_y = check_platform(gs, p->x, p->y, PLAYER_W, PLAYER_H);
     if (plat_y >= 0 && p->dy >= 0) {
         p->y = FIX(plat_y - PLAYER_H);
         p->dy = 0;
@@ -316,9 +317,9 @@ static void update_enemy(GameState *gs, Enemy *e)
         e->dy += FLAP_IMPULSE / 3;
         if (e->dy < MAX_RISE_VEL) e->dy = MAX_RISE_VEL;
         /* Vary flap timing by type */
-        if (e->type == ETYPE_BOUNDER)
+        if (e->type == ETYPE_SWOOPER)
             e->flap_timer = 30 + (rng() % 40);
-        else if (e->type == ETYPE_HUNTER)
+        else if (e->type == ETYPE_RAIDER)
             e->flap_timer = 20 + (rng() % 30);
         else
             e->flap_timer = 15 + (rng() % 20);
@@ -342,7 +343,7 @@ static void update_enemy(GameState *gs, Enemy *e)
     }
 
     /* Platform collision */
-    plat_y = check_platform(gs, e->x, e->y, PLAYER_W);
+    plat_y = check_platform(gs, e->x, e->y, PLAYER_W, PLAYER_H);
     if (plat_y >= 0 && e->dy >= 0) {
         e->y = FIX(plat_y - PLAYER_H);
         e->dy = 0;
@@ -358,8 +359,8 @@ static void update_enemy(GameState *gs, Enemy *e)
         e->on_ground = 1;
     }
 
-    /* Occasionally change direction (hunters/shadows seek players) */
-    if (e->type >= ETYPE_HUNTER && (gs->frame & 63) == 0) {
+    /* Occasionally change direction (raiders/wraiths seek players) */
+    if (e->type >= ETYPE_RAIDER && (gs->frame & 63) == 0) {
         /* Find nearest active player */
         WORD i;
         Fixed best_dist = 0x7FFFFFFFL;
@@ -377,14 +378,14 @@ static void update_enemy(GameState *gs, Enemy *e)
         e->facing = best_dir;
         {
             Fixed spd = ENEMY_SLOW;
-            if (e->type == ETYPE_HUNTER) spd = ENEMY_MED;
-            else if (e->type == ETYPE_SHADOW) spd = ENEMY_FAST;
+            if (e->type == ETYPE_RAIDER) spd = ENEMY_MED;
+            else if (e->type == ETYPE_WRAITH) spd = ENEMY_FAST;
             e->dx = e->facing ? -spd : spd;
         }
     }
 
-    /* Random direction change for bounders */
-    if (e->type == ETYPE_BOUNDER && (rng() & 127) == 0) {
+    /* Random direction change for swoopers */
+    if (e->type == ETYPE_SWOOPER && (rng() & 127) == 0) {
         e->facing ^= 1;
         e->dx = e->facing ? -ENEMY_SLOW : ENEMY_SLOW;
     }
@@ -429,7 +430,7 @@ static void update_eggs(GameState *gs)
 
             /* Platform check */
             {
-                WORD plat_y = check_platform(gs, eg->x, eg->y, 8);
+                WORD plat_y = check_platform(gs, eg->x, eg->y, 8, 8);
                 if (plat_y >= 0 && eg->dy >= 0) {
                     eg->y = FIX(plat_y - 8);
                     eg->dy = 0;
@@ -450,9 +451,10 @@ static void update_eggs(GameState *gs)
         if (eg->timer <= 0) {
             /* Hatch into a stronger enemy */
             WORD new_type = eg->hatch_type;
-            if (new_type < ETYPE_SHADOW) new_type++;
+            if (new_type < ETYPE_WRAITH) new_type++;
             spawn_enemy(gs, new_type);
             eg->active = 0;
+            continue;   /* skip pickup check on this now-hatched pod */
         }
 
         /* Player pickup collision */
@@ -471,6 +473,7 @@ static void update_eggs(GameState *gs)
                         gs->score[j] += SCORE_EGG;
                         eg->active = 0;
                         gs->ev_flags |= EV_EGG;
+                        break;  /* only one player collects this pod */
                     }
                 }
             }
@@ -504,9 +507,9 @@ static void check_combat(GameState *gs)
                     /* Whoever is higher wins */
                     if (py < ey - 2) {
                         /* Player wins */
-                        WORD pts = SCORE_BOUNDER;
-                        if (e->type == ETYPE_HUNTER) pts = SCORE_HUNTER;
-                        else if (e->type == ETYPE_SHADOW) pts = SCORE_SHADOW;
+                        WORD pts = SCORE_SWOOPER;
+                        if (e->type == ETYPE_RAIDER) pts = SCORE_RAIDER;
+                        else if (e->type == ETYPE_WRAITH) pts = SCORE_WRAITH;
                         gs->score[i] += pts;
 
                         spawn_egg(gs, e->x, e->y, e->type);
@@ -541,6 +544,9 @@ static void check_combat(GameState *gs)
                                 }
                             }
                         }
+                        /* Player is dead this frame; stop checking further enemies
+                         * so overlapping enemies can't decrement extra lives. */
+                        break;
                     }
                     else {
                         /* Equal height - bounce off */

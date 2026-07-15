@@ -63,18 +63,19 @@ void input_read(InputState *input)
     /* System keys */
     input->sys = sys_state;
 
-    /* Player 2: Joystick port 2 (JOY1DAT) */
+    /* Player 2: Joystick port 2 (JOY1DAT).
+     * Amiga joystick decoding uses direct bit tests:
+     *   RIGHT = bit 1
+     *   LEFT  = bit 9
+     *   UP    = bit 9 XOR bit 8   (also mapped to FLAP)
+     * (DOWN  = bit 1 XOR bit 0, unused here)
+     */
     input->p2 = 0;
     joy = custom.joy1dat;
 
-    {
-        UWORD h = joy & 3;
-        UWORD v = (joy >> 8) & 3;
-
-        if (h == 2) input->p2 |= INP_RIGHT;
-        if (h == 1) input->p2 |= INP_LEFT;
-        if (v == 1) input->p2 |= INP_FLAP; /* up = flap */
-    }
+    if (joy & 0x0002) input->p2 |= INP_RIGHT;         /* bit 1 */
+    if (joy & 0x0200) input->p2 |= INP_LEFT;          /* bit 9 */
+    if (((joy >> 9) ^ (joy >> 8)) & 1) input->p2 |= INP_FLAP; /* up = flap */
 
     /* Fire button: CIA-A PRA bit 7, active low (port 2) */
     if (!(ciaa.ciapra & 0x80))

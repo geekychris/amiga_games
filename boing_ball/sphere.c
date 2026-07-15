@@ -123,32 +123,56 @@ static void render_frame(WORD depth_idx, WORD frame_idx)
     }
 }
 
-void sphere_init(void)
+BOOL sphere_init(void)
 {
     WORD d, i, p;
     WORD bpr = ((SPHERE_SIZE + 15) >> 4) << 1;
+
+    /* Zero the whole table so sphere_cleanup can be called safely at any
+     * point during allocation failure. */
+    for (d = 0; d < NUM_DEPTHS; d++) {
+        for (i = 0; i < NUM_FRAMES; i++) {
+            sphere_frames[d][i].bm = NULL;
+            sphere_frames[d][i].mask = NULL;
+        }
+    }
 
     for (d = 0; d < NUM_DEPTHS; d++) {
         for (i = 0; i < NUM_FRAMES; i++) {
             SphereFrame *sf = &sphere_frames[d][i];
 
             sf->bm = (struct BitMap *)AllocMem(sizeof(struct BitMap), MEMF_PUBLIC | MEMF_CLEAR);
+            if (!sf->bm) {
+                sphere_cleanup();
+                return FALSE;
+            }
             InitBitMap(sf->bm, SPHERE_DEPTH, SPHERE_SIZE, SPHERE_SIZE);
             for (p = 0; p < SPHERE_DEPTH; p++) {
                 sf->bm->Planes[p] = AllocRaster(SPHERE_SIZE, SPHERE_SIZE);
-                if (sf->bm->Planes[p])
-                    BltClear(sf->bm->Planes[p], bpr * SPHERE_SIZE, 0);
+                if (!sf->bm->Planes[p]) {
+                    sphere_cleanup();
+                    return FALSE;
+                }
+                BltClear(sf->bm->Planes[p], bpr * SPHERE_SIZE, 0);
             }
 
             sf->mask = (struct BitMap *)AllocMem(sizeof(struct BitMap), MEMF_PUBLIC | MEMF_CLEAR);
+            if (!sf->mask) {
+                sphere_cleanup();
+                return FALSE;
+            }
             InitBitMap(sf->mask, 1, SPHERE_SIZE, SPHERE_SIZE);
             sf->mask->Planes[0] = AllocRaster(SPHERE_SIZE, SPHERE_SIZE);
-            if (sf->mask->Planes[0])
-                BltClear(sf->mask->Planes[0], bpr * SPHERE_SIZE, 0);
+            if (!sf->mask->Planes[0]) {
+                sphere_cleanup();
+                return FALSE;
+            }
+            BltClear(sf->mask->Planes[0], bpr * SPHERE_SIZE, 0);
 
             render_frame(d, i);
         }
     }
+    return TRUE;
 }
 
 void sphere_cleanup(void)

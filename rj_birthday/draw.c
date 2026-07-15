@@ -1066,16 +1066,13 @@ void draw_guest_edit(struct RastPort *rp, GameState *gs)
             RectFill(rp, 42, y - 9, 278, y + 2);
         }
 
-        SetAPen(rp, selected ? COL_BTYELLOW : COL_WHITE);
-        draw_text(rp, 50, y, gs->names[i]);
-
         /* Show index number */
         {
             char numbuf[6];
             sprintf(numbuf, "%ld.", (long)(i + 1));
             SetAPen(rp, COL_GREY);
             draw_text(rp, 42, y, numbuf);
-            /* Redraw name after number */
+            /* Draw name after number */
             SetAPen(rp, selected ? COL_BTYELLOW : COL_WHITE);
             draw_text(rp, 66, y, gs->names[i]);
         }

@@ -22,7 +22,7 @@ static void generate_terrain_chunk(GameState *gs, LONG start_x, LONG end_x)
 
     for (x = start_x; x < end_x && x < TERRAIN_LEN; x++) {
         WORD idx = (WORD)(x % TERRAIN_LEN);
-        WORD world_x = (WORD)(gs->terrain_gen_x + (x - start_x));
+        LONG world_x = gs->terrain_gen_x + (x - start_x);
         WORD r;
 
         gs->terrain[idx] = TERRAIN_FLAT;
@@ -602,7 +602,8 @@ static void update_explosions(GameState *gs)
 
 static void update_scrolling(GameState *gs)
 {
-    LONG old_scroll = gs->scroll_x;
+    LONG delta;
+    LONG whole_px;
 
     gs->scroll_x += gs->scroll_speed;
 
@@ -615,8 +616,12 @@ static void update_scrolling(GameState *gs)
         }
     }
 
-    /* Checkpoint tracking */
-    gs->checkpoint_dist -= (WORD)((gs->scroll_x - old_scroll) / 100);
+    /* Checkpoint tracking - accumulate fractional scroll progress so slow
+     * speeds (< 100 units/frame) still advance instead of truncating to 0. */
+    delta = gs->scroll_speed + gs->scroll_frac;
+    whole_px = delta / 100;
+    gs->scroll_frac = delta - whole_px * 100;
+    gs->checkpoint_dist -= whole_px;
     if (gs->checkpoint_dist <= 0) {
         gs->checkpoint_cur++;
         if (gs->checkpoint_cur >= 26) {

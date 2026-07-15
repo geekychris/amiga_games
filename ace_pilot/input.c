@@ -24,7 +24,7 @@ void input_key_down(UWORD code)
         case 0x11: key_state |= INPUT_UP;       break;  /* W */
         case 0x21: key_state |= INPUT_DOWN;     break;  /* S */
         case 0x40: key_state |= INPUT_FIRE;     break;  /* space */
-        case 0x60: key_state |= INPUT_FIRE;     break;  /* left alt */
+        case 0x64: key_state |= INPUT_FIRE;     break;  /* left alt */
         case 0x45: key_state |= INPUT_ESC;      break;  /* escape */
         case 0x10: key_state |= INPUT_THROT_UP; break;  /* Q = throttle up */
         case 0x12: key_state |= INPUT_THROT_DN; break;  /* E = throttle down */
@@ -46,7 +46,7 @@ void input_key_up(UWORD code)
         case 0x11: key_state &= ~INPUT_UP;       break;
         case 0x21: key_state &= ~INPUT_DOWN;     break;
         case 0x40: key_state &= ~INPUT_FIRE;     break;
-        case 0x60: key_state &= ~INPUT_FIRE;     break;
+        case 0x64: key_state &= ~INPUT_FIRE;     break;
         case 0x45: key_state &= ~INPUT_ESC;      break;
         case 0x10: key_state &= ~INPUT_THROT_UP; break;
         case 0x12: key_state &= ~INPUT_THROT_DN; break;

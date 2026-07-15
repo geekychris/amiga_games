@@ -10,8 +10,8 @@
 /* Clear the visible area */
 void draw_clear(struct RastPort *rp, ScrollState *sc);
 
-/* Draw tile column at specified map column into bitmap */
-void draw_tile_column(struct RastPort *rp, WORD map_col, WORD bitmap_col);
+/* Draw tile column at specified map column, positioned at a bitmap pixel-x */
+void draw_tile_column(struct RastPort *rp, WORD map_col, WORD pixel_x);
 
 /* Draw all visible tiles (full redraw) */
 void draw_all_tiles(struct RastPort *rp, ScrollState *sc);

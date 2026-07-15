@@ -35,6 +35,12 @@ static char line_buf[256] = "";
 static LONG running = 1;
 static LONG bridge_ok = 0;
 
+/* Tracks the original CurrentDir at startup (never owned by us — do not UnLock).
+ * cd_owned_lock is the lock returned by our most recent successful cd; we own
+ * it and must UnLock it on next cd or on shutdown. */
+static BPTR initial_dir = (BPTR)0;
+static BPTR cd_owned_lock = (BPTR)0;
+
 /* Display state */
 static char prev_cmd_display[128] = "";
 static ULONG prev_count = 0;
@@ -158,12 +164,21 @@ static int hook_cd(const char *args, char *resultBuf, int bufSize)
 
     lock = Lock((CONST_STRPTR)args, ACCESS_READ);
     if (!lock) {
-        sprintf(resultBuf, "ERROR: cannot lock \"%s\"", args);
+        strncpy(resultBuf, "ERROR: cannot lock path", bufSize - 1);
+        resultBuf[bufSize - 1] = '\0';
         return -1;
     }
 
     old = CurrentDir(lock);
-    UnLock(old);
+    /* Only UnLock the previous CurrentDir if we owned it (from a prior cd).
+     * The very first cd displaces the initial dir supplied by our caller —
+     * we must NOT UnLock that; remember it so we can restore it on shutdown. */
+    if (cd_owned_lock) {
+        UnLock(old);
+    } else {
+        initial_dir = old;
+    }
+    cd_owned_lock = lock;
 
     /* Get new path name */
     if (NameFromLock(lock, (UBYTE *)path_buf, PATH_BUF_SIZE)) {
@@ -192,7 +207,8 @@ static int hook_type(const char *args, char *resultBuf, int bufSize)
     if (n == 0) {
         BPTR fh = Open((CONST_STRPTR)args, MODE_OLDFILE);
         if (!fh) {
-            sprintf(resultBuf, "ERROR: cannot open \"%s\"", args);
+            strncpy(resultBuf, "ERROR: cannot open file", bufSize - 1);
+            resultBuf[bufSize - 1] = '\0';
             return -1;
         }
         Close(fh);
@@ -214,14 +230,24 @@ static int hook_info(const char *args, char *resultBuf, int bufSize)
 /* ---- Hook: which ---- */
 static int hook_which(const char *args, char *resultBuf, int bufSize)
 {
+    /* "Which " prefix (6) + NUL (1) = 7 reserved bytes in line_buf */
+    const int max_arg_len = (int)sizeof(line_buf) - 7;
+
     if (!args || args[0] == '\0') {
         strncpy(resultBuf, "ERROR: no command name given", bufSize - 1);
         resultBuf[bufSize - 1] = '\0';
         return -1;
     }
 
+    if ((int)strlen(args) > max_arg_len) {
+        strncpy(resultBuf, "ERROR: command name too long", bufSize - 1);
+        resultBuf[bufSize - 1] = '\0';
+        return -1;
+    }
+
     /* Build "Which <command>" and run it via exec */
-    sprintf(line_buf, "Which %s", args);
+    strcpy(line_buf, "Which ");
+    strncat(line_buf, args, sizeof(line_buf) - strlen(line_buf) - 1);
     return hook_exec(line_buf, resultBuf, bufSize);
 }
 
@@ -264,25 +290,30 @@ int main(void)
     struct IntuiMessage *msg;
     ULONG class;
     int hb_counter = 0;
-
-    IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
-    if (!IntuitionBase) return 1;
-
-    GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 36);
-    if (!GfxBase) {
-        CloseLibrary((struct Library *)IntuitionBase);
-        return 1;
-    }
+    int exit_code = 0;
 
     printf("shell_proxy v%s\n", VERSION);
 
-    /* Connect to AmigaBridge daemon */
+    /* Connect to AmigaBridge daemon first so ab_cleanup owns the whole
+     * lifetime and every failure path can flow through the single cleanup. */
     if (ab_init("shell_proxy") != 0) {
         printf("  Bridge: NOT FOUND (is amiga-bridge running?)\n");
         bridge_ok = 0;
     } else {
         printf("  Bridge: CONNECTED\n");
         bridge_ok = 1;
+    }
+
+    IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
+    if (!IntuitionBase) {
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 36);
+    if (!GfxBase) {
+        exit_code = 1;
+        goto cleanup;
     }
 
     AB_I("Shell Proxy v%s starting up", VERSION);
@@ -322,10 +353,8 @@ int main(void)
 
     if (!win) {
         AB_E("Failed to open window");
-        ab_cleanup();
-        CloseLibrary((struct Library *)GfxBase);
-        CloseLibrary((struct Library *)IntuitionBase);
-        return 1;
+        exit_code = 1;
+        goto cleanup;
     }
 
     AB_I("Window opened, ready for commands");
@@ -375,9 +404,26 @@ int main(void)
     AB_I("Shell Proxy shutting down");
 
     CloseWindow(win);
-    ab_cleanup();
-    CloseLibrary((struct Library *)GfxBase);
-    CloseLibrary((struct Library *)IntuitionBase);
 
-    return 0;
+cleanup:
+    /* Restore original CurrentDir and release any lock we still own from cd. */
+    if (cd_owned_lock) {
+        BPTR displaced = CurrentDir(initial_dir);
+        /* displaced == cd_owned_lock in the normal case; UnLock what we own. */
+        UnLock(displaced);
+        cd_owned_lock = (BPTR)0;
+        initial_dir = (BPTR)0;
+    }
+
+    ab_cleanup();
+    if (GfxBase) {
+        CloseLibrary((struct Library *)GfxBase);
+        GfxBase = NULL;
+    }
+    if (IntuitionBase) {
+        CloseLibrary((struct Library *)IntuitionBase);
+        IntuitionBase = NULL;
+    }
+
+    return exit_code;
 }

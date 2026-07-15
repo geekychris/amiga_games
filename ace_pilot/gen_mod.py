@@ -176,6 +176,7 @@ def build_mod():
     p1.append([E, E, mel('A-2'), E])
     p1.append([E, chord('D-2'), E, E])
     for r in range(22, 24): p1.append([E, E, E, E])
+    p1.append([E, E, E, E])
 
     # Measure 8: B-2
     p1.append([bass('G-1'), E, mel('B-2'), E])

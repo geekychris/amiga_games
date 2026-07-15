@@ -27,4 +27,9 @@ int level_save_text(const char *path);
 /* Load level from text file - returns 0 on success */
 int level_load_text(const char *path);
 
+/* Scan tile grid for TILE_PLAYER / TILE_ENEMY spawn markers, convert
+ * them to active entities and clear the marker tiles. Used by the
+ * editor when transitioning to test-play. */
+void level_activate_spawn_markers(GameState *gs);
+
 #endif /* LEVEL_H */

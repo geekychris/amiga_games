@@ -62,47 +62,68 @@ static int hook_reset(const char *args, char *buf, int bufsz)
     return 0;
 }
 
-static int hook_status(const char *args, char *buf, int bufsz)
+/* Append src to buf, respecting bufsz. Returns bytes written (excluding NUL). */
+static int append_str(char *buf, int bufsz, int used, const char *src)
+{
+    if (!buf || bufsz <= 0 || used >= bufsz - 1) return used;
+    while (*src && used < bufsz - 1) {
+        buf[used++] = *src++;
+    }
+    buf[used] = '\0';
+    return used;
+}
+
+/* Append decimal LONG to buf, respecting bufsz. */
+static int append_long(char *buf, int bufsz, int used, LONG v)
 {
     char tmp[16];
-    char *p = buf;
+    int i = 0;
+    if (!buf || bufsz <= 0 || used >= bufsz - 1) return used;
+    if (v < 0) {
+        used = append_str(buf, bufsz, used, "-");
+        v = -v;
+    }
+    if (v == 0) { tmp[i++] = '0'; }
+    else {
+        while (v > 0 && i < (int)sizeof(tmp)) {
+            tmp[i++] = '0' + (char)(v % 10);
+            v /= 10;
+        }
+    }
+    while (i > 0 && used < bufsz - 1) {
+        buf[used++] = tmp[--i];
+    }
+    buf[used] = '\0';
+    return used;
+}
 
-    strcpy(p, "state=");
-    p += 6;
+static int hook_status(const char *args, char *buf, int bufsz)
+{
+    int used = 0;
+    const char *state_str;
+
+    if (!buf || bufsz <= 0) return 0;
+    buf[0] = '\0';
+
+    used = append_str(buf, bufsz, used, "state=");
     switch (gs.state) {
-        case STATE_TITLE: strcpy(p, "title"); break;
-        case STATE_PLAYING: strcpy(p, "playing"); break;
-        case STATE_DYING: strcpy(p, "dying"); break;
-        case STATE_GAMEOVER: strcpy(p, "gameover"); break;
-        case STATE_WAVE_CLEAR: strcpy(p, "wave_clear"); break;
-        default: strcpy(p, "?"); break;
+        case STATE_TITLE:      state_str = "title"; break;
+        case STATE_PLAYING:    state_str = "playing"; break;
+        case STATE_DYING:      state_str = "dying"; break;
+        case STATE_GAMEOVER:   state_str = "gameover"; break;
+        case STATE_WAVE_CLEAR: state_str = "wave_clear"; break;
+        default:               state_str = "?"; break;
     }
-    p += strlen(p);
+    used = append_str(buf, bufsz, used, state_str);
 
-    strcpy(p, " score=");
-    p += 7;
-    {
-        LONG v = gs.score;
-        int i = 0;
-        if (v == 0) { tmp[i++] = '0'; }
-        else { while (v > 0) { tmp[i++] = '0' + (char)(v % 10); v /= 10; } }
-        while (i > 0) *p++ = tmp[--i];
-    }
+    used = append_str(buf, bufsz, used, " score=");
+    used = append_long(buf, bufsz, used, gs.score);
 
-    strcpy(p, " wave=");
-    p += 6;
-    {
-        LONG v = (LONG)gs.wave;
-        int i = 0;
-        if (v == 0) { tmp[i++] = '0'; }
-        else { while (v > 0) { tmp[i++] = '0' + (char)(v % 10); v /= 10; } }
-        while (i > 0) *p++ = tmp[--i];
-    }
+    used = append_str(buf, bufsz, used, " wave=");
+    used = append_long(buf, bufsz, used, (LONG)gs.wave);
 
-    strcpy(p, " lives=");
-    p += 7;
-    *p++ = '0' + (char)gs.lives;
-    *p = '\0';
+    used = append_str(buf, bufsz, used, " lives=");
+    used = append_long(buf, bufsz, used, (LONG)gs.lives);
 
     return 0;
 }
@@ -167,6 +188,7 @@ int main(int argc, char *argv[])
     struct IntuiMessage *imsg;
     struct MsgPort *userport;
     int startup_delay = 10;  /* ignore fire for first 10 frames */
+    BOOL bridge_ok = FALSE;
 
     /* Open libraries */
     IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 39);
@@ -213,16 +235,16 @@ int main(int argc, char *argv[])
         userport = win->UserPort;
     }
 
-    /* Init sound */
-    sound_init();
+    /* Init sound - abort startup if allocation fails */
+    if (sound_init() != 0) goto cleanup;
 
     /* Init game */
     game_init(&gs);
     input_init();
 
     /* Init bridge */
-    ab_init("nova_defense");
-    AB_I("Nova Defense started");
+    bridge_ok = (ab_init("nova_defense") == 0);
+    if (bridge_ok) AB_I("Nova Defense started");
 
     ab_register_var("score",  AB_TYPE_I32, &gs.score);
     ab_register_var("lives",  AB_TYPE_I32, &gs.lives);
@@ -304,8 +326,10 @@ cleanup:
     /* Stop sound first - disables audio DMA */
     sound_cleanup();
 
-    AB_I("Nova Defense shutting down");
-    ab_cleanup();
+    if (bridge_ok) {
+        AB_I("Nova Defense shutting down");
+        ab_cleanup();
+    }
 
     /* Drain any pending safe message before freeing buffers */
     if (safe_pending && safe_port) {
@@ -316,13 +340,6 @@ cleanup:
 
     /* Wait for blitter to finish any pending ops */
     WaitBlit();
-
-    /* Make sure we're showing buffer 0 before closing */
-    if (screen && sbuf[0]) {
-        ChangeScreenBuffer(screen, sbuf[0]);
-        WaitTOF();
-        WaitTOF();
-    }
 
     /* Close window before screen */
     if (win) CloseWindow(win);

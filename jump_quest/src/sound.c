@@ -68,6 +68,10 @@ static BYTE *wave_bass = NULL;
 static BYTE *wave_noise = NULL;
 static BYTE *sfx_buf = NULL;
 
+/* Set to 1 only after sound_init succeeds; every entry point below
+ * must early-return when zero so we never touch NULL wave/sfx buffers. */
+static int sound_available = 0;
+
 #define WAVE_LEN    32   /* samples per waveform cycle */
 #define SFX_LEN     512  /* SFX buffer in bytes */
 
@@ -184,12 +188,16 @@ int sound_init(void) {
     /* Stop all audio DMA */
     DMACON = 0x000F;
 
+    sound_available = 1;
     return 1;
 }
 
 void sound_cleanup(void) {
     /* Stop audio DMA */
     DMACON = 0x000F;
+
+    sound_available = 0;
+    music_playing = 0;
 
     if (wave_square) { FreeMem(wave_square, WAVE_LEN); wave_square = NULL; }
     if (wave_bass)   { FreeMem(wave_bass, WAVE_LEN); wave_bass = NULL; }
@@ -198,6 +206,8 @@ void sound_cleanup(void) {
 }
 
 void sound_music_start(void) {
+    if (!sound_available) return;
+
     song_pos = 0;
     pattern_row = 0;
     tick_count = 0;
@@ -209,6 +219,7 @@ void sound_music_start(void) {
 
 void sound_music_stop(void) {
     music_playing = 0;
+    if (!sound_available) return;
     DMACON = 0x000F;  /* Stop all channels */
 }
 
@@ -216,6 +227,7 @@ void sound_music_tick(void) {
     int pat;
     UBYTE note;
 
+    if (!sound_available) return;
     if (!music_playing) return;
 
     tick_count++;
@@ -264,6 +276,7 @@ static void play_sfx(int channel, BYTE *data, int len, int period, int vol) {
 
 void sound_jump(void) {
     int i;
+    if (!sound_available) return;
     /* Rising pitch blip */
     for (i = 0; i < 128; i++) {
         int pitch = 8 - (i * 6 / 128);
@@ -275,6 +288,7 @@ void sound_jump(void) {
 
 void sound_stomp(void) {
     int i;
+    if (!sound_available) return;
     /* Impact noise + pitch down */
     for (i = 0; i < 256; i++) {
         if (i < 32) {
@@ -290,6 +304,7 @@ void sound_stomp(void) {
 
 void sound_collect(void) {
     int i;
+    if (!sound_available) return;
     /* Quick sparkle - rising arpeggio */
     for (i = 0; i < 96; i++) {
         int pitch = 6 - (i / 32);
@@ -301,6 +316,7 @@ void sound_collect(void) {
 
 void sound_powerup(void) {
     int i;
+    if (!sound_available) return;
     /* Rising fanfare */
     for (i = 0; i < 256; i++) {
         int phase = i / 64;
@@ -313,6 +329,7 @@ void sound_powerup(void) {
 
 void sound_hurt(void) {
     int i;
+    if (!sound_available) return;
     /* Descending buzz */
     for (i = 0; i < 200; i++) {
         int pitch = 2 + i / 25;
@@ -324,6 +341,7 @@ void sound_hurt(void) {
 
 void sound_die(void) {
     int i;
+    if (!sound_available) return;
     /* Sad descending tone */
     for (i = 0; i < 512; i++) {
         int pitch = 3 + i / 64;
@@ -335,6 +353,7 @@ void sound_die(void) {
 
 void sound_levelwin(void) {
     int i;
+    if (!sound_available) return;
     /* Victory fanfare - ascending notes */
     for (i = 0; i < 512; i++) {
         int phase = i / 128;

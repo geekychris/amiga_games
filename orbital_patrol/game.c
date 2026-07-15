@@ -21,9 +21,15 @@ static WORD sin_tab_init = 0;
 static void init_sin_tab(void)
 {
     WORD i;
-    /* Simple sine approximation using parabolic segments */
+    /* Simple sine approximation using parabolic segments.
+     * v = 256 - ((64 - i)^2) * 256 / (64 * 64)
+     * At i=0:  v = 256 - 64*64*256/(64*64) = 0
+     * At i=63: v = 256 - 1*256/(64*64) ~= 256 (approaches peak smoothly)
+     * At i=64: v = 256 (exact, set below)
+     */
     for (i = 0; i < 64; i++) {
-        LONG v = (LONG)i * (128 - (LONG)i * 2) * 256 / (64 * 64);
+        LONG d = 64 - (LONG)i;
+        LONG v = 256 - (d * d * 256) / (64 * 64);
         sin_tab[i] = (WORD)v;
         sin_tab[128 - i] = (WORD)v;
         sin_tab[128 + i] = (WORD)(-v);
@@ -163,11 +169,11 @@ static void spawn_enemy(GameState *gs, WORD type, LONG wx, LONG wy)
     e->target_human = -1;
     e->anim_frame = 0;
 
-    if (type == ENT_LANDER) {
-        e->state = LANDER_SEEKING;
-    } else if (type == ENT_BAITER) {
+    if (type == ENT_DIVER) {
+        e->state = DIVER_SEEKING;
+    } else if (type == ENT_CHASER) {
         e->hp = 2;
-    } else if (type == ENT_POD) {
+    } else if (type == ENT_HIVE) {
         e->hp = 1;
     }
 
@@ -181,29 +187,19 @@ static void kill_enemy(GameState *gs, WORD idx)
 
     /* Score */
     switch (e->type) {
-    case ENT_LANDER:  gs->score += SCORE_LANDER;  break;
-    case ENT_MUTANT:  gs->score += SCORE_MUTANT;  break;
-    case ENT_BAITER:  gs->score += SCORE_BAITER;  break;
-    case ENT_BOMBER:  gs->score += SCORE_BOMBER;  break;
-    case ENT_POD:     gs->score += SCORE_POD;     break;
-    case ENT_SWARMER: gs->score += SCORE_SWARMER; break;
+    case ENT_DIVER:  gs->score += SCORE_DIVER;  break;
+    case ENT_STALKER:  gs->score += SCORE_STALKER;  break;
+    case ENT_CHASER:  gs->score += SCORE_CHASER;  break;
+    case ENT_DROPPER:  gs->score += SCORE_DROPPER;  break;
+    case ENT_HIVE:     gs->score += SCORE_HIVE;     break;
+    case ENT_DRONE: gs->score += SCORE_DRONE; break;
     }
 
     if (gs->score > gs->hiscore)
         gs->hiscore = gs->score;
 
-    /* Pod splits into swarmers */
-    if (e->type == ENT_POD) {
-        WORD j, count = 3 + (WORD)(game_rand() % 3);
-        for (j = 0; j < count; j++) {
-            spawn_enemy(gs, ENT_SWARMER,
-                e->wx + TO_FP(game_rand() % 20 - 10),
-                e->wy + TO_FP(game_rand() % 20 - 10));
-        }
-    }
-
-    /* If lander was carrying a human, release them */
-    if (e->type == ENT_LANDER && e->target_human >= 0) {
+    /* If diver was carrying a human, release them */
+    if (e->type == ENT_DIVER && e->target_human >= 0) {
         Human *h = &gs->humans[e->target_human];
         if (h->state == HUMAN_GRABBED) {
             h->state = HUMAN_FALLING;
@@ -211,8 +207,34 @@ static void kill_enemy(GameState *gs, WORD idx)
         }
     }
 
+    /* Explosion at the dying enemy's position */
     spawn_explosion(gs, e->wx, e->wy);
     gs->ev_explode = 1;
+
+    /* Hive splits into drones. Capture position, release the hive's slot
+     * (and decrement enemies_alive) BEFORE spawning children so a swarm
+     * can reuse the freed slot. */
+    if (e->type == ENT_HIVE) {
+        LONG hx = e->wx;
+        LONG hy = e->wy;
+        WORD j, count = 3 + (WORD)(game_rand() % 3);
+
+        /* Release the dying hive slot up front so the common cleanup
+         * below does not deactivate/decrement it a second time. */
+        e->active = 0;
+        gs->enemies_alive--;
+        if (gs->enemies_alive < 0) gs->enemies_alive = 0;
+
+        /* Spawn 3-5 children; spawn_enemy bounds the pool via
+         * find_free_enemy(), so spawning safely stops when full. */
+        for (j = 0; j < count; j++) {
+            if (find_free_enemy(gs) < 0) break; /* pool cap policy */
+            spawn_enemy(gs, ENT_DRONE,
+                hx + TO_FP(game_rand() % 20 - 10),
+                hy + TO_FP(game_rand() % 20 - 10));
+        }
+        return;
+    }
 
     e->active = 0;
     gs->enemies_alive--;
@@ -295,13 +317,13 @@ static void hyperspace(GameState *gs)
 
 /* ---- Enemy AI ---- */
 
-static void lander_ai(Enemy *e, GameState *gs)
+static void diver_ai(Enemy *e, GameState *gs)
 {
     WORD i;
     LONG dx, dy;
 
     switch (e->state) {
-    case LANDER_SEEKING:
+    case DIVER_SEEKING:
         /* Find nearest alive, walking human */
         if (e->target_human < 0 || !gs->humans[e->target_human].active ||
             gs->humans[e->target_human].state != HUMAN_WALKING) {
@@ -327,7 +349,7 @@ static void lander_ai(Enemy *e, GameState *gs)
 
             if (dx > TO_FP(2)) e->vx = TO_FP(1);
             else if (dx < -TO_FP(2)) e->vx = -TO_FP(1);
-            else { e->vx = 0; e->state = LANDER_DESCENDING; }
+            else { e->vx = 0; e->state = DIVER_DESCENDING; }
 
             /* Slowly descend */
             e->vy = TO_FP(1) / 2;
@@ -340,7 +362,7 @@ static void lander_ai(Enemy *e, GameState *gs)
         }
         break;
 
-    case LANDER_DESCENDING:
+    case DIVER_DESCENDING:
         if (e->target_human >= 0 && gs->humans[e->target_human].state == HUMAN_WALKING) {
             Human *h = &gs->humans[e->target_human];
             dx = world_dist(h->wx, e->wx);
@@ -356,17 +378,17 @@ static void lander_ai(Enemy *e, GameState *gs)
 
             /* Check if close enough to grab */
             if (dx > -TO_FP(8) && dx < TO_FP(8) && dy > -TO_FP(8) && dy < TO_FP(8)) {
-                e->state = LANDER_GRABBING;
+                e->state = DIVER_GRABBING;
                 h->state = HUMAN_GRABBED;
                 h->grabbed_by = (WORD)(e - gs->enemies);
             }
         } else {
-            e->state = LANDER_SEEKING;
+            e->state = DIVER_SEEKING;
         }
         break;
 
-    case LANDER_GRABBING:
-        /* Lock human to lander */
+    case DIVER_GRABBING:
+        /* Lock human to diver */
         if (e->target_human >= 0) {
             Human *h = &gs->humans[e->target_human];
             if (h->state == HUMAN_GRABBED) {
@@ -376,10 +398,10 @@ static void lander_ai(Enemy *e, GameState *gs)
         }
         e->vx = 0;
         e->vy = -FP_ONE; /* ascend */
-        e->state = LANDER_ASCENDING;
+        e->state = DIVER_ASCENDING;
         break;
 
-    case LANDER_ASCENDING:
+    case DIVER_ASCENDING:
         e->vx = 0;
         e->vy = -FP_ONE;
 
@@ -399,8 +421,8 @@ static void lander_ai(Enemy *e, GameState *gs)
                 gs->humans_alive--;
                 gs->ev_human_die = 1;
             }
-            /* Transform lander into mutant */
-            e->type = ENT_MUTANT;
+            /* Transform diver into stalker */
+            e->type = ENT_STALKER;
             e->state = 0;
             e->target_human = -1;
             e->wy = TO_FP(PLAY_TOP + 10);
@@ -409,7 +431,7 @@ static void lander_ai(Enemy *e, GameState *gs)
     }
 }
 
-static void mutant_ai(Enemy *e, GameState *gs)
+static void stalker_ai(Enemy *e, GameState *gs)
 {
     LONG dx = world_dist(gs->ship.wx, e->wx);
     LONG dy = gs->ship.wy - e->wy;
@@ -429,7 +451,7 @@ static void mutant_ai(Enemy *e, GameState *gs)
     e->vy += (game_rand() % 3 - 1) * FP_ONE / 4;
 }
 
-static void bomber_ai(Enemy *e, GameState *gs)
+static void dropper_ai(Enemy *e, GameState *gs)
 {
     /* Horizontal patrol */
     if (e->timer <= 0) {
@@ -453,7 +475,7 @@ static void bomber_ai(Enemy *e, GameState *gs)
     }
 }
 
-static void pod_ai(Enemy *e, GameState *gs)
+static void hive_ai(Enemy *e, GameState *gs)
 {
     (void)gs;
     /* Slow drift */
@@ -465,7 +487,7 @@ static void pod_ai(Enemy *e, GameState *gs)
     e->timer--;
 }
 
-static void swarmer_ai(Enemy *e, GameState *gs)
+static void drone_ai(Enemy *e, GameState *gs)
 {
     LONG dx = world_dist(gs->ship.wx, e->wx);
     LONG dy = gs->ship.wy - e->wy;
@@ -483,7 +505,7 @@ static void swarmer_ai(Enemy *e, GameState *gs)
     e->vy += (game_rand() % 5 - 2) * FP_ONE / 2;
 }
 
-static void baiter_ai(Enemy *e, GameState *gs)
+static void chaser_ai(Enemy *e, GameState *gs)
 {
     LONG dx = world_dist(gs->ship.wx, e->wx);
     LONG dy = gs->ship.wy - e->wy;
@@ -584,7 +606,7 @@ void game_init(GameState *gs, WORD level)
 void game_spawn_wave(GameState *gs)
 {
     WORD i;
-    WORD num_landers, num_bombers, num_pods;
+    WORD num_divers, num_droppers, num_hives;
     WORD level = gs->level;
 
     /* Clear existing enemies */
@@ -597,39 +619,39 @@ void game_spawn_wave(GameState *gs)
     gs->enemies_alive = 0;
 
     /* Determine counts */
-    num_landers = 4 + level;
-    if (num_landers > 12) num_landers = 12;
+    num_divers = 4 + level;
+    if (num_divers > 12) num_divers = 12;
 
-    num_bombers = level >= 2 ? level - 1 : 0;
-    if (num_bombers > 5) num_bombers = 5;
+    num_droppers = level >= 2 ? level - 1 : 0;
+    if (num_droppers > 5) num_droppers = 5;
 
-    num_pods = level >= 3 ? level - 2 : 0;
-    if (num_pods > 4) num_pods = 4;
+    num_hives = level >= 3 ? level - 2 : 0;
+    if (num_hives > 4) num_hives = 4;
 
-    /* Spawn landers at random positions across the world, above terrain */
-    for (i = 0; i < num_landers && i < MAX_ENEMIES; i++) {
+    /* Spawn divers at random positions across the world, above terrain */
+    for (i = 0; i < num_divers && i < MAX_ENEMIES; i++) {
         LONG wx = TO_FP(game_rand() % WORLD_W);
         LONG wy = TO_FP(PLAY_TOP + 10 + game_rand() % 40);
-        spawn_enemy(gs, ENT_LANDER, wx, wy);
+        spawn_enemy(gs, ENT_DIVER, wx, wy);
     }
 
-    /* Spawn bombers */
-    for (i = 0; i < num_bombers; i++) {
+    /* Spawn droppers */
+    for (i = 0; i < num_droppers; i++) {
         LONG wx = TO_FP(game_rand() % WORLD_W);
         LONG wy = TO_FP(PLAY_TOP + 20 + game_rand() % 60);
-        spawn_enemy(gs, ENT_BOMBER, wx, wy);
+        spawn_enemy(gs, ENT_DROPPER, wx, wy);
     }
 
-    /* Spawn pods */
-    for (i = 0; i < num_pods; i++) {
+    /* Spawn hives */
+    for (i = 0; i < num_hives; i++) {
         LONG wx = TO_FP(game_rand() % WORLD_W);
         LONG wy = TO_FP(PLAY_TOP + 30 + game_rand() % 50);
-        spawn_enemy(gs, ENT_POD, wx, wy);
+        spawn_enemy(gs, ENT_HIVE, wx, wy);
     }
 
-    /* Baiter timer */
-    gs->baiter_timer = 1500 - level * 150;
-    if (gs->baiter_timer < 450) gs->baiter_timer = 450;
+    /* Chaser timer */
+    gs->chaser_timer = 1500 - level * 150;
+    if (gs->chaser_timer < 450) gs->chaser_timer = 450;
 }
 
 /* ---- Main game update ---- */
@@ -780,12 +802,12 @@ void game_update(GameState *gs, WORD input)
         if (!e->active) continue;
 
         switch (e->type) {
-        case ENT_LANDER:  lander_ai(e, gs);  break;
-        case ENT_MUTANT:  mutant_ai(e, gs);  break;
-        case ENT_BOMBER:  bomber_ai(e, gs);  break;
-        case ENT_POD:     pod_ai(e, gs);     break;
-        case ENT_SWARMER: swarmer_ai(e, gs); break;
-        case ENT_BAITER:  baiter_ai(e, gs);  break;
+        case ENT_DIVER:  diver_ai(e, gs);  break;
+        case ENT_STALKER:  stalker_ai(e, gs);  break;
+        case ENT_DROPPER:  dropper_ai(e, gs);  break;
+        case ENT_HIVE:     hive_ai(e, gs);     break;
+        case ENT_DRONE: drone_ai(e, gs); break;
+        case ENT_CHASER:  chaser_ai(e, gs);  break;
         }
 
         /* Apply velocity with speed multiplier */
@@ -856,7 +878,7 @@ void game_update(GameState *gs, WORD input)
                 gs->ev_human_die = 1;
             }
         }
-        /* HUMAN_GRABBED is handled by lander/ship */
+        /* HUMAN_GRABBED is handled by diver/ship */
     }
 
     /* ---- Check planet destruction ---- */
@@ -870,10 +892,10 @@ void game_update(GameState *gs, WORD input)
 
         if (alive == 0) {
             gs->planet_destroyed = 1;
-            /* All enemies become mutants */
+            /* All enemies become stalkers */
             for (i = 0; i < MAX_ENEMIES; i++) {
-                if (gs->enemies[i].active && gs->enemies[i].type == ENT_LANDER) {
-                    gs->enemies[i].type = ENT_MUTANT;
+                if (gs->enemies[i].active && gs->enemies[i].type == ENT_DIVER) {
+                    gs->enemies[i].type = ENT_STALKER;
                     gs->enemies[i].state = 0;
                     gs->enemies[i].target_human = -1;
                 }
@@ -1022,15 +1044,15 @@ void game_update(GameState *gs, WORD input)
         }
     }
 
-    /* ---- Baiter timer ---- */
+    /* ---- Chaser timer ---- */
     if (gs->state == STATE_PLAYING) {
-        gs->baiter_timer--;
-        if (gs->baiter_timer <= 0 && gs->enemies_alive > 0) {
-            /* Spawn a baiter */
+        gs->chaser_timer--;
+        if (gs->chaser_timer <= 0 && gs->enemies_alive > 0) {
+            /* Spawn a chaser */
             LONG wx = wrap_wx(gs->ship.wx + TO_FP(SCREEN_W));
             LONG wy = TO_FP(PLAY_TOP + 20 + game_rand() % 80);
-            spawn_enemy(gs, ENT_BAITER, wx, wy);
-            gs->baiter_timer = 600; /* next baiter in ~12 seconds */
+            spawn_enemy(gs, ENT_CHASER, wx, wy);
+            gs->chaser_timer = 600; /* next chaser in ~12 seconds */
         }
     }
 

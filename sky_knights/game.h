@@ -1,5 +1,5 @@
 /*
- * SKY KNIGHTS - flying-battle arcade for Amiga
+ * SKY KNIGHTS - aerial combat arcade for Amiga
  * Game definitions and structures
  */
 #ifndef GAME_H
@@ -35,28 +35,28 @@ typedef struct {
     WORD x, y, w;   /* position and width in pixels */
 } Platform;
 
-/* Rider dimensions (player and enemy, same size) */
+/* Knight dimensions (player and enemy, same size) */
 #define PLAYER_W    20
 #define PLAYER_H    20
-#define LANCE_H     4   /* height of lance hitbox from top */
+#define STRIKE_H    4   /* height of strike hitbox from top */
 
 /* Enemy types */
-#define ETYPE_BOUNDER    0
-#define ETYPE_HUNTER     1
-#define ETYPE_SHADOW     2
+#define ETYPE_SWOOPER    0
+#define ETYPE_RAIDER     1
+#define ETYPE_WRAITH     2
 
 #define MAX_ENEMIES     8
 #define MAX_EGGS        8
 #define MAX_PLAYERS     2
 
-/* Egg */
+/* Pod (dropped when an enemy is downed; cracks open into a new enemy) */
 typedef struct {
     Fixed x, y;
     Fixed dy;
     WORD  active;
-    WORD  timer;      /* hatch countdown */
+    WORD  timer;      /* crack countdown */
     WORD  on_ground;
-    WORD  hatch_type; /* what enemy type it hatches into */
+    WORD  hatch_type; /* what enemy type it cracks into */
 } Egg;
 
 /* Enemy */
@@ -136,14 +136,14 @@ typedef struct {
     WORD      title_selection; /* 0=1P, 1=2P */
 } GameState;
 
-/* Egg timing */
+/* Pod timing */
 #define EGG_HATCH_TIME  300   /* frames (~5 sec at 50fps) */
 #define EGG_WOBBLE_TIME 240   /* start wobbling at this point */
 
 /* Scoring */
-#define SCORE_BOUNDER   500
-#define SCORE_HUNTER    750
-#define SCORE_SHADOW    1000
+#define SCORE_SWOOPER   500
+#define SCORE_RAIDER    750
+#define SCORE_WRAITH    1000
 #define SCORE_EGG       250
 #define SCORE_WAVE      1000
 

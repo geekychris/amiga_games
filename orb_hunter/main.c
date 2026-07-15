@@ -3,7 +3,7 @@
  *
  * exploration platformer with:
  * - Tile-based rooms with scrolling between areas
- * - Power-up collection (morph ball, missiles, bombs, beams)
+ * - Power-up collection (roll form, missiles, bombs, beams)
  * - Multiple enemy types and boss encounters
  * - MOD music via ptplayer
  * - Sound effects (shoot, missile, bomb, item, hit, jump)
@@ -12,7 +12,7 @@
  *
  * Controls:
  *   Joystick port 2 or keyboard arrows + space/alt
- *   Up = jump/aim up, Down = morph ball
+ *   Up = jump/aim up, Down = roll form
  *   Fire = shoot, Return = start/pause
  *   ESC to quit
  */
@@ -94,11 +94,11 @@ static UWORD palette[16] = {
     0xFFF,  /*  1: white */
     0xE40,  /*  2: orange-red (hunter suit) */
     0xFC0,  /*  3: yellow (suit detail/visor) */
-    0x141,  /*  4: dark green (Brinstar rock) */
+    0x141,  /*  4: dark green (cavern rock) */
     0x262,  /*  5: medium green */
     0x668,  /*  6: grey-blue (metal) */
     0x99A,  /*  7: light grey */
-    0xF30,  /*  8: red-orange (lava/Norfair) */
+    0xF30,  /*  8: red-orange (lava/magma) */
     0xF80,  /*  9: bright orange */
     0xFF0,  /* 10: yellow (missiles) */
     0xA0F,  /* 11: purple (enemy) */
@@ -347,6 +347,60 @@ static UBYTE *load_file_to_chip(const char *path, ULONG *out_size)
     return buf;
 }
 
+/* Validate a ProTracker MOD image in memory.
+ * Returns 1 if the file is a well-formed 4-channel MOD whose declared
+ * pattern + sample data fits within mod_size, 0 otherwise. */
+static WORD validate_mod(const UBYTE *data, ULONG size)
+{
+    const UBYTE *sig;
+    const UBYTE *ptable;
+    ULONG song_len;
+    ULONG max_pat = 0;
+    ULONG num_patterns;
+    ULONG pattern_bytes;
+    ULONG sample_bytes = 0;
+    ULONG needed;
+    WORD i;
+
+    if (!data || size < 1084) return 0;
+
+    /* Signature at offset 1080 - accept common 4-channel variants only,
+       since ptplayer here assumes standard MOD layout. */
+    sig = data + 1080;
+    if (!((sig[0] == 'M' && sig[1] == '.' && sig[2] == 'K' && sig[3] == '.') ||
+          (sig[0] == 'M' && sig[1] == '!' && sig[2] == 'K' && sig[3] == '!') ||
+          (sig[0] == 'F' && sig[1] == 'L' && sig[2] == 'T' && sig[3] == '4') ||
+          (sig[0] == '4' && sig[1] == 'C' && sig[2] == 'H' && sig[3] == 'N'))) {
+        return 0;
+    }
+
+    /* Song length (1..128) and pattern table */
+    song_len = data[950];
+    if (song_len == 0 || song_len > 128) return 0;
+    ptable = data + 952;
+
+    /* Highest pattern number referenced */
+    for (i = 0; i < 128; i++) {
+        if (ptable[i] > max_pat) max_pat = ptable[i];
+    }
+    if (max_pat >= 128) return 0;
+    num_patterns = max_pat + 1;
+    pattern_bytes = num_patterns * 1024UL; /* 64 rows * 4 ch * 4 bytes */
+
+    /* Sample lengths are stored as words (in 2-byte units) at offset
+       22 + 30*i for i in 0..30. */
+    for (i = 0; i < 31; i++) {
+        const UBYTE *s = data + 20 + i * 30;
+        ULONG len_words = ((ULONG)s[22] << 8) | (ULONG)s[23];
+        sample_bytes += len_words * 2UL;
+    }
+
+    needed = 1084UL + pattern_bytes + sample_bytes;
+    if (needed > size) return 0;
+
+    return 1;
+}
+
 /* --- Screen setup with double buffering --- */
 
 static WORD setup_display(void)
@@ -477,26 +531,36 @@ static void cleanup_display(void)
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
     game_init(&gs);
-    strncpy(buf, "Game reset", bufsz);
+    if (bufsz > 0) {
+        strncpy(buf, "Game reset", bufsz);
+        buf[bufsz - 1] = '\0';
+    }
     return 0;
 }
 
 static int hook_give_items(const char *args, char *buf, int bufsz)
 {
-    gs.hunter.has_morph_ball = 1;
+    gs.hunter.has_roll_form = 1;
     gs.hunter.has_bombs = 1;
     gs.hunter.has_missiles = 1;
     gs.hunter.missiles = 30;
     gs.hunter.max_missiles = 30;
     gs.hunter.has_long_beam = 1;
-    strncpy(buf, "All items given", bufsz);
+    if (bufsz > 0) {
+        strncpy(buf, "All items given", bufsz);
+        buf[bufsz - 1] = '\0';
+    }
     return 0;
 }
 
 static int hook_full_health(const char *args, char *buf, int bufsz)
 {
+    char tmp[32];
     gs.hunter.health = gs.hunter.max_energy;
-    sprintf(buf, "Health: %ld", (long)gs.hunter.health);
+    if (bufsz <= 0) return 0;
+    sprintf(tmp, "Health: %ld", (long)gs.hunter.health);
+    strncpy(buf, tmp, bufsz);
+    buf[bufsz - 1] = '\0';
     return 0;
 }
 
@@ -550,12 +614,21 @@ int main(void)
     mod_data = load_file_to_chip("DH2:Dev/axelf.mod", &mod_size);
     if (mod_data) {
         AB_I("Loaded axelf.mod (%ld bytes)", (long)mod_size);
-        /* Install CIA timer for music playback */
-        mt_install_cia(CUSTOM_BASE, NULL, 1); /* PAL */
-        mt_init(CUSTOM_BASE, mod_data, NULL, 0);
-        mt_MusicChannels = 2; /* Reserve 2 channels for music, 2 for SFX */
-        mt_Enable = 1;
-        music_playing = 1;
+        if (validate_mod(mod_data, mod_size)) {
+            /* Install CIA timer for music playback only after validation
+               succeeds - otherwise mt_init on a malformed file could walk
+               off the end of the buffer. */
+            mt_install_cia(CUSTOM_BASE, NULL, 1); /* PAL */
+            mt_init(CUSTOM_BASE, mod_data, NULL, 0);
+            mt_MusicChannels = 2; /* Reserve 2 channels for music, 2 for SFX */
+            mt_Enable = 1;
+            music_playing = 1;
+        } else {
+            AB_W("axelf.mod failed validation - no music");
+            FreeMem(mod_data, mod_size);
+            mod_data = NULL;
+            mod_size = 0;
+        }
     } else {
         AB_W("Could not load axelf.mod - no music");
     }

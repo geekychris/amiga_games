@@ -22,3 +22,5 @@ ptplayer.o: ptplayer.asm
 
 clean:
 	rm -f *.o $(TARGET)
+
+.PHONY: all clean

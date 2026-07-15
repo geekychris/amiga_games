@@ -47,8 +47,11 @@ static void draw_shadow(struct RastPort *rp, BallState *ball)
     WORD height_above = FLOOR_Y - ball_y;
     WORD shadow_w, shadow_h;
     WORD sx, sy, i;
-    /* Depth scale: near (depth 0) = bigger shadow, far = smaller */
-    WORD depth_scale = 4 - ball->depth;  /* 4, 3, 2 */
+    /* Depth scale: near (depth 0) = bigger shadow, far = smaller.
+     * ball->depth ranges 0..NUM_DEPTHS-1 (0..7); clamp to keep the scale
+     * strictly positive so shadow_w / shadow_h stay well-formed. */
+    WORD depth_scale = 4 - ball->depth;  /* 4, 3, 2, 1, then clamped */
+    if (depth_scale < 1) depth_scale = 1;
 
     if (height_above < 0) height_above = 0;
 

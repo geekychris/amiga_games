@@ -9,55 +9,63 @@
 extern volatile struct Custom custom;
 extern volatile struct CIA ciaa;
 
-/* Keyboard state */
-static UWORD key_state = 0;
+/* Per-physical-key state, so releasing one alternate for an action
+   (e.g. A vs. cursor-left, alt vs. space) doesn't clear the action while
+   the other alternate is still held. */
+#define KEY_MAX 128
+static UBYTE key_down[KEY_MAX];
+
+/* Map raw code -> action bit, or 0 for unmapped. */
+static UWORD code_to_action(UWORD code)
+{
+    switch (code) {
+        case 0x4F: return INPUT_LEFT;   /* cursor left */
+        case 0x4E: return INPUT_RIGHT;  /* cursor right */
+        case 0x4C: return INPUT_UP;     /* cursor up */
+        case 0x4D: return INPUT_DOWN;   /* cursor down */
+        case 0x20: return INPUT_LEFT;   /* A */
+        case 0x22: return INPUT_RIGHT;  /* D */
+        case 0x11: return INPUT_UP;     /* W */
+        case 0x31: return INPUT_DOWN;   /* Z, reused for down */
+        case 0x60: return INPUT_FIRE;   /* left alt */
+        case 0x64: return INPUT_FIRE;   /* right alt */
+        case 0x40: return INPUT_FIRE;   /* space */
+        case 0x45: return INPUT_ESC;    /* escape */
+        case 0x44: return INPUT_START;  /* return */
+    }
+    return 0;
+}
 
 void input_key_down(UWORD code)
 {
-    switch (code) {
-        case 0x4F: key_state |= INPUT_LEFT;  break;  /* cursor left */
-        case 0x4E: key_state |= INPUT_RIGHT; break;  /* cursor right */
-        case 0x4C: key_state |= INPUT_UP;    break;  /* cursor up */
-        case 0x4D: key_state |= INPUT_DOWN;  break;  /* cursor down */
-        case 0x20: key_state |= INPUT_LEFT;  break;  /* A */
-        case 0x22: key_state |= INPUT_RIGHT; break;  /* D */
-        case 0x11: key_state |= INPUT_UP;    break;  /* W */
-        case 0x31: key_state |= INPUT_DOWN;  break;  /* S (actually Z key, reuse for down) */
-        case 0x60: key_state |= INPUT_FIRE;  break;  /* left alt (fire) */
-        case 0x64: key_state |= INPUT_FIRE;  break;  /* right alt */
-        case 0x40: key_state |= INPUT_FIRE;  break;  /* space */
-        case 0x45: key_state |= INPUT_ESC;   break;  /* escape */
-        case 0x44: key_state |= INPUT_START; break;  /* return */
-    }
+    if (code < KEY_MAX) key_down[code] = 1;
 }
 
 void input_key_up(UWORD code)
 {
-    switch (code) {
-        case 0x4F: key_state &= ~INPUT_LEFT;  break;
-        case 0x4E: key_state &= ~INPUT_RIGHT; break;
-        case 0x4C: key_state &= ~INPUT_UP;    break;
-        case 0x4D: key_state &= ~INPUT_DOWN;  break;
-        case 0x20: key_state &= ~INPUT_LEFT;  break;
-        case 0x22: key_state &= ~INPUT_RIGHT; break;
-        case 0x11: key_state &= ~INPUT_UP;    break;
-        case 0x31: key_state &= ~INPUT_DOWN;  break;
-        case 0x60: key_state &= ~INPUT_FIRE;  break;
-        case 0x64: key_state &= ~INPUT_FIRE;  break;
-        case 0x40: key_state &= ~INPUT_FIRE;  break;
-        case 0x45: key_state &= ~INPUT_ESC;   break;
-        case 0x44: key_state &= ~INPUT_START; break;
-    }
+    if (code < KEY_MAX) key_down[code] = 0;
 }
 
 void input_reset(void)
 {
-    key_state = 0;
+    WORD i;
+    for (i = 0; i < KEY_MAX; i++) key_down[i] = 0;
+}
+
+/* Aggregate per-key state into action bits. */
+static UWORD keyboard_state(void)
+{
+    UWORD state = 0;
+    WORD i;
+    for (i = 0; i < KEY_MAX; i++) {
+        if (key_down[i]) state |= code_to_action((UWORD)i);
+    }
+    return state;
 }
 
 UWORD input_read(void)
 {
-    UWORD result = key_state;
+    UWORD result = keyboard_state();
     UWORD joy;
 
     /* Read joystick port 2 (JOY1DAT register) */

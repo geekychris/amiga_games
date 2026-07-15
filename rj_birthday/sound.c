@@ -20,7 +20,7 @@
 #define SFX_PICK_LEN    64
 #define SFX_CRASH_LEN   512
 #define SFX_PARTY_LEN   2048
-#define SFX_SINISTAR_LEN 4096
+#define SFX_ARCADE_A_LEN 4096
 
 /* Sample data in chip RAM */
 static BYTE *bell_data = NULL;
@@ -32,7 +32,7 @@ static BYTE *cheer_data = NULL;
 static BYTE *pick_data = NULL;
 static BYTE *crash_data = NULL;
 static BYTE *party_data = NULL;
-static BYTE *sinistar_data = NULL;
+static BYTE *arcade_a_data = NULL;
 
 /* SFX structures */
 static SfxStructure bell_sfx;
@@ -44,7 +44,7 @@ static SfxStructure cheer_sfx;
 static SfxStructure pick_sfx;
 static SfxStructure crash_sfx;
 static SfxStructure party_sfx;
-static SfxStructure sinistar_sfx;
+static SfxStructure arcade_a_sfx;
 
 /* RNG */
 static ULONG snd_rng = 77777;
@@ -188,11 +188,11 @@ void sound_init(void)
     }
     setup_sfx(&party_sfx, party_data, SFX_PARTY_LEN, 300, 60, 55);
 
-    /* Arcade A growl: deep menacing warble with formant harmonics
-     * Evokes a threatening robotic voice - "BEWARE I LIVE" vibe */
-    sinistar_data = (BYTE *)AllocMem(SFX_SINISTAR_LEN, MEMF_CHIP | MEMF_CLEAR);
-    if (sinistar_data) {
-        for (i = 0; i < SFX_SINISTAR_LEN; i++) {
+    /* Arcade cabinet A synth growl: deep warble with formant harmonics.
+     * Generic robotic-voice fallback for when sampled clips are missing. */
+    arcade_a_data = (BYTE *)AllocMem(SFX_ARCADE_A_LEN, MEMF_CHIP | MEMF_CLEAR);
+    if (arcade_a_data) {
+        for (i = 0; i < SFX_ARCADE_A_LEN; i++) {
             WORD env;
             WORD t = i;
             LONG val = 0;
@@ -201,13 +201,13 @@ void sound_init(void)
             /* Envelope: attack, sustain with slow decay */
             if (t < 200)
                 env = (t * 127) / 200;            /* attack */
-            else if (t < SFX_SINISTAR_LEN - 500)
-                env = 127 - (t * 20) / SFX_SINISTAR_LEN;  /* slow decay */
+            else if (t < SFX_ARCADE_A_LEN - 500)
+                env = 127 - (t * 20) / SFX_ARCADE_A_LEN;  /* slow decay */
             else
-                env = (WORD)((SFX_SINISTAR_LEN - t) * 80L) / 500;  /* release */
+                env = (WORD)((SFX_ARCADE_A_LEN - t) * 80L) / 500;  /* release */
 
             /* Deep fundamental with vibrato */
-            wobble = 3 + ((t * 3) / SFX_SINISTAR_LEN);
+            wobble = 3 + ((t * 3) / SFX_ARCADE_A_LEN);
             val += ((t * wobble) & 0xFF) < 128 ? 60 : -60;
 
             /* Growling harmonic (3x fundamental) */
@@ -215,10 +215,10 @@ void sound_init(void)
 
             /* High formant sweep (voice-like resonance) */
             {
-                WORD ffreq = 12 + (t * 20) / SFX_SINISTAR_LEN;
+                WORD ffreq = 12 + (t * 20) / SFX_ARCADE_A_LEN;
                 /* Reverse sweep in middle for "speech" cadence */
-                if (t > SFX_SINISTAR_LEN / 3 && t < SFX_SINISTAR_LEN * 2 / 3)
-                    ffreq = 32 - (t * 15) / SFX_SINISTAR_LEN;
+                if (t > SFX_ARCADE_A_LEN / 3 && t < SFX_ARCADE_A_LEN * 2 / 3)
+                    ffreq = 32 - (t * 15) / SFX_ARCADE_A_LEN;
                 val += ((t * ffreq) & 0xFF) < 128 ? 20 : -20;
             }
 
@@ -230,11 +230,11 @@ void sound_init(void)
 
             if (val > 127) val = 127;
             if (val < -127) val = -127;
-            sinistar_data[i] = (BYTE)val;
+            arcade_a_data[i] = (BYTE)val;
         }
     }
     /* Low period = deep pitch, high volume, high priority */
-    setup_sfx(&sinistar_sfx, sinistar_data, SFX_SINISTAR_LEN, 500, 64, 60);
+    setup_sfx(&arcade_a_sfx, arcade_a_data, SFX_ARCADE_A_LEN, 500, 64, 60);
 }
 
 void sound_cleanup(void)
@@ -248,7 +248,7 @@ void sound_cleanup(void)
     if (pick_data)  FreeMem(pick_data, SFX_PICK_LEN);
     if (crash_data) FreeMem(crash_data, SFX_CRASH_LEN);
     if (party_data) FreeMem(party_data, SFX_PARTY_LEN);
-    if (sinistar_data) FreeMem(sinistar_data, SFX_SINISTAR_LEN);
+    if (arcade_a_data) FreeMem(arcade_a_data, SFX_ARCADE_A_LEN);
 }
 
 void sfx_doorbell(void)  { if (bell_data) mt_playfx(CUSTOM_BASE, &bell_sfx); }
@@ -260,27 +260,27 @@ void sfx_cheer(void)     { if (cheer_data) mt_playfx(CUSTOM_BASE, &cheer_sfx); }
 void sfx_pickup(void)    { if (pick_data) mt_playfx(CUSTOM_BASE, &pick_sfx); }
 void sfx_crash(void)     { if (crash_data) mt_playfx(CUSTOM_BASE, &crash_sfx); }
 void sfx_party(void)     { if (party_data) mt_playfx(CUSTOM_BASE, &party_sfx); }
-void sfx_sinistar(void)  { if (sinistar_data) mt_playfx(CUSTOM_BASE, &sinistar_sfx); }
+void sfx_arcade_a(void)  { if (arcade_a_data) mt_playfx(CUSTOM_BASE, &arcade_a_sfx); }
 
-/* --- Arcade A voice samples loaded from disk --- */
+/* --- Arcade cabinet A voice samples loaded from disk --- */
 
 #include <proto/dos.h>
 
-#define SINI_VOICE_COUNT 4
-#define SINI_PERIOD      354   /* 3546895 / 10026 Hz ≈ 354 */
+#define ARCADE_A_VOICE_COUNT 4
+#define ARCADE_A_PERIOD      354   /* 3546895 / 10026 Hz ≈ 354 */
 
-static BYTE *voice_data[SINI_VOICE_COUNT] = { NULL, NULL, NULL, NULL };
-static ULONG voice_size[SINI_VOICE_COUNT] = { 0, 0, 0, 0 };
-static SfxStructure voice_sfx[SINI_VOICE_COUNT];
+static BYTE *voice_data[ARCADE_A_VOICE_COUNT] = { NULL, NULL, NULL, NULL };
+static ULONG voice_size[ARCADE_A_VOICE_COUNT] = { 0, 0, 0, 0 };
+static SfxStructure voice_sfx[ARCADE_A_VOICE_COUNT];
 static WORD voice_active = -1;     /* which voice is currently playing, -1=none */
 static WORD voice_frames_left = 0; /* frames until voice finishes */
 static UBYTE music_was_enabled = 0;
 
-static const char *voice_files[SINI_VOICE_COUNT] = {
-    "DH2:Dev/snd_bewareco.raw",
-    "DH2:Dev/snd_bewareil.raw",
-    "DH2:Dev/snd_ihunger.raw",
-    "DH2:Dev/snd_runrunru.raw"
+static const char *voice_files[ARCADE_A_VOICE_COUNT] = {
+    "DH2:Dev/snd_arcade1.raw",
+    "DH2:Dev/snd_arcade2.raw",
+    "DH2:Dev/snd_arcade3.raw",
+    "DH2:Dev/snd_arcade4.raw"
 };
 
 static BYTE *load_raw_to_chip(const char *path, ULONG *out_size)
@@ -305,15 +305,15 @@ static BYTE *load_raw_to_chip(const char *path, ULONG *out_size)
     return buf;
 }
 
-void sinistar_load_voices(void)
+void arcade_voice_load(void)
 {
     WORD i;
-    for (i = 0; i < SINI_VOICE_COUNT; i++) {
+    for (i = 0; i < ARCADE_A_VOICE_COUNT; i++) {
         voice_data[i] = load_raw_to_chip(voice_files[i], &voice_size[i]);
         if (voice_data[i]) {
             voice_sfx[i].sfx_ptr = voice_data[i];
             voice_sfx[i].sfx_len = (WORD)(voice_size[i] / 2);
-            voice_sfx[i].sfx_per = SINI_PERIOD;
+            voice_sfx[i].sfx_per = ARCADE_A_PERIOD;
             voice_sfx[i].sfx_vol = 64;
             voice_sfx[i].sfx_cha = 0;   /* force channel 0 for voice */
             voice_sfx[i].sfx_pri = 127;  /* highest priority */
@@ -323,10 +323,10 @@ void sinistar_load_voices(void)
     voice_frames_left = 0;
 }
 
-void sinistar_cleanup_voices(void)
+void arcade_voice_cleanup(void)
 {
     WORD i;
-    for (i = 0; i < SINI_VOICE_COUNT; i++) {
+    for (i = 0; i < ARCADE_A_VOICE_COUNT; i++) {
         if (voice_data[i]) {
             FreeMem(voice_data[i], voice_size[i]);
             voice_data[i] = NULL;
@@ -334,20 +334,20 @@ void sinistar_cleanup_voices(void)
     }
 }
 
-void sinistar_play_random(void)
+void arcade_voice_play_random(void)
 {
     WORD pick;
     WORD attempts = 0;
 
     /* Find a loaded voice */
     do {
-        pick = snd_rand() % SINI_VOICE_COUNT;
+        pick = snd_rand() % ARCADE_A_VOICE_COUNT;
         attempts++;
     } while (!voice_data[pick] && attempts < 8);
 
     if (!voice_data[pick]) {
         /* Fallback to synth growl */
-        sfx_sinistar();
+        sfx_arcade_a();
         return;
     }
 
@@ -376,12 +376,12 @@ void sinistar_play_random(void)
     voice_frames_left = (WORD)(voice_size[pick] / 200) + 10; /* +10 for safety */
 }
 
-WORD sinistar_is_playing(void)
+WORD arcade_voice_is_playing(void)
 {
     return voice_active >= 0;
 }
 
-void sinistar_check_done(void)
+void arcade_voice_check_done(void)
 {
     if (voice_active < 0) return;
     voice_frames_left--;

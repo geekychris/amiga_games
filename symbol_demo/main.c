@@ -171,7 +171,7 @@ static void update_game(GameState *gs)
     }
 
     /* Level up every 500 points */
-    if (gs->score > 0 && (gs->score % 500) == 0 && gs->score != gs->level * 500) {
+    if (gs->score > 0 && (gs->score % 500) == 0 && gs->score >= gs->level * 500) {
         gs->level++;
         AB_I("Level up! Now level %ld", (long)gs->level);
         /* Speed up enemies */

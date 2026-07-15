@@ -16,10 +16,12 @@
 #define SFX_BEEP_LEN     128
 
 /* Sample buffers in chip RAM */
-static BYTE *thrust_data = NULL;
-static BYTE *crash_data  = NULL;
-static BYTE *land_data   = NULL;
-static BYTE *beep_data   = NULL;
+static BYTE *thrust_data  = NULL;
+static BYTE *crash_data   = NULL;
+static BYTE *land_data    = NULL;
+static BYTE *beep_data    = NULL;
+static BYTE *silence_data = NULL;   /* 4-byte silent sample in chip RAM */
+#define SFX_SILENCE_LEN 4
 
 /* SFX structures for ptplayer */
 static SfxStructure thrust_sfx;
@@ -154,6 +156,11 @@ void sound_init(void)
         }
     }
 
+    /* Silence: 4 bytes of zeros used by sfx_thrust_stop to silence
+     * the thrust channel. Must live in chip RAM because the Paula DMA
+     * cannot read from fast RAM. */
+    silence_data = (BYTE *)AllocMem(SFX_SILENCE_LEN, MEMF_CHIP | MEMF_CLEAR);
+
     /* Setup SFX structures */
     thrust_sfx.sfx_ptr = thrust_data;
     thrust_sfx.sfx_len = SFX_THRUST_LEN / 2;
@@ -186,14 +193,14 @@ void sound_init(void)
 
 void sound_cleanup(void)
 {
-    if (thrust_data) { FreeMem(thrust_data, SFX_THRUST_LEN); thrust_data = NULL; }
-    if (crash_data)  { FreeMem(crash_data,  SFX_CRASH_LEN);  crash_data  = NULL; }
-    if (land_data)   { FreeMem(land_data,   SFX_LAND_LEN);   land_data   = NULL; }
-    if (beep_data)   { FreeMem(beep_data,   SFX_BEEP_LEN);   beep_data   = NULL; }
+    if (thrust_data)  { FreeMem(thrust_data,  SFX_THRUST_LEN);  thrust_data  = NULL; }
+    if (crash_data)   { FreeMem(crash_data,   SFX_CRASH_LEN);   crash_data   = NULL; }
+    if (land_data)    { FreeMem(land_data,    SFX_LAND_LEN);    land_data    = NULL; }
+    if (beep_data)    { FreeMem(beep_data,    SFX_BEEP_LEN);    beep_data    = NULL; }
+    if (silence_data) { FreeMem(silence_data, SFX_SILENCE_LEN); silence_data = NULL; }
 }
 
-/* Silent sample to kill channel noise */
-static BYTE silence_buf[4] = { 0, 0, 0, 0 };
+/* Silence SFX structure (buffer is allocated in chip RAM during sound_init). */
 static SfxStructure silence_sfx;
 
 void sfx_thrust_play(void)
@@ -204,8 +211,12 @@ void sfx_thrust_play(void)
 
 void sfx_thrust_stop(void)
 {
-    /* Play a tiny silent sample on the thrust channel to kill any lingering tone */
-    silence_sfx.sfx_ptr = silence_buf;
+    /* Play a tiny silent sample on the thrust channel to kill any lingering
+     * tone. If the chip-RAM silence buffer failed to allocate, do nothing —
+     * pointing Paula at random memory would crash the machine. */
+    if (!silence_data) return;
+
+    silence_sfx.sfx_ptr = silence_data;
     silence_sfx.sfx_len = 2;       /* 2 words = 4 bytes */
     silence_sfx.sfx_per = 500;
     silence_sfx.sfx_vol = 0;       /* silent */

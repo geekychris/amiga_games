@@ -100,18 +100,28 @@ static void format_number(char *buf, LONG val, int field_width)
     int i = 0, j;
     LONG v = val;
 
+    if (field_width <= 0) {
+        if (buf) buf[0] = '\0';
+        return;
+    }
+
+    if (v < 0) v = 0;
+
     if (v == 0) {
         tmp[i++] = '0';
     } else {
-        while (v > 0) {
+        while (v > 0 && i < (int)sizeof(tmp)) {
             tmp[i++] = '0' + (char)(v % 10);
             v /= 10;
         }
     }
 
+    /* Clamp displayed digits to field_width so we never write before buf */
+    if (i > field_width) i = field_width;
+
     /* Pad with spaces */
     for (j = 0; j < field_width - i; j++) buf[j] = ' ';
-    /* Reverse digits */
+    /* Reverse digits (only the ones that fit) */
     for (j = 0; j < i; j++) buf[field_width - 1 - j] = tmp[j];
     buf[field_width] = '\0';
 }
@@ -364,8 +374,8 @@ void draw_title(struct RastPort *rp, GameState *gs)
     SetRast(rp, 0);
 
     /* Title */
-    draw_text_centered(rp, 20, COL_GREEN, "ALIEN", 3);
-    draw_text_centered(rp, 50, COL_CYAN, "STORM", 3);
+    draw_text_centered(rp, 20, COL_GREEN, "NOVA", 3);
+    draw_text_centered(rp, 50, COL_CYAN, "DEFENSE", 3);
 
     /* Show alien types and point values */
     draw_alien(rp, 100, 100, ALIEN_TYPE_C, (gs->title_blink >> 4) & 1);

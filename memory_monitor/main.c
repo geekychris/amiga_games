@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include "bridge_client.h"
 
@@ -53,10 +54,40 @@ static LONG bridge_ok = 0;
 
 static char text_buf[256];
 
-/* Leaked allocations tracker (for leak_test hook) */
+/* Leaked allocations tracker (for leak_test hook).
+ * Track size alongside pointer so shutdown can FreeMem correctly. */
 #define MAX_LEAKS 64
 static APTR leaked_ptrs[MAX_LEAKS];
+static LONG leaked_sizes[MAX_LEAKS];
 static LONG leak_count = 0;
+
+/* Free all tracked "leaked" allocations. Called on every shutdown path. */
+static void drain_leaks(void)
+{
+    LONG i;
+    for (i = 0; i < leak_count; i++) {
+        if (leaked_ptrs[i] && leaked_sizes[i] > 0) {
+            FreeMem(leaked_ptrs[i], leaked_sizes[i]);
+        }
+        leaked_ptrs[i] = NULL;
+        leaked_sizes[i] = 0;
+    }
+    leak_count = 0;
+}
+
+/* Bounded, always-null-terminating formatter for hook responses. */
+static void hook_format(char *buf, int bufSize, const char *fmt, ...)
+{
+    va_list ap;
+    if (!buf || bufSize <= 0) return;
+    va_start(ap, fmt);
+    /* vsnprintf may not be available in the crosstools libc; use vsprintf
+     * into the caller-provided buffer, then force null-terminate at the
+     * last byte. Callers must supply buffers >= max expected format size. */
+    vsprintf(buf, fmt, ap);
+    va_end(ap);
+    buf[bufSize - 1] = '\0';
+}
 
 /* ---- Memory Walking ---- */
 
@@ -143,10 +174,16 @@ static void draw_text_stats(struct RastPort *rp)
     Move(rp, 270, 36);
     Text(rp, text_buf, strlen(text_buf));
 
-    /* Row 3: Usage % and samples */
+    /* Row 3: Usage % and samples.
+     * Scale to KiB before multiplying by 100 so we don't overflow signed
+     * 32-bit LONG on machines with >=21MB free in a single pool. */
     if (chip_total > 0 && fast_total > 0) {
-        LONG chip_pct = (chip_free * 100) / chip_total;
-        LONG fast_pct = (fast_free * 100) / fast_total;
+        LONG chip_free_k = chip_free / 1024;
+        LONG chip_total_k = chip_total / 1024;
+        LONG fast_free_k = fast_free / 1024;
+        LONG fast_total_k = fast_total / 1024;
+        LONG chip_pct = chip_total_k > 0 ? (chip_free_k * 100) / chip_total_k : 0;
+        LONG fast_pct = fast_total_k > 0 ? (fast_free_k * 100) / fast_total_k : 0;
         sprintf(text_buf, "Use: Chip %ld%%  Fast %ld%%",
                 (long)(100 - chip_pct), (long)(100 - fast_pct));
     } else {
@@ -205,10 +242,16 @@ static void draw_chart(struct RastPort *rp)
     SetAPen(rp, 3); /* Color 3 for bars */
 
     for (i = 0; i < num_samples; i++) {
+        LONG val_k, max_k;
         idx = (sample_index - num_samples + i + MAX_SAMPLES) % MAX_SAMPLES;
         val = sample_ring[idx];
 
-        bar_h = (val * (CHART_H - 16)) / max_val;
+        /* Scale to KiB before multiplying by (CHART_H - 16) = 124 to avoid
+         * 32-bit LONG overflow on large memory pools. */
+        val_k = val / 1024;
+        max_k = max_val / 1024;
+        if (max_k <= 0) max_k = 1;
+        bar_h = (val_k * (CHART_H - 16)) / max_k;
         if (bar_h < 1) bar_h = 1;
 
         x = CHART_X + 2 + i * bar_w;
@@ -229,7 +272,7 @@ static void draw_chart(struct RastPort *rp)
 static int hook_snapshot(const char *args, char *buf, int bufSize)
 {
     (void)args;
-    sprintf(buf,
+    hook_format(buf, bufSize,
         "CHIP: %ld/%ld free (largest %ld, %ld frags) | "
         "FAST: %ld/%ld free (largest %ld, %ld frags) | "
         "Samples: %lu",
@@ -246,7 +289,6 @@ static int hook_alloc_test(const char *args, char *buf, int bufSize)
     LONG i;
     LONG before_chip, before_fast;
     LONG after_chip, after_fast;
-    LONG dummy1, dummy2, dummy3;
 
     /* Parse size from args */
     if (args && args[0]) {
@@ -265,11 +307,13 @@ static int hook_alloc_test(const char *args, char *buf, int bufSize)
         FreeMem(mem, size);
         after_chip = AvailMem(MEMF_CHIP);
         after_fast = AvailMem(MEMF_FAST);
-        sprintf(buf, "OK: alloc+free %ld bytes. Chip delta: %ld, Fast delta: %ld",
+        hook_format(buf, bufSize,
+                "OK: alloc+free %ld bytes. Chip delta: %ld, Fast delta: %ld",
                 (long)size, (long)(after_chip - before_chip),
                 (long)(after_fast - before_fast));
     } else {
-        sprintf(buf, "FAIL: could not allocate %ld bytes", (long)size);
+        hook_format(buf, bufSize,
+                "FAIL: could not allocate %ld bytes", (long)size);
     }
 
     AB_I("alloc_test: %s", buf);
@@ -291,19 +335,25 @@ static int hook_leak_test(const char *args, char *buf, int bufSize)
     if (size <= 0) size = 4096;
 
     if (leak_count >= MAX_LEAKS) {
-        sprintf(buf, "FAIL: leak tracker full (%ld slots)", (long)MAX_LEAKS);
+        hook_format(buf, bufSize,
+                "FAIL: leak tracker full (%ld slots)", (long)MAX_LEAKS);
         return -1;
     }
 
     mem = AllocMem(size, MEMF_ANY);
     if (mem) {
+        /* Record size alongside pointer so drain_leaks() can FreeMem
+         * correctly on shutdown. */
         leaked_ptrs[leak_count] = mem;
+        leaked_sizes[leak_count] = size;
         leak_count++;
-        sprintf(buf, "LEAKED %ld bytes at %p (total leaks: %ld)",
+        hook_format(buf, bufSize,
+                "LEAKED %ld bytes at %p (total leaks: %ld)",
                 (long)size, mem, (long)leak_count);
         AB_W("leak_test: deliberately leaked %ld bytes at %p", (long)size, mem);
     } else {
-        sprintf(buf, "FAIL: could not allocate %ld bytes", (long)size);
+        hook_format(buf, bufSize,
+                "FAIL: could not allocate %ld bytes", (long)size);
     }
 
     return 0;
@@ -313,31 +363,38 @@ static int hook_leak_test(const char *args, char *buf, int bufSize)
 
 int main(void)
 {
-    struct Window *win;
+    struct Window *win = NULL;
     struct IntuiMessage *imsg;
     ULONG class;
     LONG tick_counter = 0;
     LONG hb_counter = 0;
     ULONG signals;
-
-    IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
-    if (!IntuitionBase) return 1;
-
-    GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 36);
-    if (!GfxBase) {
-        CloseLibrary((struct Library *)IntuitionBase);
-        return 1;
-    }
+    int rc = 0;
 
     printf("memory_monitor v%s\n", VERSION);
 
-    /* Connect to bridge */
+    /* Connect to bridge FIRST so that any downstream logging works and so
+     * ab_cleanup is always the counterpart of ab_init on every exit path.
+     * A missing bridge is non-fatal (bridge_ok=0), but ab_cleanup must
+     * still be called if ab_init succeeded. */
     if (ab_init("memory_monitor") != 0) {
         printf("  Bridge: NOT FOUND\n");
         bridge_ok = 0;
     } else {
         printf("  Bridge: CONNECTED\n");
         bridge_ok = 1;
+    }
+
+    IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
+    if (!IntuitionBase) {
+        rc = 1;
+        goto cleanup;
+    }
+
+    GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 36);
+    if (!GfxBase) {
+        rc = 1;
+        goto cleanup;
     }
 
     AB_I("Memory Monitor v%s starting", VERSION);
@@ -364,9 +421,10 @@ int main(void)
                           sizeof(sample_ring),
                           "Ring buffer of last 100 chip_free values (LONGs)");
 
-    /* Clear ring buffer */
+    /* Clear ring buffer and leak tracker */
     memset(sample_ring, 0, sizeof(sample_ring));
     memset(leaked_ptrs, 0, sizeof(leaked_ptrs));
+    memset(leaked_sizes, 0, sizeof(leaked_sizes));
 
     /* Get initial stats */
     update_stats();
@@ -389,10 +447,8 @@ int main(void)
 
     if (!win) {
         AB_E("Failed to open window");
-        ab_cleanup();
-        CloseLibrary((struct Library *)GfxBase);
-        CloseLibrary((struct Library *)IntuitionBase);
-        return 1;
+        rc = 1;
+        goto cleanup;
     }
 
     AB_I("Window opened, entering main loop");
@@ -454,14 +510,27 @@ int main(void)
 
     AB_I("Memory Monitor shutting down (leaks: %ld)", (long)leak_count);
 
-    /* Note: deliberately leaked memory is NOT freed - that's the point.
-     * In a real app you'd track and free everything. */
-
-    CloseWindow(win);
-    ab_cleanup();
-    CloseLibrary((struct Library *)GfxBase);
-    CloseLibrary((struct Library *)IntuitionBase);
-
-    printf("memory_monitor exited. Deliberate leaks: %ld\n", (long)leak_count);
-    return 0;
+cleanup:
+    /* Drain the "deliberate" leak tracker so we don't actually strand
+     * memory across process exit. We still report leak_count for the log
+     * before draining, so users see what the demo produced. */
+    {
+        LONG reported_leaks = leak_count;
+        drain_leaks();
+        if (win) CloseWindow(win);
+        if (GfxBase) {
+            CloseLibrary((struct Library *)GfxBase);
+            GfxBase = NULL;
+        }
+        if (IntuitionBase) {
+            CloseLibrary((struct Library *)IntuitionBase);
+            IntuitionBase = NULL;
+        }
+        /* ab_cleanup pairs with ab_init unconditionally; the client lib
+         * treats it as a no-op when the bridge was never connected. */
+        ab_cleanup();
+        printf("memory_monitor exited. Deliberate leaks freed: %ld\n",
+               (long)reported_leaks);
+    }
+    return rc;
 }

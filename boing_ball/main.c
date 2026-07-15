@@ -57,7 +57,9 @@ static struct MsgPort *disp_port = NULL;
 static struct MsgPort *safe_port = NULL;
 static BOOL safe_to_write = TRUE;
 static BOOL disp_pending = FALSE;
-static WORD cur_buf = 0;
+/* sbuf[0] holds the initial on-screen bitmap; we render into sbuf[1] first
+ * and swap it in as the first ChangeScreenBuffer target. */
+static WORD cur_buf = 1;
 
 /* Palette: 32 colors for 5 bitplanes */
 static UWORD palette[32] = {
@@ -155,6 +157,8 @@ static BOOL open_display(void)
 
 static void swap_buffers(void)
 {
+    LONG changed;
+
     if (!safe_to_write) {
         while (!GetMsg(safe_port))
             WaitPort(safe_port);
@@ -167,12 +171,17 @@ static void swap_buffers(void)
         disp_pending = FALSE;
     }
 
-    ChangeScreenBuffer(screen, sbuf[cur_buf]);
-    disp_pending = TRUE;
-    safe_to_write = FALSE;
+    changed = ChangeScreenBuffer(screen, sbuf[cur_buf]);
+    if (changed) {
+        /* Swap accepted: buffer we just posted will send disp/safe replies. */
+        disp_pending = TRUE;
+        safe_to_write = FALSE;
 
-    cur_buf ^= 1;
-    screen->RastPort.BitMap = sbuf[cur_buf]->sb_BitMap;
+        cur_buf ^= 1;
+        screen->RastPort.BitMap = sbuf[cur_buf]->sb_BitMap;
+    }
+    /* On rejection, no reply will arrive — leave flags clear so the next
+     * swap_buffers() will not stall in WaitPort on a phantom message. */
 }
 
 static void close_display(void)
@@ -268,7 +277,13 @@ int main(int argc, char **argv)
     copper_init(&screen->ViewPort);
 
     /* Pre-render sphere frames */
-    sphere_init();
+    if (!sphere_init()) {
+        sphere_cleanup();
+        copper_cleanup();
+        close_display();
+        close_libs();
+        return 20;
+    }
 
     /* Init sound */
     sound_init();

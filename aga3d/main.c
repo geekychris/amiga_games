@@ -505,9 +505,13 @@ static void render_frame(LONG ax, LONG ay, LONG az)
 
     /* flip (blitter idle before showing the buffer) */
     WaitBlit();
-    ChangeScreenBuffer(D.scr, D.sb[D.cur]);
-    WaitTOF();
-    D.cur ^= 1;
+    if (ChangeScreenBuffer(D.scr, D.sb[D.cur])) {
+        WaitTOF();
+        D.cur ^= 1;
+    } else {
+        /* swap rejected: still sync to vblank, keep D.cur so we redraw same buffer */
+        WaitTOF();
+    }
 }
 
 int main(void)
@@ -589,6 +593,7 @@ int main(void)
 
         render_frame(ax, ay, az);
         frame_count++;
+        if (bridge_ok) ab_poll();
     }
 
     AB_I("aga3d shutting down (%ld frames)", (long)frame_count);

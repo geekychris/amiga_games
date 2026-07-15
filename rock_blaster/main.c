@@ -313,6 +313,8 @@ static WORD setup_display(void)
 
 static void swap_buffers(void)
 {
+    BOOL swapped;
+
     /* Make sure the buffer we're about to display is safe */
     if (!safe_to_write[cur_buf]) {
         while (!GetMsg(db_port[cur_buf]))
@@ -323,8 +325,14 @@ static void swap_buffers(void)
     /* Wait for blitter to finish drawing */
     WaitBlit();
 
-    /* Swap: show the buffer we just drew to */
-    ChangeScreenBuffer(screen, sbuf[cur_buf]);
+    /* Swap: show the buffer we just drew to. If the OS rejects the
+     * swap, no SafeMessage will ever arrive — leave the buffer marked
+     * safe and skip rotation, otherwise the next frame would deadlock
+     * in WaitPort() on a reply that never comes. */
+    swapped = ChangeScreenBuffer(screen, sbuf[cur_buf]);
+    if (!swapped) {
+        return;
+    }
     safe_to_write[cur_buf] = FALSE;
 
     /* Switch to the other buffer for next frame's drawing */
@@ -362,30 +370,51 @@ static void cleanup_display(void)
 
 /* --- Bridge hooks --- */
 
+/* Copy at most bufsz-1 chars from src into buf, always NUL-terminate. */
+static void hook_copy_out(char *buf, int bufsz, const char *src)
+{
+    int i;
+    if (!buf || bufsz <= 0) return;
+    for (i = 0; i < bufsz - 1 && src[i]; i++) {
+        buf[i] = src[i];
+    }
+    buf[i] = '\0';
+}
+
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
+    if (bufsz <= 0) return 0;
     game_init(&gs);
-    strncpy(buf, "Game reset", bufsz);
+    hook_copy_out(buf, bufsz, "Game reset");
     return 0;
 }
 
 static int hook_next_level(const char *args, char *buf, int bufsz)
 {
     WORD i;
+    char tmp[64];
+    if (bufsz <= 0) return 0;
     for (i = 0; i < MAX_ROCKS; i++)
         gs.rocks[i].active = 0;
     gs.rock_count = 0;
     gs.level++;
     game_spawn_rocks(&gs, (WORD)(g_tune.start_rocks +
                      (gs.level - 1) * g_tune.rocks_per_level));
-    sprintf(buf, "Level %ld", (long)gs.level);
+    /* Format into bounded local storage, then copy with NUL-termination. */
+    sprintf(tmp, "Level %ld", (long)gs.level);
+    tmp[sizeof(tmp) - 1] = '\0';
+    hook_copy_out(buf, bufsz, tmp);
     return 0;
 }
 
 static int hook_add_life(const char *args, char *buf, int bufsz)
 {
+    char tmp[64];
+    if (bufsz <= 0) return 0;
     gs.lives++;
-    sprintf(buf, "Lives: %ld", (long)gs.lives);
+    sprintf(tmp, "Lives: %ld", (long)gs.lives);
+    tmp[sizeof(tmp) - 1] = '\0';
+    hook_copy_out(buf, bufsz, tmp);
     return 0;
 }
 
@@ -396,18 +425,24 @@ int main(void)
     WORD running = 1;
     WORD music_playing = 0;
 
-    /* Open libraries */
-    IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 39);
-    GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 39);
-    if (!IntuitionBase || !GfxBase) {
-        if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
-        if (GfxBase) CloseLibrary((struct Library *)GfxBase);
-        return 20;
-    }
-
-    /* Init bridge */
+    /* Init bridge first so any subsequent failure can log + cleanup cleanly. */
     ab_init("rock_blaster");
     AB_I("Rock Blaster starting up");
+
+    /* Open libraries — route both failures through bridge cleanup. */
+    IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 39);
+    if (!IntuitionBase) {
+        AB_E("Failed to open intuition.library v39+");
+        ab_cleanup();
+        return 20;
+    }
+    GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 39);
+    if (!GfxBase) {
+        AB_E("Failed to open graphics.library v39+");
+        CloseLibrary((struct Library *)IntuitionBase);
+        ab_cleanup();
+        return 20;
+    }
 
     /* Register tunables */
     ab_register_var("rock_speed",      AB_TYPE_I32, &g_tune.rock_speed);
@@ -441,8 +476,8 @@ int main(void)
     /* Build sound effects */
     build_sfx();
 
-    /* Load MOD music */
-    mod_data = load_file_to_chip("DH2:Dev/axelf.mod", &mod_size);
+    /* Load MOD music from install-relative path (PROGDIR: = binary's dir). */
+    mod_data = load_file_to_chip("PROGDIR:axelf.mod", &mod_size);
     if (mod_data) {
         AB_I("Loaded axelf.mod (%ld bytes)", (long)mod_size);
         /* Install CIA timer for music playback */

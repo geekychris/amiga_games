@@ -1,8 +1,9 @@
 /*
  * modgen.c - Procedural ProTracker MOD generator
  *
- * Generates a recognizable Star Trek TOS-style theme melody
- * as a standard 4-channel ProTracker MOD in chip RAM.
+ * Generates an original heroic space-flight theme as a standard
+ * 4-channel ProTracker MOD in chip RAM. All melodic content is
+ * generic Bb-major material; no third-party themes are referenced.
  *
  * MOD format:
  *   20 bytes: title
@@ -131,26 +132,25 @@ static void gen_bass_sample(BYTE *buf, ULONG len, BYTE vol)
 #define TOTAL_SAMPLE_LEN (SAMPLE1_LEN + SAMPLE2_LEN + SAMPLE3_LEN)
 
 /*
- * Star Trek TOS theme - simplified melody:
+ * Original heroic space-flight theme in Bb major:
  *
  * Pattern 0 (intro/main theme):
- *   The famous opening: Bb... F... (held notes with rising feel)
- *   Then the melody: Bb-C-D-Eb-F (heroic ascending)
+ *   Held sustained tonic (Bb) then a call-and-response toward F,
+ *   followed by an ascending line Bb-C-D-Eb-F.
  *
  * Pattern 1 (continuation):
- *   G-Ab-Bb (continuing upward)
- *   Then descending resolution
+ *   Rising G-Ab-Bb climax, then a descending resolution.
  *
  * Pattern 2 (bridge section):
- *   Different melodic movement
+ *   Contrasting melodic movement.
  *
  * Pattern 3 (loop back):
- *   Resolution back to tonic
+ *   Resolves back to the tonic Bb.
  *
- * Using Bb major / related modes for that Trek feel.
+ * All content is original; no third-party themes are quoted.
  */
 
-UBYTE *generate_startrek_mod(ULONG *out_size)
+UBYTE *generate_space_theme_mod(ULONG *out_size)
 {
     ULONG mod_size;
     UBYTE *mod;
@@ -166,7 +166,7 @@ UBYTE *generate_startrek_mod(ULONG *out_size)
     p = mod;
 
     /* --- Title (20 bytes) --- */
-    memcpy(p, "Star Trek Theme\0\0\0\0\0", 20);
+    memcpy(p, "Space Flight Theme\0\0", 20);
     p += 20;
 
     /* --- Sample 1: melody instrument (30 bytes) --- */

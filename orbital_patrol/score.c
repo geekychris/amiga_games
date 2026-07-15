@@ -97,13 +97,20 @@ WORD score_qualifies(ScoreTable *st, LONG score)
     WORD i;
     if (score <= 0) return -1;
 
-    if (st->count < MAX_HISCORES)
-        return st->count; /* auto-qualify if table not full */
-
+    /* Scan existing entries first to find the first slot the new score
+     * outranks. This applies whether or not the table is full, so a
+     * partially-filled table still inserts high scores at their proper
+     * rank rather than always appending. */
     for (i = 0; i < st->count; i++) {
         if (score > st->entries[i].score)
             return i;
     }
+
+    /* Score belongs after all current entries. If there is still room,
+     * append at st->count; otherwise the table is full and the score
+     * does not qualify. */
+    if (st->count < MAX_HISCORES)
+        return st->count;
     return -1;
 }
 
@@ -111,7 +118,9 @@ void score_insert(ScoreTable *st, WORD rank, const char *name, LONG score)
 {
     WORD i;
 
-    if (rank < 0 || rank > MAX_HISCORES) return;
+    /* Valid indices are 0 .. MAX_HISCORES-1. rank == MAX_HISCORES would
+     * index st->entries out of bounds at the write below. */
+    if (rank < 0 || rank >= MAX_HISCORES) return;
 
     /* Shift entries down */
     for (i = MAX_HISCORES - 1; i > rank; i--)

@@ -19,11 +19,11 @@ static UWORD keycode_to_bit(UBYTE raw)
 {
     switch (raw) {
     case 0x4F: return INPUT_LEFT;    /* Left arrow */
-    case 0x21: return INPUT_LEFT;    /* A */
+    case 0x20: return INPUT_LEFT;    /* A */
     case 0x4E: return INPUT_RIGHT;   /* Right arrow */
     case 0x22: return INPUT_RIGHT;   /* D */
     case 0x4D: return INPUT_DOWN;    /* Down arrow */
-    case 0x36: return INPUT_DOWN;    /* S */
+    case 0x21: return INPUT_DOWN;    /* S */
     case 0x4C: return INPUT_UP;      /* Up arrow */
     case 0x11: return INPUT_UP;      /* W */
     case 0x40: return INPUT_FIRE;    /* Space */
@@ -56,16 +56,19 @@ UWORD input_read(void)
     UWORD result = key_held;
     UWORD joy;
 
-    /* Read joystick port 2 */
+    /* Read joystick port 2 (JOY1DAT) — digital decoding:
+     *   Right: low byte = 0x02   Left: low byte = 0x01
+     *   Down:  high byte = 0x02  Up:   high byte = 0x01
+     */
     joy = custom.joy1dat;
-    if ((joy & 2) ^ ((joy & 1) << 1))
-        result |= INPUT_RIGHT;
-    if (!((joy & 2) ^ ((joy & 1) << 1)) && (joy & 3))
-        result |= INPUT_LEFT;
-    if ((joy & 0x200) ^ ((joy & 0x100) << 1))
-        result |= INPUT_DOWN;
-    if (!((joy & 0x200) ^ ((joy & 0x100) << 1)) && (joy & 0x300))
-        result |= INPUT_UP;
+    {
+        UWORD h = joy & 3;
+        UWORD v = (joy >> 8) & 3;
+        if (h == 2) result |= INPUT_RIGHT;
+        if (h == 1) result |= INPUT_LEFT;
+        if (v == 2) result |= INPUT_DOWN;
+        if (v == 1) result |= INPUT_UP;
+    }
 
     /* Fire button */
     if (!(ciaa.ciapra & 0x80))

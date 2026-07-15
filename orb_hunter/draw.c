@@ -13,13 +13,13 @@
 /* Color indices (matching palette in main.c) */
 #define COL_BG          0   /* dark blue-black 0x001 */
 #define COL_WHITE       1   /* white */
-#define COL_HUNTER      2   /* orange-red (Samus suit) 0xE40 */
+#define COL_HUNTER      2   /* orange-red (hunter suit) 0xE40 */
 #define COL_HUNTER2     3   /* yellow (suit detail) 0xFC0 */
-#define COL_ROCK        4   /* dark green (Brinstar rock) 0x141 */
-#define COL_ROCK2       5   /* medium green (Brinstar) 0x262 */
-#define COL_METAL       6   /* grey-blue (metal/Tourian) 0x668 */
+#define COL_ROCK        4   /* dark green (cavern rock) 0x141 */
+#define COL_ROCK2       5   /* medium green (cavern) 0x262 */
+#define COL_METAL       6   /* grey-blue (metal/citadel) 0x668 */
 #define COL_METAL2      7   /* light grey 0x99A */
-#define COL_LAVA        8   /* red-orange (Norfair lava) 0xF30 */
+#define COL_LAVA        8   /* red-orange (magma lava) 0xF30 */
 #define COL_LAVA2       9   /* bright orange 0xF80 */
 #define COL_MISSILE     10  /* bright yellow 0xFF0 */
 #define COL_ENEMY       11  /* purple (enemy) 0xA0F */
@@ -329,7 +329,7 @@ static void draw_tile(struct RastPort *rp, WORD tx, WORD ty, UBYTE tile)
 static void draw_hunter_standing(struct RastPort *rp, WORD x, WORD y, WORD facing)
 {
     /* Standing hunter: ~12 wide, 16 tall
-     * Orange suit with yellow visor and arm cannon
+     * Orange suit with yellow visor and arm cannon.
      * facing: 0=right, 1=left
      */
     WORD cx = x;
@@ -375,9 +375,9 @@ static void draw_hunter_standing(struct RastPort *rp, WORD x, WORD y, WORD facin
     RectFill(rp, cx + 6, y + 14, cx + 10, y + 15);
 }
 
-static void draw_hunter_morphed(struct RastPort *rp, WORD x, WORD y)
+static void draw_hunter_rolled(struct RastPort *rp, WORD x, WORD y)
 {
-    /* Morph ball: 8x8 ball shape */
+    /* Roll form: 8x8 ball shape */
     WORD cx = x + 2;
     WORD cy = y;
 
@@ -420,8 +420,8 @@ static void draw_hunter(struct RastPort *rp, GameState *gs)
     /* Invulnerability flash: skip drawing every other frame */
     if (h->invuln_timer > 0 && (g_frame & 1)) return;
 
-    if (h->morphed) {
-        draw_hunter_morphed(rp, sx, sy);
+    if (h->rolled) {
+        draw_hunter_rolled(rp, sx, sy);
     } else {
         draw_hunter_standing(rp, sx, sy, h->facing);
     }
@@ -522,9 +522,9 @@ static void draw_enemy_turret(struct RastPort *rp, WORD x, WORD y)
     }
 }
 
-static void draw_enemy_boss_kraid(struct RastPort *rp, WORD x, WORD y)
+static void draw_enemy_boss_beast(struct RastPort *rp, WORD x, WORD y)
 {
-    /* Boss Kraid: 24x32, large beast */
+    /* Boss Beast: 24x32, large beast */
     /* Main body */
     SetAPen(rp, COL_ENEMY);
     RectFill(rp, x + 4, y + 8, x + 19, y + 27);
@@ -562,9 +562,9 @@ static void draw_enemy_boss_kraid(struct RastPort *rp, WORD x, WORD y)
     RectFill(rp, x + 15, y, x + 16, y + 2);
 }
 
-static void draw_enemy_boss_ridley(struct RastPort *rp, WORD x, WORD y)
+static void draw_enemy_boss_drake(struct RastPort *rp, WORD x, WORD y)
 {
-    /* Boss Ridley: 20x24, dragon-like */
+    /* Boss Drake: 20x24, dragon-like */
     /* Body */
     SetAPen(rp, COL_ENEMY);
     RectFill(rp, x + 4, y + 8, x + 15, y + 19);
@@ -631,11 +631,11 @@ static void draw_enemies(struct RastPort *rp, GameState *gs)
             case ENEMY_TURRET:
                 draw_enemy_turret(rp, ex, ey);
                 break;
-            case ENEMY_BOSS_KRAID:
-                draw_enemy_boss_kraid(rp, ex, ey);
+            case ENEMY_BOSS_BEAST:
+                draw_enemy_boss_beast(rp, ex, ey);
                 break;
-            case ENEMY_BOSS_RIDLEY:
-                draw_enemy_boss_ridley(rp, ex, ey);
+            case ENEMY_BOSS_DRAKE:
+                draw_enemy_boss_drake(rp, ex, ey);
                 break;
             default:
                 /* Generic enemy fallback */
@@ -783,12 +783,12 @@ static void draw_items(struct RastPort *rp, GameState *gs)
 /* --- HUD --- */
 
 static const char *area_names[] = {
-    "BRINSTAR",
-    "NORFAIR",
-    "KRAID'S LAIR",
-    "RIDLEY'S LAIR",
-    "TOURIAN",
-    "CRATERIA"
+    "CAVERN",
+    "MAGMA",
+    "BEAST LAIR",
+    "DRAKE LAIR",
+    "CITADEL",
+    "SURFACE"
 };
 
 void draw_hud(struct RastPort *rp, GameState *gs)
@@ -874,7 +874,8 @@ void draw_hud(struct RastPort *rp, GameState *gs)
         char dbg[40];
         LONG hy = (h->y >> 16);
         LONG feet = hy + (LONG)HUNTER_H;
-        sprintf(dbg, "Y%ld F%ld R%ld,%ld", hy, feet, (long)gs->room_x, (long)gs->room_y);
+        snprintf(dbg, sizeof(dbg), "Y%ld F%ld R%ld,%ld",
+                 hy, feet, (long)gs->room_x, (long)gs->room_y);
         SetAPen(rp, COL_WHITE);
         draw_string(rp, 170, 9, dbg, 1);
     }
@@ -920,7 +921,7 @@ void draw_title(struct RastPort *rp)
     draw_string(rp, cx, 160, "CONTROLS:", 1);
     draw_string(rp, cx, 172, "LEFT/RIGHT - MOVE", 1);
     draw_string(rp, cx, 182, "UP - JUMP / AIM UP", 1);
-    draw_string(rp, cx, 192, "DOWN - MORPH BALL", 1);
+    draw_string(rp, cx, 192, "DOWN - ROLL FORM", 1);
     draw_string(rp, cx, 202, "FIRE - SHOOT/BOMB", 1);
     draw_string(rp, cx, 212, "START - MISSILE MODE", 1);
 
@@ -954,7 +955,7 @@ void draw_item_get(struct RastPort *rp, GameState *gs)
     RectFill(rp, bx + bw - 1, by, bx + bw - 1, by + bh - 1);
 
     /* "GOT [ITEM]!" */
-    sprintf(buf, "GOT %s!", gs->item_name);
+    snprintf(buf, sizeof(buf), "GOT %s!", gs->item_name);
     cx = bx + (bw - string_width(buf, 1)) / 2;
     SetAPen(rp, COL_WHITE);
     draw_string(rp, cx, by + 14, buf, 1);
@@ -972,6 +973,10 @@ void draw_item_get(struct RastPort *rp, GameState *gs)
 void draw_gameover(struct RastPort *rp)
 {
     WORD cx;
+
+    /* Advance our own frame counter so blinking prompt keeps toggling
+       after the last draw_frame() call. */
+    g_frame++;
 
     SetRast(rp, COL_BG);
 

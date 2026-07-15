@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """Convert uranus.png to Amiga planar bitmap C header."""
 from PIL import Image
+import os
 import struct, sys
+
+# Resolve asset paths relative to this script so the tool is portable.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+INPUT_PATH = os.environ.get(
+    "URANUS_PNG",
+    os.path.join(SCRIPT_DIR, "uranus.png"),
+)
+OUTPUT_HEADER = os.path.join(SCRIPT_DIR, "planet_gfx.h")
+OUTPUT_PREVIEW = os.path.join(SCRIPT_DIR, "planet_preview.png")
 
 # Target size
 W, H = 80, 72
@@ -46,7 +56,7 @@ def closest_color(r, g, b):
     return best_i
 
 def main():
-    img = Image.open("/Users/chris/uranus.png").convert("RGB")
+    img = Image.open(INPUT_PATH).convert("RGB")
 
     # Resize maintaining aspect, fit into WxH
     img.thumbnail((W, H), Image.LANCZOS)
@@ -122,11 +132,10 @@ def main():
     lines.append("")
     lines.append("#endif /* PLANET_GFX_H */")
 
-    out_path = "/Users/chris/code/claude_world/amiga_mcp/examples/uranus_lander/planet_gfx.h"
-    with open(out_path, "w") as f:
+    with open(OUTPUT_HEADER, "w") as f:
         f.write("\n".join(lines) + "\n")
 
-    print(f"Generated {out_path}")
+    print(f"Generated {OUTPUT_HEADER}")
     print(f"  Size: {W}x{H}, {depth} planes, {sum(len(p) for p in planes)} bytes total")
 
     # Also save a preview
@@ -135,8 +144,8 @@ def main():
         for x in range(W):
             px = pixels[y * W + x] & 0xF
             preview.putpixel((x, y), PALETTE_RGB[px])
-    preview.save("/Users/chris/code/claude_world/amiga_mcp/examples/uranus_lander/planet_preview.png")
-    print("  Preview: planet_preview.png")
+    preview.save(OUTPUT_PREVIEW)
+    print(f"  Preview: {OUTPUT_PREVIEW}")
 
 if __name__ == "__main__":
     main()

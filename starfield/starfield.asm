@@ -3,7 +3,7 @@
 ;*                                                        *
 ;*  Stars radiate from screen center.                     *
 ;*  WASD/arrow keys steer the view (sphere projection).  *
-;*  USS Enterprise crosses the screen periodically.       *
+;*  A starship silhouette crosses the screen periodically.*
 ;*  Uses Copper for gradient background, Blitter for      *
 ;*  screen clear, direct pixel plotting for stars.        *
 ;*                                                        *
@@ -59,7 +59,7 @@ BPLROW		equ	SCR_W/8			; 40 bytes per row
 MAX_STARS	equ	200
 STAR_STRUCT_SIZE equ	12		; x.l (16.16), y.l (16.16), speed.w, color.w
 
-;--- Enterprise constants ---
+;--- Starship silhouette constants ---
 ENT_W		equ	96			; width in pixels
 ENT_H		equ	48			; height
 ENT_WORDS	equ	6			; words per row
@@ -118,7 +118,7 @@ _sf_main:
 	; Initialize stars
 	bsr	init_stars
 
-	; Initialize Enterprise
+	; Initialize starship state
 	clr.l	ent_active
 	move.l	#ENT_INTERVAL,ent_timer
 
@@ -179,11 +179,11 @@ _sf_main:
 	bsr	update_stars
 	bsr	plot_stars
 
-	; Update & draw Enterprise
-	bsr	update_enterprise
+	; Update & draw starship silhouette
+	bsr	update_starship
 	tst.l	ent_active
 	beq.s	.no_ent
-	bsr	draw_enterprise
+	bsr	draw_starship
 .no_ent:
 
 	; Update copper list with bitplane pointers
@@ -510,10 +510,10 @@ plot_stars:
 	rts
 
 ;*********************************************************
-;*  Enterprise routines                                  *
+;*  Starship silhouette routines                          *
 ;*********************************************************
 
-update_enterprise:
+update_starship:
 	tst.l	ent_active
 	bne.s	.ent_moving
 
@@ -542,14 +542,14 @@ update_enterprise:
 	rts
 
 ;*********************************************************
-;*  draw_enterprise - USS Enterprise NCC-1701            *
+;*  draw_starship - generic starship silhouette          *
 ;*  96 pixels wide x 48 pixels tall, 6 words per row    *
 ;*  Uses a per-word loop for flexibility                 *
 ;*********************************************************
-draw_enterprise:
+draw_starship:
 	move.w	ent_x,d5
 	move.w	ent_y,d6
-	lea	enterprise_gfx,a0
+	lea	starship_gfx,a0
 	move.l	bpl0_ptr,a1
 	move.l	bpl1_ptr,a2
 	move.l	bpl2_ptr,a3
@@ -753,76 +753,76 @@ random:
 	rts
 
 ;*********************************************************
-;*  Enterprise NCC-1701 bitmap (converted from PNG)      *
+;*  Generic starship silhouette bitmap                   *
 ;*  96 pixels wide x 48 pixels tall                      *
 ;*  Each row = 6 words (96 bits)                         *
-;*  Front/bottom view of Constitution-class starship     *
+;*  Original front/bottom view of a fictional starship   *
 ;*********************************************************
 
 	section	data,data
 
-enterprise_gfx:
-	; Row 0: saucer dome top
+starship_gfx:
+	; Row 0: upper hull dome top
 	dc.w	$0000,$0780,$0000,$0000,$0000,$0000
-	; Row 1: saucer dome
+	; Row 1: upper hull dome
 	dc.w	$0000,$1FE0,$0000,$0000,$0000,$0000
-	; Row 2: saucer upper
+	; Row 2: upper hull ring
 	dc.w	$0000,$3FFF,$0000,$0000,$0000,$0000
-	; Row 3: saucer widening + nacelle hints
+	; Row 3: hull widening + wingtip hints
 	dc.w	$0000,$3FFF,$0000,$E000,$0030,$0000
-	; Row 4: saucer + nacelle emergence
+	; Row 4: hull + wing emergence
 	dc.w	$0000,$7FFF,$0001,$F000,$00FC,$0000
-	; Row 5: saucer + nacelles growing
+	; Row 5: hull + wings growing
 	dc.w	$0000,$7FFF,$0007,$F800,$07FE,$0000
-	; Row 6: saucer + nacelles
+	; Row 6: hull + wings
 	dc.w	$0000,$7FFF,$003F,$FC00,$07FF,$0000
-	; Row 7: saucer lower + nacelles
+	; Row 7: hull lower + wings
 	dc.w	$0000,$3FFF,$007F,$FF00,$07FF,$0000
-	; Row 8: saucer base
+	; Row 8: hull base
 	dc.w	$0000,$3FFC,$00FF,$FF80,$0FFF,$0000
-	; Row 9: saucer taper + nacelle spread
+	; Row 9: hull taper + wing spread
 	dc.w	$0000,$1FF0,$3FFF,$FFC0,$0FFF,$0000
-	; Row 10: hull connection
+	; Row 10: fuselage connection
 	dc.w	$0200,$07FF,$FFFF,$FFE0,$07FF,$0000
 	; Row 11: full span
 	dc.w	$3FFF,$FFFF,$FFFF,$FFFF,$03FE,$0000
 	; Row 12: maximum width
 	dc.w	$1FFF,$FFFF,$FFFF,$FFFF,$E1FE,$0000
-	; Row 13: nacelle span
+	; Row 13: wing span
 	dc.w	$1FFF,$FFFF,$FFFF,$FFFF,$FFF8,$0000
-	; Row 14: nacelle + hull
+	; Row 14: wing + fuselage
 	dc.w	$0FFF,$FFFF,$FFFF,$FFFF,$FF80,$0000
 	; Row 15: widest section
 	dc.w	$07FF,$FFFF,$FFFF,$FFFF,$FFFE,$0000
-	; Row 16: nacelle tips visible
+	; Row 16: wingtips visible
 	dc.w	$01FF,$FFFF,$FFFF,$FFFF,$FFFF,$FE00
-	; Row 17: full nacelle extension
+	; Row 17: full wing extension
 	dc.w	$0007,$FFFF,$FFFF,$FFFF,$FFFF,$FFFC
-	; Row 18: hull narrowing
+	; Row 18: fuselage narrowing
 	dc.w	$0000,$07FF,$FFFF,$FFFF,$FFFF,$FFFE
-	; Row 19: secondary hull
+	; Row 19: lower fuselage
 	dc.w	$0000,$0003,$FFFF,$FFFF,$FFFF,$FFFE
-	; Row 20: hull taper
+	; Row 20: fuselage taper
 	dc.w	$0000,$0000,$7FFF,$FFFF,$FFFF,$FFFC
-	; Row 21: lower hull
+	; Row 21: lower fuselage
 	dc.w	$0000,$0000,$3FFF,$FFFF,$FFFF,$FFF8
-	; Row 22: neck region
+	; Row 22: tail neck region
 	dc.w	$0000,$0000,$1FFF,$FFFE,$0007,$FF80
-	; Row 23: neck
+	; Row 23: tail neck
 	dc.w	$0000,$0000,$1EFF,$FFFC,$0000,$0000
-	; Row 24: pylons
+	; Row 24: struts
 	dc.w	$0000,$0000,$0E3F,$FFB8,$0000,$0000
-	; Row 25: pylon junction
+	; Row 25: strut junction
 	dc.w	$0000,$0000,$071F,$FC70,$0000,$0000
-	; Row 26: engineering section top
+	; Row 26: engine pod top
 	dc.w	$0000,$0000,$0387,$E0E0,$0000,$0000
-	; Row 27: engineering hull
+	; Row 27: engine pod
 	dc.w	$0000,$0000,$01C7,$C1C0,$0000,$0000
-	; Row 28: engineering hull
+	; Row 28: engine pod
 	dc.w	$0000,$0000,$01E7,$C780,$0000,$0000
-	; Row 29: deflector area
+	; Row 29: sensor housing area
 	dc.w	$0000,$0000,$00FF,$EF00,$0000,$0000
-	; Row 30: deflector dish
+	; Row 30: sensor dish
 	dc.w	$0000,$0000,$007F,$FE00,$0000,$0000
 	; Row 31: engineering hull
 	dc.w	$0000,$0000,$00FF,$FC00,$0000,$0000
@@ -879,7 +879,7 @@ copper_bpl_ptrs:	ds.l	1
 vp_x:			ds.l	1
 vp_y:			ds.l	1
 
-; Enterprise state
+; Starship silhouette state
 ent_active:		ds.l	1
 ent_timer:		ds.l	1
 ent_x:			ds.w	1
