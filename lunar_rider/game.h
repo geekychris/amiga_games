@@ -137,7 +137,8 @@ typedef struct {
     WORD frame;
 
     WORD checkpoint_cur;        /* current checkpoint letter (0=A) */
-    LONG checkpoint_dist;       /* distance to next checkpoint */
+    LONG checkpoint_dist;       /* distance to next checkpoint (world pixels) */
+    LONG scroll_frac;           /* sub-pixel scroll remainder (units of 1/100 px) */
 
     WORD difficulty;            /* increases each loop */
 

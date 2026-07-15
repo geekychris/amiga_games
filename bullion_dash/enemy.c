@@ -115,6 +115,16 @@ static int bfs_find_next_move(GameState *gs,
             int trace_x = to_x, trace_y = to_y;
             int prev_x, prev_y, last_dir;
 
+            /* Special case: already standing on the target. There is
+             * no path to trace; report success with zero movement so
+             * the caller does NOT fall through to random movement
+             * (which would walk the enemy off the player). */
+            if (cx == from_x && cy == from_y) {
+                *out_dx = 0;
+                *out_dy = 0;
+                return 1;
+            }
+
             /* Walk parent chain back to start */
             for (;;) {
                 nidx = trace_y * GRID_COLS + trace_x;
@@ -183,18 +193,20 @@ static int bfs_find_next_move(GameState *gs,
                     continue;
             }
 
-            bfs_visited[nidx] = 1;
-            bfs_parent_dir[nidx] = dir_tab[i];
-            bfs_queue_x[tail] = nx;
-            bfs_queue_y[tail] = ny;
-            tail++;
-
-            if (tail >= BFS_SIZE)
-                goto bfs_done;
+            /* Only enqueue if we still have room. If the queue is
+             * full we keep processing the cells already enqueued so
+             * the target can still be discovered near the boundary,
+             * but we stop adding new frontier cells. */
+            if (tail < BFS_SIZE) {
+                bfs_visited[nidx] = 1;
+                bfs_parent_dir[nidx] = dir_tab[i];
+                bfs_queue_x[tail] = nx;
+                bfs_queue_y[tail] = ny;
+                tail++;
+            }
         }
     }
 
-bfs_done:
     /* No path found */
     *out_dx = 0;
     *out_dy = 0;
@@ -232,7 +244,11 @@ static void enemy_respawn(GameState *gs, Enemy *e)
     e->dir = DIR_NONE;
     e->anim = 0;
     e->trap_timer = 0;
-    e->has_gold = 0;
+    /* NOTE: has_gold is intentionally NOT cleared here. If the enemy
+     * died carrying gold, previous code paths should have restored
+     * the gold tile back to the level; if for any reason they could
+     * not, we keep has_gold set so the gold is still tracked on the
+     * respawned enemy rather than being silently deleted. */
     e->active = 1;
     e->move_timer = 0;
 }
@@ -264,11 +280,22 @@ static void enemy_update_one(GameState *gs, Enemy *e)
                 /* Can't escape - brick reformed, die */
                 e->state = ES_DEAD;
                 if (e->has_gold) {
-                    /* Drop gold above if possible */
-                    if (e->gy > 0 && tile_at(gs, e->gx, e->gy - 1) == TILE_EMPTY) {
-                        gs->tiles[e->gx][e->gy - 1] = TILE_GOLD;
+                    /* Try to drop gold: first the cell directly above,
+                     * else scan upward in the same column for the next
+                     * empty tile. Only clear has_gold if we succeed;
+                     * otherwise the respawn path will carry the gold. */
+                    int drop_placed = 0;
+                    int yy;
+                    for (yy = e->gy - 1; yy >= 0; yy--) {
+                        if (tile_at(gs, e->gx, yy) == TILE_EMPTY) {
+                            gs->tiles[e->gx][yy] = TILE_GOLD;
+                            drop_placed = 1;
+                            break;
+                        }
                     }
-                    e->has_gold = 0;
+                    if (drop_placed) {
+                        e->has_gold = 0;
+                    }
                 }
             }
         }
@@ -397,11 +424,13 @@ static void enemy_update_one(GameState *gs, Enemy *e)
 
     /*--- Drop gold when falling into hole ---*/
     if (e->has_gold && e->state == ES_TRAPPED) {
-        /* Drop gold one tile above */
+        /* Drop gold one tile above - only clear has_gold if the drop
+         * actually placed a gold tile, so the gold isn't silently
+         * lost when the cell above is occupied. */
         if (e->gy > 0 && tile_at(gs, e->gx, e->gy - 1) == TILE_EMPTY) {
             gs->tiles[e->gx][e->gy - 1] = TILE_GOLD;
+            e->has_gold = 0;
         }
-        e->has_gold = 0;
     }
 }
 
@@ -463,12 +492,15 @@ void enemy_trap_check(GameState *gs, int x, int y)
             gs->enemies[i].px = x * TILE_W;
             gs->enemies[i].py = y * TILE_H;
 
-            /* Drop gold above the hole */
+            /* Drop gold above the hole. Only clear has_gold once we
+             * actually place the gold tile; otherwise the enemy keeps
+             * carrying it (and later drop paths can retry) so gold is
+             * never silently lost. */
             if (gs->enemies[i].has_gold) {
                 if (y > 0 && tile_at(gs, x, y - 1) == TILE_EMPTY) {
                     gs->tiles[x][y - 1] = TILE_GOLD;
+                    gs->enemies[i].has_gold = 0;
                 }
-                gs->enemies[i].has_gold = 0;
             }
         }
     }

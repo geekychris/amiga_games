@@ -110,6 +110,26 @@ static UBYTE *load_mod_file(const char *filename, ULONG *out_size)
 #define KEY_LEFT   0x4F
 #define KEY_RIGHT  0x4E
 
+/* Spin until the raster beam has advanced by `lines` scan lines.
+ * Each PAL/NTSC scan line is ~63.5us, so this yields a deterministic
+ * hardware-timed delay independent of CPU speed. The keyboard
+ * handshake requires the SP output pulse to remain asserted for at
+ * least ~75us before the keyboard will accept it; 2 lines (~127us)
+ * is a comfortable margin on any Amiga. */
+static void wait_raster_lines(int lines)
+{
+    volatile UWORD *vhposr = (volatile UWORD *)0xdff006;
+    UBYTE prev = (UBYTE)(*vhposr >> 8);
+    int seen = 0;
+    while (seen < lines) {
+        UBYTE cur = (UBYTE)(*vhposr >> 8);
+        if (cur != prev) {
+            seen++;
+            prev = cur;
+        }
+    }
+}
+
 static void read_keyboard(void)
 {
     UBYTE raw, code;
@@ -119,7 +139,7 @@ static void read_keyboard(void)
         /* First call: flush stale keyboard state with a handshake
          * and clear any pending CIA-A interrupt flags */
         ciaa->ciacra |= 0x40;
-        { volatile UBYTE tmp; tmp = ciaa->ciacra; tmp = ciaa->ciacra; (void)tmp; }
+        wait_raster_lines(2);   /* hold SP pulse ~127us (>= 75us) */
         ciaa->ciacra &= ~0x40;
         (void)ciaa->ciaicr;   /* clear pending flags */
         kbd_initialized = 1;
@@ -140,9 +160,12 @@ static void read_keyboard(void)
     keyup = code & 0x80;   /* bit 7 = key up flag */
     code  = code & 0x7F;   /* bits 0-6 = keycode */
 
-    /* Handshake: pulse SP line to acknowledge */
+    /* Handshake: pulse SP line to acknowledge.
+     * Hold the output high for a hardware-timed >= 75us before
+     * switching back to input mode, so the keyboard MCU sees a
+     * clean acknowledge on any CPU. */
     ciaa->ciacra |= 0x40;  /* set SP output mode */
-    { volatile UBYTE tmp; tmp = ciaa->ciacra; tmp = ciaa->ciacra; tmp = ciaa->ciacra; (void)tmp; }
+    wait_raster_lines(2);   /* ~127us guaranteed pulse width */
     ciaa->ciacra &= ~0x40; /* back to input mode */
 
     /* Update key states */
@@ -196,35 +219,41 @@ int main(void)
         return 20;
     }
 
-    /* Try bridge connection (non-fatal) */
+    /* Try bridge connection (non-fatal).
+     *
+     * Note: once we enter sf_main() the OS is fully taken over
+     * (Forbid() held, all DMA/interrupts remapped, no ab_poll()
+     * possible from the hardware-banging asm loop). Rather than
+     * register interactive vars/memregions the host cannot reach,
+     * we use the bridge purely for start/finish log lines. */
     if (ab_init("starfield") == 0) {
         bridge_ok = 1;
-        ab_register_var("frames", AB_TYPE_I32, &sf_frame_count);
-        ab_register_var("stars", AB_TYPE_I32, &sf_star_count);
-        AB_I("Starfield starting");
+        AB_I("Starfield starting (interactive bridge disabled during takeover)");
     }
 
     /* Allocate chip RAM for bitplanes + copper */
     chipmem = AllocMem(CHIPMEM_SIZE, MEMF_CHIP | MEMF_CLEAR);
     if (!chipmem) {
         if (bridge_ok) AB_E("Failed to allocate %ld bytes chip memory", (long)CHIPMEM_SIZE);
-        if (bridge_ok) ab_cleanup();
+        /* ab_cleanup is a no-op if ab_init never succeeded */
+        ab_cleanup();
         CloseLibrary((struct Library *)IntuitionBase);
         CloseLibrary((struct Library *)GfxBase);
         return 20;
     }
 
     if (bridge_ok) {
-        ab_register_memregion("chipmem", chipmem, CHIPMEM_SIZE, "Bitplane memory");
+        /* Log for post-mortem; no memregion registered because the
+         * bridge cannot be polled while the demo owns the machine. */
         AB_I("Chip mem at 0x%lx, %ld bytes", (unsigned long)chipmem, (long)CHIPMEM_SIZE);
     }
 
-    /* Load Star Trek MOD from disk into chip RAM */
-    mod_data = load_mod_file("DH2:Dev/amigatre.mod", &mod_size);
+    /* Load bundled starfield MOD from disk into chip RAM */
+    mod_data = load_mod_file("PROGDIR:starfield.mod", &mod_size);
     if (mod_data) {
-        if (bridge_ok) AB_I("Loaded amigatre.mod (%ld bytes)", (long)mod_size);
+        if (bridge_ok) AB_I("Loaded starfield.mod (%ld bytes)", (long)mod_size);
     } else {
-        if (bridge_ok) AB_W("Failed to load amigatre.mod");
+        if (bridge_ok) AB_W("Failed to load starfield.mod");
     }
 
     /* Save system state */
@@ -293,8 +322,9 @@ int main(void)
 
     if (bridge_ok) {
         AB_I("Starfield finished, %ld frames", (long)sf_frame_count);
-        ab_cleanup();
     }
+    /* Always clean up bridge state, even if init failed (no-op then). */
+    ab_cleanup();
 
     /* Free all allocated memory */
     FreeMem(chipmem, CHIPMEM_SIZE);

@@ -33,12 +33,21 @@ struct GfxBase *GfxBase = NULL;
 /* PAL clock constant for period calculation */
 #define PAL_CLOCK 3546895L
 
+/* Hardware minimum audio period (Paula limit) */
+#define MIN_PERIOD 124
+
+/* Max fundamental frequency achievable with one cycle per SAMPLE_LEN buffer
+ * at MIN_PERIOD: PAL_CLOCK / (MIN_PERIOD * SAMPLE_LEN) ~= 111 Hz.
+ * Above this, all frequencies collapse to the same clamped period. */
+#define MAX_FUNDAMENTAL_HZ (PAL_CLOCK / (MIN_PERIOD * SAMPLE_LEN))  /* ~111 */
+#define MIN_FUNDAMENTAL_HZ 20
+
 /* Channel allocation map - one bit per channel */
 static UBYTE channel_map[] = { 1, 2, 4, 8 };
 
 /* Bridge-exposed variables */
 static LONG waveform = 0;    /* 0=sine, 1=square, 2=saw, 3=noise */
-static LONG frequency = 440;
+static LONG frequency = 100; /* Hz — must be within MIN/MAX_FUNDAMENTAL_HZ */
 static LONG volume = 64;     /* 0-64 */
 static LONG channel = 0;     /* 0-3 */
 static LONG playing = 0;
@@ -121,14 +130,17 @@ static void generate_waveform(LONG type)
     }
 }
 
-/* Calculate audio period from frequency */
+/* Calculate audio period from frequency.
+ * With one waveform cycle per SAMPLE_LEN buffer the fundamental range is
+ * bounded by MIN_FUNDAMENTAL_HZ..MAX_FUNDAMENTAL_HZ; frequencies above the
+ * max would otherwise all collapse to the MIN_PERIOD clamp. */
 static UWORD freq_to_period(LONG freq)
 {
     LONG period;
-    if (freq < 20) freq = 20;
-    if (freq > 20000) freq = 20000;
+    if (freq < MIN_FUNDAMENTAL_HZ) freq = MIN_FUNDAMENTAL_HZ;
+    if (freq > MAX_FUNDAMENTAL_HZ) freq = MAX_FUNDAMENTAL_HZ;
     period = PAL_CLOCK / (freq * SAMPLE_LEN);
-    if (period < 124) period = 124;   /* hardware minimum */
+    if (period < MIN_PERIOD) period = MIN_PERIOD; /* hardware minimum */
     if (period > 65535) period = 65535;
     return (UWORD)period;
 }
@@ -214,8 +226,10 @@ static int hook_stop(const char *args, char *resultBuf, int bufSize)
 
 static int hook_sweep(const char *args, char *resultBuf, int bufSize)
 {
-    LONG from_freq = 200;
-    LONG to_freq = 2000;
+    /* Keep sweep within achievable fundamental range so each step produces
+     * a distinct period rather than all collapsing to MIN_PERIOD. */
+    LONG from_freq = 30;
+    LONG to_freq = MAX_FUNDAMENTAL_HZ;
     LONG f, step;
 
     /* Parse "from to" arguments */
@@ -252,7 +266,7 @@ static int hook_sweep(const char *args, char *resultBuf, int bufSize)
         for (i = 0; i <= steps; i++) {
             UWORD period;
             f = from_freq + (to_freq - from_freq) * i / steps;
-            if (f < 20) f = 20;
+            if (f < MIN_FUNDAMENTAL_HZ) f = MIN_FUNDAMENTAL_HZ;
             period = freq_to_period(f);
             /* Update period directly without full start_playback */
             if (audio_open && playing) {
@@ -412,6 +426,7 @@ int main(void)
     LONG prev_waveform = -1;
     LONG prev_freq = frequency;
     LONG prev_volume = volume;
+    LONG prev_channel;
     UBYTE alloc_chan;
 
     IntuitionBase = (struct IntuitionBase *)
@@ -460,8 +475,9 @@ int main(void)
         return 1;
     }
 
-    /* Allocate channel 0 initially */
-    alloc_chan = channel_map[0];
+    /* Allocate the requested channel (validate 0-3, else fall back to 0) */
+    if (channel < 0 || channel > 3) channel = 0;
+    alloc_chan = channel_map[channel];
     audio_io->ioa_Request.io_Message.mn_ReplyPort = audio_port;
     audio_io->ioa_Request.io_Message.mn_Node.ln_Pri = 0;
     audio_io->ioa_Data = &alloc_chan;
@@ -478,7 +494,8 @@ int main(void)
         return 1;
     }
     audio_open = TRUE;
-    printf("audio.device opened\n");
+    prev_channel = channel;
+    printf("audio.device opened on channel %ld\n", (long)channel);
 
     /* Connect to AmigaBridge daemon */
     if (ab_init("sfx_player") != 0) {
@@ -551,6 +568,35 @@ int main(void)
 
         /* Poll bridge for commands */
         ab_poll();
+
+        /* If channel was changed, reallocate the audio device on the new one */
+        if (channel != prev_channel) {
+            BOOL was_playing = playing;
+            if (channel < 0 || channel > 3) channel = prev_channel;
+            if (channel != prev_channel) {
+                stop_playback();
+                if (audio_open) {
+                    CloseDevice((struct IORequest *)audio_io);
+                    audio_open = FALSE;
+                }
+                alloc_chan = channel_map[channel];
+                audio_io->ioa_Request.io_Message.mn_ReplyPort = audio_port;
+                audio_io->ioa_Request.io_Message.mn_Node.ln_Pri = 0;
+                audio_io->ioa_Data = &alloc_chan;
+                audio_io->ioa_Length = 1;
+                if (OpenDevice((CONST_STRPTR)"audio.device", 0,
+                               (struct IORequest *)audio_io, 0) == 0) {
+                    audio_open = TRUE;
+                    prev_channel = channel;
+                    if (was_playing) start_playback();
+                } else {
+                    AB_E("Failed to reopen audio.device on new channel");
+                    channel = prev_channel;
+                }
+            } else {
+                prev_channel = channel;
+            }
+        }
 
         /* Restart playback if frequency, volume, or waveform changed while playing */
         if (playing && (frequency != prev_freq || waveform != prev_waveform

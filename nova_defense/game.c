@@ -236,7 +236,8 @@ static void update_playing(GameState *gs, InputState *input)
         gs->ev_shoot = TRUE;
     }
 
-    /* Update player bullet */
+    /* Update player bullet - preserve previous Y for swept collision */
+    WORD bullet_prev_y = gs->player_bullet.y;
     if (gs->player_bullet.active) {
         gs->player_bullet.y -= PLAYER_BULLET_SPEED;
         if (gs->player_bullet.y < 30) {
@@ -246,18 +247,22 @@ static void update_playing(GameState *gs, InputState *input)
         check_bullet_shield(gs, &gs->player_bullet, FALSE);
     }
 
-    /* Player bullet vs aliens */
+    /* Player bullet vs aliens - swept Y check across previous->current interval */
     if (gs->player_bullet.active) {
         WORD bx = gs->player_bullet.x;
         WORD by = gs->player_bullet.y;
+        /* After the -= above, by <= bullet_prev_y. Sweep [by, bullet_prev_y]. */
+        WORD by_lo = by;
+        WORD by_hi = bullet_prev_y;
 
         for (r = 0; r < ALIEN_ROWS; r++) {
             for (c = 0; c < ALIEN_COLS; c++) {
                 if (!gs->swarm.alive[r][c]) continue;
                 WORD ax = gs->swarm.grid_x + c * ALIEN_CELL_W;
                 WORD ay = gs->swarm.grid_y + r * ALIEN_CELL_H;
+                /* Y interval overlap: [by_lo, by_hi] vs [ay, ay+ALIEN_H) */
                 if (bx >= ax && bx < ax + ALIEN_W &&
-                    by >= ay && by < ay + ALIEN_H) {
+                    by_hi >= ay && by_lo < ay + ALIEN_H) {
                     gs->swarm.alive[r][c] = FALSE;
                     gs->swarm.alive_count--;
                     gs->player_bullet.active = FALSE;
@@ -423,18 +428,34 @@ bullet_done:
             }
         }
 
-        /* If aliens reached shield level, destroy overlapping shield pixels */
+        /* If aliens reached shield level, destroy shield pixels that actually
+         * overlap an alive alien's rectangle (X and Y both intersect). */
         if (bottom_alien_y >= SHIELD_Y) {
             int s;
             for (s = 0; s < SHIELD_COUNT; s++) {
                 Shield *sh = &gs->shields[s];
                 int sy, sx;
                 for (sy = 0; sy < SHIELD_H; sy++) {
+                    WORD wy = sh->y + sy;
+                    if (wy < gs->swarm.grid_y || wy >= bottom_alien_y) continue;
                     for (sx = 0; sx < SHIELD_W; sx++) {
-                        WORD wy = sh->y + sy;
-                        if (wy >= gs->swarm.grid_y && wy < bottom_alien_y) {
-                            sh->pixels[sy][sx] = 0;
+                        WORD wx = sh->x + sx;
+                        /* Check against every alive alien - clear only on overlap */
+                        int ar, ac;
+                        BOOL overlap = FALSE;
+                        for (ar = 0; ar < ALIEN_ROWS && !overlap; ar++) {
+                            for (ac = 0; ac < ALIEN_COLS; ac++) {
+                                if (!gs->swarm.alive[ar][ac]) continue;
+                                WORD ax = gs->swarm.grid_x + ac * ALIEN_CELL_W;
+                                WORD ay = gs->swarm.grid_y + ar * ALIEN_CELL_H;
+                                if (wx >= ax && wx < ax + ALIEN_W &&
+                                    wy >= ay && wy < ay + ALIEN_H) {
+                                    overlap = TRUE;
+                                    break;
+                                }
+                            }
                         }
+                        if (overlap) sh->pixels[sy][sx] = 0;
                     }
                 }
             }

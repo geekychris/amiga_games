@@ -14,13 +14,17 @@
 #define RAW_RALT   0x65
 
 static WORD last_mouse_x;
-static BOOL prev_fire;
+static BOOL prev_fire;      /* union of kb+mouse from prior frame */
+static BOOL kb_fire;        /* current keyboard fire state */
+static BOOL mouse_fire;     /* current mouse fire state */
 
 void input_init(void)
 {
     volatile UWORD *joy0dat = (volatile UWORD *)0xDFF00A;
     last_mouse_x = (WORD)(*joy0dat & 0xFF);
     prev_fire = FALSE;
+    kb_fire = FALSE;
+    mouse_fire = FALSE;
 }
 
 void input_read(InputState *input, struct IntuiMessage *imsg)
@@ -43,7 +47,7 @@ void input_read(InputState *input, struct IntuiMessage *imsg)
         case RAW_SPACE:
         case RAW_LALT:
         case RAW_RALT:
-            input->fire = !up;
+            kb_fire = !up;
             break;
         case RAW_ESC:
             if (!up) input->quit = TRUE;
@@ -61,12 +65,14 @@ void input_read_mouse(InputState *input)
     input->mouse_dx = (BYTE)(mouse_x - last_mouse_x);
     last_mouse_x = mouse_x;
 
-    /* Left mouse button = CIA-A PRA bit 6, active low */
-    BOOL mouse_fire = (*ciaa_pra & (1 << 6)) ? FALSE : TRUE;
-    if (mouse_fire) input->fire = TRUE;
+    /* Left mouse button = CIA-A PRA bit 6, active low.
+     * Track mouse state independently so mouse release clears it even when
+     * a keyboard fire key is still held. */
+    mouse_fire = (*ciaa_pra & (1 << 6)) ? FALSE : TRUE;
 
-    /* Edge detection for fire */
-    BOOL any_fire = input->fire;
+    /* Combined fire state = OR of keyboard and mouse sources */
+    BOOL any_fire = (kb_fire || mouse_fire);
+    input->fire = any_fire;
     input->fire_pressed = (any_fire && !prev_fire);
     prev_fire = any_fire;
 }

@@ -2295,19 +2295,24 @@ static void unpack_level(const UBYTE *packed, GameState *gs)
                 gs->player.px = x * TILE_W;
                 gs->player.py = y * TILE_H;
                 tile = TILE_EMPTY;
-            } else if (tile == TILE_ENEMY && ne < MAX_ENEMIES) {
-                gs->enemies[ne].gx = x;
-                gs->enemies[ne].gy = y;
-                gs->enemies[ne].px = x * TILE_W;
-                gs->enemies[ne].py = y * TILE_H;
-                gs->enemies[ne].active = 1;
-                gs->enemies[ne].state = ES_RUNNING;
-                gs->enemies[ne].has_gold = 0;
-                gs->enemies[ne].dir = DIR_LEFT;
-                gs->enemies[ne].anim = 0;
-                gs->enemies[ne].trap_timer = 0;
-                gs->enemies[ne].move_timer = 0;
-                ne++;
+            } else if (tile == TILE_ENEMY) {
+                if (ne < MAX_ENEMIES) {
+                    gs->enemies[ne].gx = x;
+                    gs->enemies[ne].gy = y;
+                    gs->enemies[ne].px = x * TILE_W;
+                    gs->enemies[ne].py = y * TILE_H;
+                    gs->enemies[ne].active = 1;
+                    gs->enemies[ne].state = ES_RUNNING;
+                    gs->enemies[ne].has_gold = 0;
+                    gs->enemies[ne].dir = DIR_LEFT;
+                    gs->enemies[ne].anim = 0;
+                    gs->enemies[ne].trap_timer = 0;
+                    gs->enemies[ne].move_timer = 0;
+                    ne++;
+                }
+                /* Always strip the marker from the tile grid, even if
+                 * we hit MAX_ENEMIES - otherwise excess markers stay
+                 * as garbage tiles in the playfield. */
                 tile = TILE_EMPTY;
             }
             gs->tiles[x][y] = tile;
@@ -2321,11 +2326,80 @@ static void unpack_level(const UBYTE *packed, GameState *gs)
                     gs->player.px = x * TILE_W;
                     gs->player.py = (y + 1) * TILE_H;
                     tile = TILE_EMPTY;
-                } else if (tile == TILE_ENEMY && ne < MAX_ENEMIES) {
+                } else if (tile == TILE_ENEMY) {
+                    if (ne < MAX_ENEMIES) {
+                        gs->enemies[ne].gx = x;
+                        gs->enemies[ne].gy = y + 1;
+                        gs->enemies[ne].px = x * TILE_W;
+                        gs->enemies[ne].py = (y + 1) * TILE_H;
+                        gs->enemies[ne].active = 1;
+                        gs->enemies[ne].state = ES_RUNNING;
+                        gs->enemies[ne].has_gold = 0;
+                        gs->enemies[ne].dir = DIR_LEFT;
+                        gs->enemies[ne].anim = 0;
+                        gs->enemies[ne].trap_timer = 0;
+                        gs->enemies[ne].move_timer = 0;
+                        ne++;
+                    }
+                    /* Always strip marker even if MAX_ENEMIES hit. */
+                    tile = TILE_EMPTY;
+                }
+                gs->tiles[x][y + 1] = tile;
+            }
+        }
+    }
+    gs->num_enemies = ne;
+}
+
+/*--------------------------------------------------------------------
+ * level_activate_spawn_markers - Convert TILE_PLAYER / TILE_ENEMY
+ * spawn-marker tiles in gs->tiles into live entities and clear the
+ * marker tiles. Used by the editor when starting test-play so the
+ * player/enemies appear at the placed marker positions.
+ *
+ * Also resets brick_timers and player state so a fresh play begins
+ * cleanly. Enemy count is capped at MAX_ENEMIES; any excess ENEMY
+ * markers are still cleared from the tile grid.
+ *-------------------------------------------------------------------*/
+void level_activate_spawn_markers(GameState *gs)
+{
+    int x, y, ne;
+
+    /* Clear brick regen timers */
+    for (x = 0; x < GRID_COLS; x++) {
+        for (y = 0; y < GRID_ROWS; y++) {
+            gs->brick_timer[x][y] = 0;
+        }
+    }
+
+    /* Clear enemy slots */
+    for (x = 0; x < MAX_ENEMIES; x++) {
+        gs->enemies[x].active = 0;
+    }
+
+    /* Reset player defaults (position filled in below if marker present) */
+    gs->player.dir = DIR_NONE;
+    gs->player.state = PS_IDLE;
+    gs->player.anim = 0;
+    gs->player.dig_timer = 0;
+    gs->player.fall_count = 0;
+
+    ne = 0;
+    for (x = 0; x < GRID_COLS; x++) {
+        for (y = 0; y < GRID_ROWS; y++) {
+            UBYTE t = gs->tiles[x][y];
+            if (t == TILE_PLAYER) {
+                gs->player.gx = x;
+                gs->player.gy = y;
+                gs->player.px = x * TILE_W;
+                gs->player.py = y * TILE_H;
+                gs->tiles[x][y] = TILE_EMPTY;
+            } else if (t == TILE_ENEMY) {
+                if (ne < MAX_ENEMIES) {
                     gs->enemies[ne].gx = x;
-                    gs->enemies[ne].gy = y + 1;
+                    gs->enemies[ne].gy = y;
                     gs->enemies[ne].px = x * TILE_W;
-                    gs->enemies[ne].py = (y + 1) * TILE_H;
+                    gs->enemies[ne].py = y * TILE_H;
                     gs->enemies[ne].active = 1;
                     gs->enemies[ne].state = ES_RUNNING;
                     gs->enemies[ne].has_gold = 0;
@@ -2334,9 +2408,9 @@ static void unpack_level(const UBYTE *packed, GameState *gs)
                     gs->enemies[ne].trap_timer = 0;
                     gs->enemies[ne].move_timer = 0;
                     ne++;
-                    tile = TILE_EMPTY;
                 }
-                gs->tiles[x][y + 1] = tile;
+                /* Always clear the marker, even if we hit the cap. */
+                gs->tiles[x][y] = TILE_EMPTY;
             }
         }
     }

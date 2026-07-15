@@ -77,7 +77,7 @@ int main(void)
 {
     char buf[256];
 
-    if (!ab_init("test_newfeatures")) {
+    if (ab_init("test_newfeatures") != 0) {
         printf("Failed to connect to AmigaBridge\n");
         return 1;
     }
@@ -224,7 +224,7 @@ int main(void)
         struct Library *lib = (struct Library *)OpenLibrary(
             (CONST_STRPTR)"exec.library", 0);
         /* exec.library is always open but OpenLibrary should not fail */
-        AB_ASSERT(lib != NULL || 1, "exec_lib_exists");
+        AB_ASSERT(lib != NULL, "exec_lib_exists");
         if (lib) CloseLibrary(lib);
     }
 

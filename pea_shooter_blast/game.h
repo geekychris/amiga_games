@@ -209,7 +209,7 @@ extern UBYTE level_maps[3][MAP_H][MAP_W];
 /* Core functions */
 void game_init(GameState *gs);
 void game_update(GameState *gs, WORD inp_left, WORD inp_right,
-                 WORD inp_jump, WORD inp_fire);
+                 WORD inp_jump, WORD inp_down, WORD inp_fire);
 void game_load_level(GameState *gs, WORD level_num);
 void game_spawn_particles(GameState *gs, Fixed x, Fixed y,
                           WORD count, WORD color);

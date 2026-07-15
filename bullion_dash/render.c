@@ -196,6 +196,22 @@ void render_playfield(struct RastPort *rp, GameState *gs)
                 /* Invisible until revealed - draw as empty */
                 break;
 
+            case TILE_PLAYER:
+                /* Spawn marker (editor only - stripped during play).
+                 * Draw as an outlined box in player color so the level
+                 * designer can see where the player will appear. */
+                SetAPen(rp, (long)COL_PLAYER);
+                draw_rect_outline(rp, sx, sy,
+                                  sx + TILE_W - 1, sy + TILE_H - 1);
+                break;
+
+            case TILE_ENEMY:
+                /* Spawn marker (editor only - stripped during play). */
+                SetAPen(rp, (long)COL_ENEMY);
+                draw_rect_outline(rp, sx, sy,
+                                  sx + TILE_W - 1, sy + TILE_H - 1);
+                break;
+
             case TILE_EMPTY:
             default:
                 /* Already cleared by initial fill */

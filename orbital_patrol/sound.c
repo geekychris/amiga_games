@@ -222,8 +222,19 @@ WORD sound_load_mod(const char *filename)
     mod_data = AllocMem(len, MEMF_CHIP);
     if (!mod_data) { Close(fh); return 0; }
 
-    Read(fh, mod_data, len);
-    Close(fh);
+    {
+        LONG got = Read(fh, mod_data, len);
+        Close(fh);
+        if (got != len) {
+            /* Short/failed read - free the buffer with the matching
+             * length and reset module state before returning failure.
+             * ptplayer must not see a partially-filled buffer. */
+            FreeMem(mod_data, len);
+            mod_data = NULL;
+            mod_size = 0;
+            return 0;
+        }
+    }
     mod_size = len;
     return 1;
 }

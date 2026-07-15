@@ -83,11 +83,17 @@ void input_init(InputData *id)
     if (!input_port) return;
 
     input_req = (struct IOStdReq *)CreateIORequest(input_port, sizeof(struct IOStdReq));
-    if (!input_req) return;
+    if (!input_req) {
+        DeleteMsgPort(input_port);
+        input_port = NULL;
+        return;
+    }
 
     if (OpenDevice((STRPTR)"input.device", 0, (struct IORequest *)input_req, 0) != 0) {
         DeleteIORequest((struct IORequest *)input_req);
         input_req = NULL;
+        DeleteMsgPort(input_port);
+        input_port = NULL;
         return;
     }
 

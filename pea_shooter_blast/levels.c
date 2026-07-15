@@ -79,12 +79,13 @@ static void gen_level_1(void)
     for (x = 50; x < 56; x++)
         level_maps[0][11][x] = TILE_PLATFORM;
 
-    /* Brick walls / obstacles */
-    for (y = 10; y < 14; y++) {
+    /* Brick walls / obstacles — leave a jumpable opening at the top so
+     * the player can always progress along the ground route. */
+    for (y = 12; y < 14; y++) {
         level_maps[0][y][35] = TILE_BRICK;
         level_maps[0][y][36] = TILE_BRICK;
     }
-    for (y = 8; y < 14; y++) {
+    for (y = 11; y < 14; y++) {
         level_maps[0][y][60] = TILE_BRICK;
     }
 
@@ -118,9 +119,12 @@ static void gen_level_1(void)
         level_maps[0][15][x] = TILE_METAL;
         level_maps[0][14][x] = TILE_METAL;
     }
+    /* Metal divider with a doorway so the player can enter the boss arena */
     for (y = 0; y < MAP_H; y++) {
         level_maps[0][y][110] = TILE_METAL;
     }
+    level_maps[0][12][110] = TILE_EMPTY;
+    level_maps[0][13][110] = TILE_EMPTY;
 
     /* Powerups */
     level_maps[0][10][32] = TILE_POWERUP;
@@ -161,12 +165,20 @@ static void gen_level_2(void)
     level_maps[1][10][22] = TILE_PLATFORM;
     level_maps[1][10][23] = TILE_PLATFORM;
 
-    /* Cave pillars */
+    /* Cave pillars — each pillar has a jumpable notch at the base so the
+     * ground route stays traversable without requiring the mid-air platforms. */
     for (y = 5; y < 14; y++) {
         level_maps[1][y][30] = TILE_ROCK;
         level_maps[1][y][50] = TILE_ROCK;
         level_maps[1][y][70] = TILE_ROCK;
     }
+    /* Cut a 2-tile-tall opening at the bottom of each pillar */
+    level_maps[1][12][30] = TILE_EMPTY;
+    level_maps[1][13][30] = TILE_EMPTY;
+    level_maps[1][12][50] = TILE_EMPTY;
+    level_maps[1][13][50] = TILE_EMPTY;
+    level_maps[1][12][70] = TILE_EMPTY;
+    level_maps[1][13][70] = TILE_EMPTY;
 
     /* Mid-height platforms */
     for (x = 25; x < 35; x++)
@@ -211,6 +223,9 @@ static void gen_level_2(void)
     }
     for (y = 0; y < MAP_H; y++)
         level_maps[1][y][110] = TILE_METAL;
+    /* Doorway into boss arena */
+    level_maps[1][12][110] = TILE_EMPTY;
+    level_maps[1][13][110] = TILE_EMPTY;
 
     level_maps[1][12][MAP_W - 3] = TILE_GATE;
     level_maps[1][13][MAP_W - 3] = TILE_GATE;
@@ -267,14 +282,16 @@ static void gen_level_3(void)
         level_maps[2][y][62] = TILE_LADDER;
     }
 
-    /* Brick walls forming maze-like sections */
+    /* Brick walls forming maze-like sections. Leave a ground-level doorway
+     * through the tall brick column at col 75 so the ground route survives. */
     for (y = 3; y < 9; y++) {
         level_maps[2][y][35] = TILE_BRICK;
         level_maps[2][y][36] = TILE_BRICK;
     }
-    for (y = 5; y < 14; y++) {
+    for (y = 5; y < 12; y++) {
         level_maps[2][y][75] = TILE_BRICK;
     }
+    /* rows 12,13 at col 75 stay empty as walk-through gap */
 
     /* Upper metal walkways */
     for (x = 70; x < 85; x++)
@@ -296,6 +313,9 @@ static void gen_level_3(void)
     }
     for (y = 0; y < MAP_H; y++)
         level_maps[2][y][105] = TILE_METAL;
+    /* Doorway into boss arena */
+    level_maps[2][12][105] = TILE_EMPTY;
+    level_maps[2][13][105] = TILE_EMPTY;
 
     /* Some platforms in boss arena */
     for (x = 112; x < 118; x++)

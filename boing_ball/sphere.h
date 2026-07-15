@@ -20,7 +20,7 @@ typedef struct {
 
 extern SphereFrame sphere_frames[NUM_DEPTHS][NUM_FRAMES];
 
-void sphere_init(void);
+BOOL sphere_init(void);
 void sphere_cleanup(void);
 
 #endif

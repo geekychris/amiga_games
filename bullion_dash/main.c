@@ -142,7 +142,6 @@ int main(void)
     int running = 1;
     int dx, dy;
     int dig_left, dig_right;
-    int i;
 
     /* Open libraries */
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
@@ -260,20 +259,16 @@ int main(void)
             enemy_update_all(&gs);
             level_tick_bricks(&gs);
 
-            /* Check player vs enemy collisions */
-            for (i = 0; i < gs.num_enemies; i++) {
-                if (!gs.enemies[i].active) continue;
-                if (gs.enemies[i].state == ES_TRAPPED) continue;
-                if (gs.enemies[i].state == ES_DEAD) continue;
-                if (gs.player.gx == gs.enemies[i].gx &&
-                    gs.player.gy == gs.enemies[i].gy) {
-                    gs.state = STATE_DYING;
-                    gs.player.state = PS_DEAD;
-                    transition_frames = 30;
-                    AB_I("Player caught by enemy at (%ld,%ld)",
-                         (long)gs.player.gx, (long)gs.player.gy);
-                    break;
-                }
+            /* Check player vs enemy collisions using the shared
+             * pixel-level helper so we don't duplicate collision
+             * logic and get the correct hit-box behavior during
+             * mid-tile animation. */
+            if (enemy_check_collision(&gs)) {
+                gs.state = STATE_DYING;
+                gs.player.state = PS_DEAD;
+                transition_frames = 30;
+                AB_I("Player caught by enemy at (%ld,%ld)",
+                     (long)gs.player.gx, (long)gs.player.gy);
             }
 
             /* Check if all gold collected - reveal hidden ladders */

@@ -15,13 +15,13 @@
 #define COL_WHITE       1
 #define COL_PLATFORM    2
 #define COL_PLAT_SHADOW 3
-#define COL_P1_OSTRICH  4
-#define COL_P1_RIDER    5
-#define COL_P2_OSTRICH  6
-#define COL_P2_RIDER    7
-#define COL_BOUNDER     8
-#define COL_HUNTER      9
-#define COL_SHADOW      10
+#define COL_P1_MOUNT    4
+#define COL_P1_KNIGHT   5
+#define COL_P2_MOUNT    6
+#define COL_P2_KNIGHT   7
+#define COL_SWOOPER     8
+#define COL_RAIDER      9
+#define COL_WRAITH      10
 #define COL_EGG         11
 #define COL_SCORE       12
 #define COL_GROUND      13
@@ -227,23 +227,23 @@ static void safe_rect(struct RastPort *rp, WORD x1, WORD y1, WORD x2, WORD y2)
     RectFill(rp, x1, y1, x2, y2);
 }
 
-/* Draw ostrich rider (player or enemy) - 20x20 bounding box */
+/* Draw a mounted knight (player or enemy) - 20x20 bounding box */
 static void draw_rider(struct RastPort *rp, WORD x, WORD y, WORD facing,
                        WORD flapping, WORD anim_frame,
-                       WORD body_color, WORD rider_color)
+                       WORD body_color, WORD knight_color)
 {
     WORD rx = x;
     if (rx < -PLAYER_W - 4 || rx >= SCREEN_W + 4) return;
     if (y < -4 || y >= SCREEN_H) return;
 
-    /* Rider (upper body) - 7x7 block at top */
-    SetAPen(rp, rider_color);
+    /* Knight (upper body) - 7x7 block at top */
+    SetAPen(rp, knight_color);
     safe_rect(rp, rx + 6, y, rx + 13, y + 6);
 
-    /* Rider head */
+    /* Knight head */
     safe_rect(rp, rx + 7, y - 2, rx + 12, y - 1);
 
-    /* Lance (in facing direction) */
+    /* Strike weapon (in facing direction) */
     SetAPen(rp, COL_WHITE);
     if (facing == 0) {
         safe_rect(rp, rx + 14, y + 2, rx + 19, y + 4);
@@ -251,14 +251,14 @@ static void draw_rider(struct RastPort *rp, WORD x, WORD y, WORD facing,
         safe_rect(rp, rx, y + 2, rx + 5, y + 4);
     }
 
-    /* Ostrich body - wider and taller */
+    /* Mount body - wider and taller */
     SetAPen(rp, body_color);
     safe_rect(rp, rx + 3, y + 7, rx + 16, y + 13);
 
-    /* Ostrich neck */
+    /* Mount neck */
     safe_rect(rp, rx + 4, y + 4, rx + 6, y + 7);
 
-    /* Ostrich head/beak */
+    /* Mount head/beak */
     if (facing == 0) {
         safe_rect(rp, rx + 2, y + 2, rx + 4, y + 5);
         SetAPen(rp, COL_SCORE);
@@ -310,9 +310,9 @@ static void draw_egg(struct RastPort *rp, Egg *eg)
     }
 
     SetAPen(rp, color);
-    RectFill(rp, x + 1, y, x + 6, y + 1);
-    RectFill(rp, x, y + 2, x + 7, y + 5);
-    RectFill(rp, x + 1, y + 6, x + 6, y + 7);
+    safe_rect(rp, x + 1, y,     x + 6, y + 1);
+    safe_rect(rp, x,     y + 2, x + 7, y + 5);
+    safe_rect(rp, x + 1, y + 6, x + 6, y + 7);
 }
 
 /* Draw HUD */
@@ -327,7 +327,7 @@ static void draw_hud(struct RastPort *rp, GameState *gs)
 
     /* Player 1 lives */
     for (i = 0; i < gs->players[0].lives && i < 5; i++) {
-        SetAPen(rp, COL_P1_OSTRICH);
+        SetAPen(rp, COL_P1_MOUNT);
         RectFill(rp, 4 + i * 8, 11, 4 + i * 8 + 5, 15);
     }
 
@@ -341,7 +341,7 @@ static void draw_hud(struct RastPort *rp, GameState *gs)
         draw_text(rp, SCREEN_W - 66, 2, buf, COL_SCORE);
 
         for (i = 0; i < gs->players[1].lives && i < 5; i++) {
-            SetAPen(rp, COL_P2_OSTRICH);
+            SetAPen(rp, COL_P2_MOUNT);
             RectFill(rp, SCREEN_W - 44 + i * 8, 11,
                      SCREEN_W - 44 + i * 8 + 5, 15);
         }
@@ -360,9 +360,9 @@ void draw_title(struct RastPort *rp, GameState *gs)
     /* Subtitle */
     draw_text_centered(rp, 70, "AN ARCADE CLASSIC", COL_WHITE);
 
-    /* Draw a decorative ostrich */
+    /* Draw a decorative mount */
     draw_rider(rp, 144, 100, 0, (gs->frame >> 3) & 1, (gs->frame >> 4) & 1,
-               COL_P1_OSTRICH, COL_P1_RIDER);
+               COL_P1_MOUNT, COL_P1_KNIGHT);
 
     /* Menu */
     y = 150;
@@ -445,29 +445,29 @@ void draw_playing(struct RastPort *rp, GameState *gs)
         if (!e->active) continue;
 
         {
-            WORD body_col, rider_col;
+            WORD body_col, knight_col;
             switch (e->type) {
-            case ETYPE_BOUNDER:
-                body_col = COL_BOUNDER;
-                rider_col = COL_P2_RIDER; /* red */
+            case ETYPE_SWOOPER:
+                body_col = COL_SWOOPER;
+                knight_col = COL_P2_KNIGHT; /* red */
                 break;
-            case ETYPE_HUNTER:
-                body_col = COL_HUNTER;
-                rider_col = COL_LTGRAY;
+            case ETYPE_RAIDER:
+                body_col = COL_RAIDER;
+                knight_col = COL_LTGRAY;
                 break;
-            case ETYPE_SHADOW:
-                body_col = COL_SHADOW;
-                rider_col = COL_P1_RIDER; /* blue */
+            case ETYPE_WRAITH:
+                body_col = COL_WRAITH;
+                knight_col = COL_P1_KNIGHT; /* blue */
                 break;
             default:
-                body_col = COL_BOUNDER;
-                rider_col = COL_P2_RIDER;
+                body_col = COL_SWOOPER;
+                knight_col = COL_P2_KNIGHT;
                 break;
             }
 
             draw_rider(rp, FIX_INT(e->x), FIX_INT(e->y),
                        e->facing, e->anim_frame, e->anim_frame,
-                       body_col, rider_col);
+                       body_col, knight_col);
         }
     }
 
@@ -477,12 +477,12 @@ void draw_playing(struct RastPort *rp, GameState *gs)
         if (!p->alive) continue;
 
         {
-            WORD body_col = (i == 0) ? COL_P1_OSTRICH : COL_P2_OSTRICH;
-            WORD rider_col = (i == 0) ? COL_P1_RIDER : COL_P2_RIDER;
+            WORD body_col = (i == 0) ? COL_P1_MOUNT : COL_P2_MOUNT;
+            WORD knight_col = (i == 0) ? COL_P1_KNIGHT : COL_P2_KNIGHT;
 
             draw_rider(rp, FIX_INT(p->x), FIX_INT(p->y),
                        p->facing, p->flapping, p->anim_frame,
-                       body_col, rider_col);
+                       body_col, knight_col);
         }
     }
 
@@ -496,7 +496,7 @@ void draw_gameover(struct RastPort *rp, GameState *gs)
 
     SetRast(rp, COL_BG);
 
-    draw_text_big_centered(rp, 80, "GAME OVER", COL_P2_RIDER);
+    draw_text_big_centered(rp, 80, "GAME OVER", COL_P2_KNIGHT);
 
     sprintf(buf, "P1 SCORE: %ld", (long)gs->score[0]);
     draw_text_centered(rp, 120, buf, COL_SCORE);

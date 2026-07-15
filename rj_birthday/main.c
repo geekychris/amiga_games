@@ -188,16 +188,20 @@ static void swap_buffers(void)
     }
 
     WaitBlit();
-    ChangeScreenBuffer(screen, sbuf[cur_buf]);
-    safe_to_write[cur_buf] = FALSE;
+    if (ChangeScreenBuffer(screen, sbuf[cur_buf])) {
+        /* Swap successful — this buffer is now displayed, mark unsafe to
+         * write, and flip cur_buf to the other (safe) buffer for drawing. */
+        safe_to_write[cur_buf] = FALSE;
+        cur_buf ^= 1;
 
-    cur_buf ^= 1;
-
-    if (!safe_to_write[cur_buf]) {
-        while (!GetMsg(db_port[cur_buf]))
-            WaitPort(db_port[cur_buf]);
-        safe_to_write[cur_buf] = TRUE;
+        if (!safe_to_write[cur_buf]) {
+            while (!GetMsg(db_port[cur_buf]))
+                WaitPort(db_port[cur_buf]);
+            safe_to_write[cur_buf] = TRUE;
+        }
     }
+    /* On failure: leave cur_buf and safety flags untouched; caller will
+     * simply re-render into the same buffer and retry next frame. */
 }
 
 static void cleanup_display(void)
@@ -254,18 +258,19 @@ int main(void)
 {
     WORD running = 1;
 
+    /* Init bridge first so we can log library-open failures */
+    ab_init("rj_birthday");
+    AB_I("RJ's 70th Birthday Bash starting!");
+
     /* Open libraries */
     IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 39);
     GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 39);
     if (!IntuitionBase || !GfxBase) {
         if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
         if (GfxBase) CloseLibrary((struct Library *)GfxBase);
+        ab_cleanup();
         return 20;
     }
-
-    /* Init bridge */
-    ab_init("rj_birthday");
-    AB_I("RJ's 70th Birthday Bash starting!");
 
     /* Register debug variables */
     ab_register_var("score",      AB_TYPE_I32, &gs.score);
@@ -303,8 +308,8 @@ int main(void)
 
     /* Build sound effects */
     sound_init();
-    sinistar_load_voices();
-    AB_I("Arcade A voices loaded");
+    arcade_voice_load();
+    AB_I("Arcade cabinet A voices loaded");
 
     /* Load MOD music */
     mod_data = load_file_to_chip("DH2:Dev/party.mod", &mod_size);
@@ -363,8 +368,8 @@ int main(void)
         /* Update game */
         game_update(&gs, &inp);
 
-        /* Check if Arcade A voice clip finished playing */
-        sinistar_check_done();
+        /* Check if arcade cabinet A voice clip finished playing */
+        arcade_voice_check_done();
 
         /* Switch to birthday music on win/gameover/credits */
         if ((gs.state == GS_WIN || gs.state == GS_GAMEOVER ||
@@ -459,7 +464,7 @@ int main(void)
     if (bday_mod_data) FreeMem(bday_mod_data, bday_mod_size);
 
     sound_cleanup();
-    sinistar_cleanup_voices();
+    arcade_voice_cleanup();
     cleanup_display();
     ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);

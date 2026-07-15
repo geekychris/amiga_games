@@ -191,10 +191,14 @@ static void swap_buffers(void)
     }
 
     WaitBlit();
-    ChangeScreenBuffer(screen, sbuf[cur_buf]);
-    safe_to_write[cur_buf] = FALSE;
-
-    cur_buf ^= 1;
+    /* ChangeScreenBuffer returns 0 on failure. Only advance our
+     * bookkeeping when the switch was actually accepted, otherwise
+     * we'd flag the wrong buffer as pending-display and eventually
+     * wait forever for a notification that will never arrive. */
+    if (ChangeScreenBuffer(screen, sbuf[cur_buf])) {
+        safe_to_write[cur_buf] = FALSE;
+        cur_buf ^= 1;
+    }
 
     if (!safe_to_write[cur_buf]) {
         while (!GetMsg(db_port[cur_buf]))
@@ -209,11 +213,26 @@ static void cleanup_display(void)
 
     if (window) { CloseWindow(window); window = NULL; }
 
-    if (!safe_to_write[0]) {
-        while (!GetMsg(db_port[0])) WaitPort(db_port[0]);
+    /* Retire whichever buffer is currently on display by switching to
+     * a known "final" buffer (buffer 0). Once that succeeds — or if
+     * there's no screen at all — no further SafeMessage notifications
+     * can arrive, so we only need to drain the ones that were still
+     * pending at swap time. */
+    if (screen && sbuf[0]) {
+        WaitBlit();
+        if (ChangeScreenBuffer(screen, sbuf[0])) {
+            /* We just displayed buffer 0; the other buffer is now
+             * eligible to receive a SafeMessage. Track it. */
+            safe_to_write[0] = FALSE;
+        }
     }
-    if (!safe_to_write[1]) {
-        while (!GetMsg(db_port[1])) WaitPort(db_port[1]);
+
+    /* Drain any outstanding SafeMessages before freeing the buffers. */
+    for (i = 0; i < 2; i++) {
+        if (!safe_to_write[i] && db_port[i]) {
+            while (!GetMsg(db_port[i])) WaitPort(db_port[i]);
+            safe_to_write[i] = TRUE;
+        }
     }
 
     for (i = 0; i < 2; i++) {
@@ -226,11 +245,32 @@ static void cleanup_display(void)
 
 /* --- Bridge hooks --- */
 
+/* Bounded copy helper: copy up to bufsz-1 chars from src into buf and
+ * always NUL-terminate. Rejects non-positive bufsz. */
+static void hook_reply(char *buf, int bufsz, const char *src)
+{
+    int i;
+    if (!buf || bufsz <= 0) return;
+    for (i = 0; i < bufsz - 1 && src && src[i] != '\0'; i++)
+        buf[i] = src[i];
+    buf[i] = '\0';
+}
+
+/* Bounded formatted helper: sprintf into a scratch buffer, then bounded-copy.
+ * Only supports the single-LONG format strings used by hooks below. */
+static void hook_replyf(char *buf, int bufsz, const char *fmt, long v)
+{
+    char scratch[64];
+    if (!buf || bufsz <= 0) return;
+    sprintf(scratch, fmt, v);
+    hook_reply(buf, bufsz, scratch);
+}
+
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
     (void)args;
     game_init(&gs);
-    strncpy(buf, "Game reset", bufsz);
+    hook_reply(buf, bufsz, "Game reset");
     return 0;
 }
 
@@ -239,7 +279,7 @@ static int hook_next_level(const char *args, char *buf, int bufsz)
     (void)args;
     game_new_level(&gs);
     gs.state = STATE_PLAYING;
-    sprintf(buf, "Level %ld", (long)gs.level);
+    hook_replyf(buf, bufsz, "Level %ld", (long)gs.level);
     return 0;
 }
 
@@ -247,7 +287,7 @@ static int hook_add_life(const char *args, char *buf, int bufsz)
 {
     (void)args;
     gs.lives++;
-    sprintf(buf, "Lives: %ld", (long)gs.lives);
+    hook_replyf(buf, bufsz, "Lives: %ld", (long)gs.lives);
     return 0;
 }
 
@@ -255,7 +295,7 @@ static int hook_add_fuel(const char *args, char *buf, int bufsz)
 {
     (void)args;
     gs.ship.fuel = (WORD)g_tune.fuel_max;
-    sprintf(buf, "Fuel refilled to %ld", (long)gs.ship.fuel);
+    hook_replyf(buf, bufsz, "Fuel refilled to %ld", (long)gs.ship.fuel);
     return 0;
 }
 

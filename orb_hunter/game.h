@@ -52,7 +52,7 @@ extern UBYTE tile_props[NUM_TILE_TYPES];
 /* Hunter (player) dimensions */
 #define HUNTER_W        14
 #define HUNTER_H        16
-#define HUNTER_MORPH_H  8    /* height when morphed */
+#define HUNTER_ROLL_H   8    /* height when in roll form */
 #define HUNTER_SPEED    FIX(2)
 #define HUNTER_JUMP_VEL FIX(-4)
 #define HUNTER_HIGH_JUMP FIX(-5)
@@ -80,16 +80,16 @@ typedef struct {
     WORD  anim_frame;
     WORD  anim_timer;
     /* Power-up flags */
-    WORD  has_morph_ball;
+    WORD  has_roll_form;
     WORD  has_bombs;
     WORD  has_missiles;
     WORD  has_long_beam;
     WORD  has_ice_beam;
-    WORD  has_screw_attack;
+    WORD  has_spin_strike;
     WORD  has_high_jump;
-    WORD  has_varia_suit;
-    /* Morph ball state */
-    WORD  morphed;       /* currently in morph ball */
+    WORD  has_heat_suit;
+    /* Roll form state */
+    WORD  rolled;        /* currently in roll form */
     WORD  bomb_timer;
 } Hunter;
 
@@ -112,7 +112,7 @@ typedef struct {
     WORD  power;    /* damage */
 } Bullet;
 
-/* Bombs (morph ball) */
+/* Bombs (roll form) */
 #define MAX_BOMBS       3
 #define BOMB_FUSE       30   /* frames until detonation */
 #define BOMB_RADIUS     24   /* pixel radius */
@@ -128,8 +128,8 @@ typedef struct {
 #define ENEMY_FLYER         1
 #define ENEMY_HOPPER        2
 #define ENEMY_TURRET        3
-#define ENEMY_BOSS_KRAID    4
-#define ENEMY_BOSS_RIDLEY   5
+#define ENEMY_BOSS_BEAST    4
+#define ENEMY_BOSS_DRAKE    5
 
 #define MAX_ENEMIES         12
 #define MAX_ENEMY_BULLETS   6
@@ -168,13 +168,13 @@ typedef struct {
 /* Item types */
 #define ITEM_ENERGY_TANK    0
 #define ITEM_MISSILE_PACK   1
-#define ITEM_MORPH_BALL     2
+#define ITEM_ROLL_FORM      2
 #define ITEM_BOMBS          3
 #define ITEM_LONG_BEAM      4
 #define ITEM_ICE_BEAM       5
 #define ITEM_HIGH_JUMP      6
-#define ITEM_SCREW_ATTACK   7
-#define ITEM_VARIA_SUIT     8
+#define ITEM_SPIN_STRIKE    7
+#define ITEM_HEAT_SUIT      8
 #define ITEM_MISSILE_DOOR   9
 #define MAX_ITEMS           24
 

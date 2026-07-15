@@ -45,9 +45,17 @@ static int hook_reset(const char *args, char *resultBuf, int bufSize)
 /* Hook: get ball status */
 static int hook_status(const char *args, char *resultBuf, int bufSize)
 {
-    sprintf(resultBuf, "pos=(%ld,%ld) vel=(%ld,%ld) frame=%lu",
+    char local[128];
+
+    if (!resultBuf || bufSize <= 0) {
+        return 0;
+    }
+
+    sprintf(local, "pos=(%ld,%ld) vel=(%ld,%ld) frame=%lu",
             (long)ball_x, (long)ball_y, (long)ball_dx, (long)ball_dy,
             (unsigned long)frame_count);
+
+    strncpy(resultBuf, local, bufSize - 1);
     resultBuf[bufSize - 1] = '\0';
     return 0;
 }
@@ -147,7 +155,7 @@ int main(void)
     inner_w = win->GZZWidth;
     inner_h = win->GZZHeight;
 
-    AB_I("Window opened: %ldx%ld", inner_w, inner_h);
+    AB_I("Window opened: %ldx%ld", (long)inner_w, (long)inner_h);
 
     while (running) {
         /* Check for close */
@@ -195,7 +203,8 @@ int main(void)
 
         /* Log bounces (less frequent than every frame) */
         if ((frame_count % 300) == 0) {
-            AB_D("Frame %lu pos=(%ld,%ld)", frame_count, ball_x, ball_y);
+            AB_D("Frame %lu pos=(%ld,%ld)", (unsigned long)frame_count,
+                 (long)ball_x, (long)ball_y);
         }
 
         /* Poll for commands from bridge daemon */

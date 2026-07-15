@@ -153,7 +153,7 @@ const Model models[MODEL_COUNT] = {
     /* MODEL_BIPLANE */
     { 9, 12, biplane_verts, biplane_edges, 15 },
     /* MODEL_BLIMP */
-    { 10, 15, blimp_verts, blimp_edges, 22 },
+    { 10, 16, blimp_verts, blimp_edges, 22 },
     /* MODEL_HANGAR */
     { 8, 12, hangar_verts, hangar_edges, 18 },
     /* MODEL_FUEL_TANK */

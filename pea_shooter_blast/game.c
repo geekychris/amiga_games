@@ -46,6 +46,26 @@ static WORD tile_is_platform(WORD level, WORD tx, WORD ty)
     return (tile_props[t] & TPROP_PLATFORM) ? 1 : 0;
 }
 
+/* Check if a tile is a ladder */
+static WORD tile_is_ladder(WORD level, WORD tx, WORD ty)
+{
+    UBYTE t = tile_at(level, tx, ty);
+    return (tile_props[t] & TPROP_LADDER) ? 1 : 0;
+}
+
+/* Is the tank currently overlapping a ladder tile? */
+static WORD tank_on_ladder(WORD level, Fixed x, Fixed y)
+{
+    WORD px = FIX_INT(x) + TANK_W / 2;
+    WORD py_top = FIX_INT(y);
+    WORD py_bot = py_top + TANK_H - 1;
+    WORD tx = px / TILE_W;
+    WORD ty_top = py_top / TILE_H;
+    WORD ty_bot = py_bot / TILE_H;
+    return tile_is_ladder(level, tx, ty_top) ||
+           tile_is_ladder(level, tx, ty_bot);
+}
+
 /* --- Enemy spawn data per level --- */
 
 typedef struct {
@@ -213,11 +233,12 @@ void game_load_level(GameState *gs, WORD level_num)
 /* --- Tank update --- */
 
 static void update_tank(GameState *gs, WORD inp_left, WORD inp_right,
-                        WORD inp_jump, WORD inp_fire)
+                        WORD inp_jump, WORD inp_down, WORD inp_fire)
 {
     Tank *t = &gs->tank;
     Fixed move_speed;
     WORD tx_left, tx_right, ty_top, ty_bot;
+    WORD on_ladder;
 
     if (!t->alive) return;
 
@@ -240,26 +261,45 @@ static void update_tank(GameState *gs, WORD inp_left, WORD inp_right,
         t->dx = 0;
     }
 
-    /* Jump */
-    if (inp_jump && t->on_ground && !t->jump_held) {
-        t->dy = -((Fixed)((g_tune.jump_power * 65536L) / 100));
-        t->on_ground = 0;
-        t->jump_held = 1;
-        sfx_jump();
-    }
-    if (!inp_jump) {
-        t->jump_held = 0;
-        /* Cut jump short if released early */
-        if (t->dy < 0) {
-            t->dy = t->dy / 2;
-        }
-    }
+    /* Ladder detection: if tank overlaps a ladder tile, allow climbing
+     * with up/down and suppress gravity while actively climbing. */
+    on_ladder = tank_on_ladder(gs->level, t->x, t->y);
 
-    /* Gravity */
-    {
-        Fixed grav = (Fixed)((g_tune.gravity * 65536L) / 100);
-        t->dy += grav;
-        if (t->dy > TANK_MAX_FALL) t->dy = TANK_MAX_FALL;
+    if (on_ladder && (inp_jump || inp_down)) {
+        /* Climbing: override vertical velocity, no gravity, no jump */
+        Fixed climb = (Fixed)((g_tune.tank_speed * 65536L) / 100);
+        if (inp_jump) t->dy = -climb;
+        else if (inp_down) t->dy = climb;
+        /* Suppress jump edge trigger while climbing */
+        t->jump_held = inp_jump ? 1 : 0;
+        t->on_ground = 0;
+    } else {
+        /* Jump */
+        if (inp_jump && t->on_ground && !t->jump_held) {
+            t->dy = -((Fixed)((g_tune.jump_power * 65536L) / 100));
+            t->on_ground = 0;
+            t->jump_held = 1;
+            sfx_jump();
+        }
+        if (!inp_jump) {
+            t->jump_held = 0;
+            /* Cut jump short if released early */
+            if (t->dy < 0) {
+                t->dy = t->dy / 2;
+            }
+        }
+
+        /* Gravity (only when not actively climbing a ladder) */
+        {
+            Fixed grav = (Fixed)((g_tune.gravity * 65536L) / 100);
+            t->dy += grav;
+            if (t->dy > TANK_MAX_FALL) t->dy = TANK_MAX_FALL;
+        }
+
+        /* If merely standing on a ladder with no input, hold still vertically */
+        if (on_ladder && !inp_jump && !inp_down && t->dy > 0) {
+            t->dy = 0;
+        }
     }
 
     /* Horizontal collision */
@@ -868,13 +908,13 @@ static void update_scroll(GameState *gs)
 /* --- Main update --- */
 
 void game_update(GameState *gs, WORD inp_left, WORD inp_right,
-                 WORD inp_jump, WORD inp_fire)
+                 WORD inp_jump, WORD inp_down, WORD inp_fire)
 {
     gs->frame++;
 
     switch (gs->state) {
         case STATE_PLAYING:
-            update_tank(gs, inp_left, inp_right, inp_jump, inp_fire);
+            update_tank(gs, inp_left, inp_right, inp_jump, inp_down, inp_fire);
             update_bullets(gs);
             update_enemies(gs);
             update_enemy_bullets(gs);

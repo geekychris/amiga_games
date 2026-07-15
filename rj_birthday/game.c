@@ -263,7 +263,9 @@ void game_save_names(GameState *gs, const char *filename)
 void game_load_names(GameState *gs, const char *filename)
 {
     BPTR fh;
-    char buf[256];
+    /* Full payload: MAX_NAMES * (NAME_LEN-1) chars + MAX_NAMES delimiters + NUL.
+     * For MAX_NAMES=16, NAME_LEN=16 => 16*15 + 16 + 1 = 257. Round up. */
+    char buf[MAX_NAMES * NAME_LEN + 16];
     WORD count = 0;
 
     fh = Open((CONST_STRPTR)filename, MODE_OLDFILE);
@@ -284,7 +286,7 @@ void game_load_names(GameState *gs, const char *filename)
         LONG len;
         WORD i;
 
-        len = Read(fh, buf, 255);
+        len = Read(fh, buf, (LONG)(sizeof(buf) - 1));
         if (len <= 0) break;
         buf[len] = 0;
 
@@ -1607,7 +1609,7 @@ void game_update(GameState *gs, InputState *inp)
 
         /* Arcade cabinets */
         if (inp->fire_edge && !fire_used && gs->current_room == ROOM_SILICON &&
-            gs->arcade_timer <= 0 && !sinistar_is_playing()) {
+            gs->arcade_timer <= 0 && !arcade_voice_is_playing()) {
             Player *p = &gs->player;
             WORD room_x = ROOM_SILICON * ROOM_W;
             WORD dx_sin = p->x - (room_x + 35);
@@ -1617,16 +1619,16 @@ void game_update(GameState *gs, InputState *inp)
             gs->arcade_timer = 100;
             gs->arcade_which = 0;
             gs->score += 200;
-            sinistar_play_random();  /* pause music, play RJ's voice! */
+            arcade_voice_play_random();  /* pause music, play arcade voice */
             gs->rj_bubble_timer = 80;
             {
-                static const char *sin_quotes[] = {
-                    "BEWARE I LIVE!",
-                    "I HUNGER!",
-                    "RUN RUN RUN!",
-                    "BEWARE COWARD!"
+                static const char *arcade_quotes[] = {
+                    "GAME ON!",
+                    "READY PLAYER!",
+                    "HIGH SCORE!",
+                    "LEVEL UP!"
                 };
-                const char *s = sin_quotes[rng() % 4];
+                const char *s = arcade_quotes[rng() % 4];
                 WORD j;
                 for (j = 0; s[j] && j < BUBBLE_LEN - 1; j++)
                     gs->rj_bubble[j] = s[j];

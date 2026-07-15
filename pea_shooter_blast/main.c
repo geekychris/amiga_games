@@ -365,7 +365,12 @@ static void swap_buffers(void)
 
     WaitBlit();
 
-    ChangeScreenBuffer(screen, sbuf[cur_buf]);
+    /* If the flip fails (OS refused the buffer change), do NOT mark the buffer
+     * unsafe and do NOT rotate cur_buf — otherwise we would wait forever for
+     * a dbi_SafeMessage that never arrives. */
+    if (!ChangeScreenBuffer(screen, sbuf[cur_buf])) {
+        return;
+    }
     safe_to_write[cur_buf] = FALSE;
 
     cur_buf ^= 1;
@@ -565,6 +570,7 @@ int main(void)
                 game_update(&gs, (inp & INPUT_LEFT) ? 1 : 0,
                                  (inp & INPUT_RIGHT) ? 1 : 0,
                                  (inp & INPUT_JUMP) ? 1 : 0,
+                                 (inp & INPUT_DOWN) ? 1 : 0,
                                  (inp & INPUT_FIRE) ? 1 : 0);
 
                 /* Set global level for tile drawing */

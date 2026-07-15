@@ -269,8 +269,20 @@ void hiscore_load(GameState *gs)
 
     fh = Open("DH2:Dev/uranus.scores", MODE_OLDFILE);
     if (fh) {
-        Read(fh, gs->hiscores, (LONG)sizeof(HiScoreEntry) * MAX_HISCORES);
+        LONG want = (LONG)sizeof(HiScoreEntry) * MAX_HISCORES;
+        LONG got  = Read(fh, gs->hiscores, want);
         Close(fh);
+        if (got != want) {
+            /* Short/failed read — discard partial contents and restore
+             * defaults so draw_title never renders uninitialised data. */
+            hiscore_defaults(gs);
+        } else {
+            /* Force-null-terminate every name before it can be drawn. */
+            WORD i;
+            for (i = 0; i < MAX_HISCORES; i++) {
+                gs->hiscores[i].name[NAME_LEN - 1] = '\0';
+            }
+        }
     }
 }
 
@@ -495,6 +507,11 @@ void game_update(GameState *gs, InputState *inp)
         /* Low fuel warning */
         if (s->fuel > 0 && s->fuel < 80 && (gs->frame & 31) == 0)
             gs->ev_low_fuel = 1;
+
+        /* Count down the post-respawn invulnerability grace period so
+         * draw_ship stops blinking after ~50 ticks. */
+        if (gs->state_timer > 0)
+            gs->state_timer--;
 
         break;
     }

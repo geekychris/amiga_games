@@ -185,8 +185,12 @@ static void swap_buffers(void)
     }
 
     WaitBlit();
-    ChangeScreenBuffer(screen, sbuf[cur_buf]);
-    safe_to_write[cur_buf] = FALSE;
+    if (ChangeScreenBuffer(screen, sbuf[cur_buf])) {
+        /* Buffer swap accepted; a SafeMessage reply will follow */
+        safe_to_write[cur_buf] = FALSE;
+    }
+    /* If the swap failed, leave safe_to_write[cur_buf] as TRUE so we
+     * retry on the next frame (no reply is coming for a rejected swap). */
 
     cur_buf ^= 1;
 
@@ -218,48 +222,73 @@ static void cleanup_display(void)
 }
 
 /* --- Bridge hooks --- */
+
+/* Safely copy a formatted string into caller's buf honoring bufsz.
+ * Returns 0 on success (safe even with null/zero-sized buf). */
+static void hook_copy(char *buf, int bufsz, const char *src)
+{
+    int n;
+    if (!buf || bufsz <= 0) return;
+    n = (int)strlen(src);
+    if (n > bufsz - 1) n = bufsz - 1;
+    memcpy(buf, src, n);
+    buf[n] = '\0';
+}
+
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
+    (void)args;
     game_init(&world);
-    strncpy(buf, "Game reset", bufsz);
+    hook_copy(buf, bufsz, "Game reset");
     return 0;
 }
 
 static int hook_next_wave(const char *args, char *buf, int bufsz)
 {
     WORD i;
+    char tmp[64];
+    (void)args;
     for (i = 0; i < MAX_ENEMIES; i++)
         world.enemies[i].active = 0;
     world.enemies_alive = 0;
     world.enemies_to_spawn = 0;
     game_spawn_wave(&world);
-    sprintf(buf, "Wave %ld", (long)world.wave);
+    sprintf(tmp, "Wave %ld", (long)world.wave);
+    hook_copy(buf, bufsz, tmp);
     return 0;
 }
 
 static int hook_toggle_display(const char *args, char *buf, int bufsz)
 {
+    char tmp[64];
+    (void)args;
     g_tune.display_mode = 1 - g_tune.display_mode;
-    sprintf(buf, "Display: %s",
+    sprintf(tmp, "Display: %s",
             g_tune.display_mode == DISPLAY_CLASSIC ? "classic" : "color");
+    hook_copy(buf, bufsz, tmp);
     return 0;
 }
 
 static int hook_status(const char *args, char *buf, int bufsz)
 {
-    sprintf(buf, "W%ld P1:%ld P2:%ld E:%ld",
+    char tmp[96];
+    (void)args;
+    sprintf(tmp, "W%ld P1:%ld P2:%ld E:%ld",
             (long)world.wave,
             (long)world.players[0].score,
             (long)world.players[1].score,
             (long)world.enemies_alive);
+    hook_copy(buf, bufsz, tmp);
     return 0;
 }
 
 static int hook_set_difficulty(const char *args, char *buf, int bufsz)
 {
     LONG d;
+    char tmp[64];
     if (!args || !args[0]) {
-        sprintf(buf, "Difficulty: %ld", (long)g_tune.difficulty);
+        sprintf(tmp, "Difficulty: %ld", (long)g_tune.difficulty);
+        hook_copy(buf, bufsz, tmp);
         return 0;
     }
     d = 0;
@@ -270,7 +299,8 @@ static int hook_set_difficulty(const char *args, char *buf, int bufsz)
     if (d < 1) d = 1;
     if (d > 10) d = 10;
     g_tune.difficulty = d;
-    sprintf(buf, "Difficulty set to %ld", (long)d);
+    sprintf(tmp, "Difficulty set to %ld", (long)d);
+    hook_copy(buf, bufsz, tmp);
     return 0;
 }
 
@@ -288,18 +318,19 @@ int main(void)
     LONG var_state = 0;
     WORD push_timer = 0;
 
+    /* Init bridge first so we can log library-open failures */
+    ab_init("ace_pilot");
+    AB_I("Ace Pilot starting up");
+
     /* Open libraries */
     IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 39);
     GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 39);
     if (!IntuitionBase || !GfxBase) {
         if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
         if (GfxBase) CloseLibrary((struct Library *)GfxBase);
+        ab_cleanup();
         return 20;
     }
-
-    /* Init bridge */
-    ab_init("ace_pilot");
-    AB_I("Ace Pilot starting up");
 
     /* Register tunables */
     ab_register_var("enemy_speed",     AB_TYPE_I32, &g_tune.enemy_speed);

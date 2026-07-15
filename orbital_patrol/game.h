@@ -65,20 +65,20 @@ char *sprintf(char *buf, const char *fmt, ...);
 #define STATE_HISCORE_ENTRY 7
 #define STATE_HISCORE_VIEW  8
 
-/* Enemy types */
+/* Enemy types (generic sci-fi names to avoid franchise references) */
 #define ENT_NONE        0
-#define ENT_LANDER      1
-#define ENT_MUTANT      2
-#define ENT_BAITER      3
-#define ENT_BOMBER      4
-#define ENT_POD         5
-#define ENT_SWARMER     6
+#define ENT_DIVER       1
+#define ENT_STALKER     2
+#define ENT_CHASER      3
+#define ENT_DROPPER     4
+#define ENT_HIVE        5
+#define ENT_DRONE       6
 
-/* Lander states */
-#define LANDER_SEEKING      0
-#define LANDER_DESCENDING   1
-#define LANDER_GRABBING     2
-#define LANDER_ASCENDING    3
+/* Diver states */
+#define DIVER_SEEKING      0
+#define DIVER_DESCENDING   1
+#define DIVER_GRABBING     2
+#define DIVER_ASCENDING    3
 
 /* Human states */
 #define HUMAN_WALKING   0
@@ -98,12 +98,12 @@ char *sprintf(char *buf, const char *fmt, ...);
 #define INPUT_START     0x0100
 
 /* Scoring */
-#define SCORE_LANDER    150
-#define SCORE_MUTANT    150
-#define SCORE_BAITER    200
-#define SCORE_BOMBER    250
-#define SCORE_POD       1000
-#define SCORE_SWARMER   150
+#define SCORE_DIVER     150
+#define SCORE_STALKER   150
+#define SCORE_CHASER    200
+#define SCORE_DROPPER   250
+#define SCORE_HIVE      1000
+#define SCORE_DRONE     150
 #define SCORE_MINE      50
 #define SCORE_HUMAN_CATCH   500
 #define SCORE_HUMAN_LAND    250
@@ -120,25 +120,25 @@ char *sprintf(char *buf, const char *fmt, ...);
 #define COL_SHIP_BODY   6
 #define COL_SHIP_WING   6   /* shared */
 #define COL_THRUST      7
-#define COL_LANDER      8
-#define COL_LANDER2     8   /* shared */
-#define COL_MUTANT      9
+#define COL_DIVER       8
+#define COL_DIVER2      8   /* shared */
+#define COL_STALKER     9
 #define COL_LASER       1   /* white */
 #define COL_LASER2      1
-#define COL_BOMBER      10
-#define COL_POD         9   /* shared with mutant */
-#define COL_SWARMER     7   /* shared with thrust */
+#define COL_DROPPER     10
+#define COL_HIVE        9   /* shared with stalker */
+#define COL_DRONE       7   /* shared with thrust */
 #define COL_HUMAN       1   /* white */
 #define COL_HUMAN2      5   /* shared with terrain_lt */
-#define COL_EXPL_RED    10  /* shared with bomber */
+#define COL_EXPL_RED    10  /* shared with dropper */
 #define COL_EXPL_ORG    7   /* shared with thrust */
 #define COL_EXPL_YEL    6   /* shared with ship */
 #define COL_SCANNER_BG  3   /* shared with terrain_dk */
 #define COL_SCANNER_BRD 2   /* shared with star_dim */
 #define COL_HUD         11
 #define COL_HUD2        11  /* shared */
-#define COL_MINE        10  /* shared with bomber */
-#define COL_BAITER      11  /* shared with HUD */
+#define COL_MINE        10  /* shared with dropper */
+#define COL_CHASER      11  /* shared with HUD */
 #define COL_FLASH       1   /* white */
 #define COL_HYPER       11  /* shared */
 
@@ -164,7 +164,7 @@ typedef struct {
     WORD hp;
     WORD state;             /* type-specific state */
     WORD timer;             /* general purpose timer */
-    WORD target_human;      /* for landers */
+    WORD target_human;      /* for divers */
     WORD anim_frame;
 } Enemy;
 
@@ -226,7 +226,7 @@ typedef struct {
     WORD    enemies_alive;
     WORD    humans_alive;
     WORD    planet_destroyed;   /* all humans dead = planet gone */
-    WORD    baiter_timer;       /* counts down, spawns baiter at 0 */
+    WORD    chaser_timer;       /* counts down, spawns chaser at 0 */
     WORD    wave_enemies_total; /* total enemies to spawn this wave */
 
     /* Sound event flags */
@@ -249,7 +249,7 @@ typedef struct {
 /* High score table */
 #define MAX_HISCORES    10
 #define HISCORE_NAMELEN 8
-#define HISCORE_FILE    "DH2:Dev/orbital_patrol.scores"
+#define HISCORE_FILE    "PROGDIR:orbital_patrol.scores"
 
 typedef struct {
     char name[HISCORE_NAMELEN];

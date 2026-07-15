@@ -13,13 +13,13 @@ WORD g_num_items = 0;
 
 /* Room type identifiers for generation */
 #define RTYPE_SOLID      0
-#define RTYPE_BRINSTAR   1
-#define RTYPE_NORFAIR    2
+#define RTYPE_CAVERN     1
+#define RTYPE_MAGMA      2
 #define RTYPE_CORRIDOR   3
-#define RTYPE_BOSS_KRAID 4
-#define RTYPE_BOSS_RIDLEY 5
-#define RTYPE_TOURIAN    6
-#define RTYPE_MORPH_AREA 7
+#define RTYPE_BOSS_BEAST 4
+#define RTYPE_BOSS_DRAKE 5
+#define RTYPE_CITADEL    6
+#define RTYPE_ROLL_AREA  7
 #define RTYPE_START      8
 
 /* World layout map: which type each room is */
@@ -145,8 +145,8 @@ static void add_platforms(WORD rx, WORD ry, UBYTE plat_tile, WORD count)
     }
 }
 
-/* Generate a Brinstar-style room */
-static void gen_brinstar(WORD rx, WORD ry)
+/* Generate a cavern-style room */
+static void gen_cavern(WORD rx, WORD ry)
 {
     ULONG h = room_hash(rx, ry, 0);
 
@@ -178,8 +178,8 @@ static void gen_brinstar(WORD rx, WORD ry)
     add_platforms(rx, ry, TILE_PLATFORM, 2 + (WORD)(h % 3));
 }
 
-/* Generate a Norfair-style room */
-static void gen_norfair(WORD rx, WORD ry)
+/* Generate a magma-style room */
+static void gen_magma(WORD rx, WORD ry)
 {
     ULONG h = room_hash(rx, ry, 0);
 
@@ -219,8 +219,8 @@ static void gen_corridor(WORD rx, WORD ry)
     add_platforms(rx, ry, TILE_PLATFORM, 1);
 }
 
-/* Generate boss arena: Kraid */
-static void gen_boss_kraid(WORD rx, WORD ry)
+/* Generate boss arena: Beast */
+static void gen_boss_beast(WORD rx, WORD ry)
 {
     fill_room(rx, ry, TILE_EMPTY);
     add_shell(rx, ry, TILE_METAL, 2, 1);
@@ -236,15 +236,16 @@ static void gen_boss_kraid(WORD rx, WORD ry)
             world_rooms[ry][rx][10][x] = TILE_PLATFORM;
     }
 
-    /* Locked door on entry side */
+    /* Locked door on entry side - fill entire doorway carved by add_shell */
     if (has_exit_left(rx, ry)) {
-        world_rooms[ry][rx][ROOM_H / 2 - 2][0] = TILE_DOOR_LOCKED;
-        world_rooms[ry][rx][ROOM_H / 2 - 1][0] = TILE_DOOR_LOCKED;
+        WORD y;
+        for (y = ROOM_H / 2 - 2; y < ROOM_H / 2 + 2; y++)
+            world_rooms[ry][rx][y][0] = TILE_DOOR_LOCKED;
     }
 }
 
-/* Generate boss arena: Ridley */
-static void gen_boss_ridley(WORD rx, WORD ry)
+/* Generate boss arena: Drake */
+static void gen_boss_drake(WORD rx, WORD ry)
 {
     fill_room(rx, ry, TILE_EMPTY);
     add_shell(rx, ry, TILE_METAL, 2, 1);
@@ -268,8 +269,8 @@ static void gen_boss_ridley(WORD rx, WORD ry)
     }
 }
 
-/* Generate Tourian room */
-static void gen_tourian(WORD rx, WORD ry)
+/* Generate citadel room */
+static void gen_citadel(WORD rx, WORD ry)
 {
     ULONG h = room_hash(rx, ry, 0);
 
@@ -287,15 +288,16 @@ static void gen_tourian(WORD rx, WORD ry)
     /* Platform stepping stones */
     add_platforms(rx, ry, TILE_METAL, 2);
 
-    /* A locked door somewhere */
+    /* A locked door somewhere - fill entire doorway carved by add_shell */
     if (has_exit_right(rx, ry) && (h & 1)) {
-        world_rooms[ry][rx][ROOM_H / 2 - 2][ROOM_W - 1] = TILE_DOOR_LOCKED;
-        world_rooms[ry][rx][ROOM_H / 2 - 1][ROOM_W - 1] = TILE_DOOR_LOCKED;
+        WORD y;
+        for (y = ROOM_H / 2 - 2; y < ROOM_H / 2 + 2; y++)
+            world_rooms[ry][rx][y][ROOM_W - 1] = TILE_DOOR_LOCKED;
     }
 }
 
-/* Generate morph ball area: low ceilings */
-static void gen_morph_area(WORD rx, WORD ry)
+/* Generate roll form area: low ceilings */
+static void gen_roll_area(WORD rx, WORD ry)
 {
     WORD x, y;
 
@@ -312,7 +314,7 @@ static void gen_morph_area(WORD rx, WORD ry)
         for (x = 2; x < ROOM_W - 2; x++)
             world_rooms[ry][rx][y][x] = TILE_EMPTY;
 
-    /* Low ceiling forces morph ball */
+    /* Low ceiling forces roll form */
     for (x = 4; x < ROOM_W - 4; x++)
         world_rooms[ry][rx][8][x] = TILE_ROCK;
 
@@ -359,67 +361,67 @@ static void place_items(void)
 {
     WORD i = 0;
 
-    /* Morph Ball - room (1,4) morph area, accessible early */
+    /* Roll Form - room (1,4) roll area, accessible early */
     g_items[i].room_x = 1; g_items[i].room_y = 4;
     g_items[i].tile_x = 10; g_items[i].tile_y = 6;
-    g_items[i].type = ITEM_MORPH_BALL;
+    g_items[i].type = ITEM_ROLL_FORM;
     g_items[i].collected = 0; i++;
 
-    /* Missiles - room (2,1) Brinstar */
+    /* Missiles - room (2,1) cavern */
     g_items[i].room_x = 2; g_items[i].room_y = 1;
     g_items[i].tile_x = 10; g_items[i].tile_y = 12;
     g_items[i].type = ITEM_MISSILE_PACK;
     g_items[i].collected = 0; i++;
 
-    /* Bombs - room (3,2) requires morph ball */
+    /* Bombs - room (3,2) requires roll form */
     g_items[i].room_x = 3; g_items[i].room_y = 2;
     g_items[i].tile_x = 15; g_items[i].tile_y = 12;
     g_items[i].type = ITEM_BOMBS;
     g_items[i].collected = 0; i++;
 
-    /* Long Beam - room (5,1) Norfair */
+    /* Long Beam - room (5,1) magma */
     g_items[i].room_x = 5; g_items[i].room_y = 1;
     g_items[i].tile_x = 10; g_items[i].tile_y = 11;
     g_items[i].type = ITEM_LONG_BEAM;
     g_items[i].collected = 0; i++;
 
-    /* Ice Beam - room (6,2) Norfair */
+    /* Ice Beam - room (6,2) magma */
     g_items[i].room_x = 6; g_items[i].room_y = 2;
     g_items[i].tile_x = 10; g_items[i].tile_y = 11;
     g_items[i].type = ITEM_ICE_BEAM;
     g_items[i].collected = 0; i++;
 
-    /* High Jump - room (3,3) near Kraid */
+    /* High Jump - room (3,3) near Beast */
     g_items[i].room_x = 3; g_items[i].room_y = 3;
     g_items[i].tile_x = 5; g_items[i].tile_y = 12;
     g_items[i].type = ITEM_HIGH_JUMP;
     g_items[i].collected = 0; i++;
 
-    /* Varia Suit - room (5,2) Norfair */
+    /* Heat Suit - room (5,2) magma */
     g_items[i].room_x = 5; g_items[i].room_y = 2;
     g_items[i].tile_x = 15; g_items[i].tile_y = 11;
-    g_items[i].type = ITEM_VARIA_SUIT;
+    g_items[i].type = ITEM_HEAT_SUIT;
     g_items[i].collected = 0; i++;
 
-    /* Screw Attack - room (6,3) after Ridley */
+    /* Spin Strike - room (6,3) after Drake */
     g_items[i].room_x = 6; g_items[i].room_y = 3;
     g_items[i].tile_x = 16; g_items[i].tile_y = 12;
-    g_items[i].type = ITEM_SCREW_ATTACK;
+    g_items[i].type = ITEM_SPIN_STRIKE;
     g_items[i].collected = 0; i++;
 
-    /* Energy Tank 1 - room (1,1) Brinstar */
+    /* Energy Tank 1 - room (1,1) cavern */
     g_items[i].room_x = 1; g_items[i].room_y = 1;
     g_items[i].tile_x = 10; g_items[i].tile_y = 5;
     g_items[i].type = ITEM_ENERGY_TANK;
     g_items[i].collected = 0; i++;
 
-    /* Energy Tank 2 - room (6,1) Norfair */
+    /* Energy Tank 2 - room (6,1) magma */
     g_items[i].room_x = 6; g_items[i].room_y = 1;
     g_items[i].tile_x = 5; g_items[i].tile_y = 11;
     g_items[i].type = ITEM_ENERGY_TANK;
     g_items[i].collected = 0; i++;
 
-    /* Energy Tank 3 - room (4,4) Tourian */
+    /* Energy Tank 3 - room (4,4) citadel */
     g_items[i].room_x = 4; g_items[i].room_y = 4;
     g_items[i].tile_x = 10; g_items[i].tile_y = 10;
     g_items[i].type = ITEM_ENERGY_TANK;
@@ -452,26 +454,26 @@ void levels_init(void)
                 case RTYPE_SOLID:
                     fill_room(rx, ry, TILE_ROCK);
                     break;
-                case RTYPE_BRINSTAR:
-                    gen_brinstar(rx, ry);
+                case RTYPE_CAVERN:
+                    gen_cavern(rx, ry);
                     break;
-                case RTYPE_NORFAIR:
-                    gen_norfair(rx, ry);
+                case RTYPE_MAGMA:
+                    gen_magma(rx, ry);
                     break;
                 case RTYPE_CORRIDOR:
                     gen_corridor(rx, ry);
                     break;
-                case RTYPE_BOSS_KRAID:
-                    gen_boss_kraid(rx, ry);
+                case RTYPE_BOSS_BEAST:
+                    gen_boss_beast(rx, ry);
                     break;
-                case RTYPE_BOSS_RIDLEY:
-                    gen_boss_ridley(rx, ry);
+                case RTYPE_BOSS_DRAKE:
+                    gen_boss_drake(rx, ry);
                     break;
-                case RTYPE_TOURIAN:
-                    gen_tourian(rx, ry);
+                case RTYPE_CITADEL:
+                    gen_citadel(rx, ry);
                     break;
-                case RTYPE_MORPH_AREA:
-                    gen_morph_area(rx, ry);
+                case RTYPE_ROLL_AREA:
+                    gen_roll_area(rx, ry);
                     break;
                 case RTYPE_START:
                     gen_start_room(rx, ry);

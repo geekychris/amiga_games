@@ -20,15 +20,28 @@ void planet_gfx_init(void)
 {
     WORD i;
     InitBitMap(&planet_bm, PLANET_DEPTH, PLANET_W, PLANET_H);
-    planet_ready = 1;
+    planet_ready = 0;
     for (i = 0; i < PLANET_DEPTH; i++) {
         planet_chip[i] = (UBYTE *)AllocMem(
             PLANET_ROW_BYTES * PLANET_H, MEMF_CHIP | MEMF_CLEAR);
-        if (!planet_chip[i]) { planet_ready = 0; break; }
+        if (!planet_chip[i]) {
+            /* Roll back: free every previously allocated plane so we don't
+             * leak chip RAM. Keep planet_ready disabled. */
+            WORD j;
+            for (j = 0; j < i; j++) {
+                if (planet_chip[j]) {
+                    FreeMem(planet_chip[j], PLANET_ROW_BYTES * PLANET_H);
+                    planet_chip[j] = NULL;
+                }
+                planet_bm.Planes[j] = NULL;
+            }
+            return;
+        }
         CopyMem((APTR)planet_planes[i], planet_chip[i],
                 PLANET_ROW_BYTES * PLANET_H);
         planet_bm.Planes[i] = (PLANEPTR)planet_chip[i];
     }
+    planet_ready = 1;
 }
 
 void planet_gfx_cleanup(void)

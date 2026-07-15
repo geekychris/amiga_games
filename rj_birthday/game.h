@@ -355,11 +355,11 @@ void sfx_cheer(void);
 void sfx_pickup(void);
 void sfx_crash(void);
 void sfx_party(void);
-void sfx_sinistar(void);
-void sinistar_load_voices(void);
-void sinistar_cleanup_voices(void);
-void sinistar_play_random(void);  /* pause music, play random voice clip */
-WORD sinistar_is_playing(void);   /* returns 1 if voice clip still playing */
-void sinistar_check_done(void);   /* call each frame to resume music when done */
+void sfx_arcade_a(void);
+void arcade_voice_load(void);
+void arcade_voice_cleanup(void);
+void arcade_voice_play_random(void);  /* pause music, play random voice clip */
+WORD arcade_voice_is_playing(void);   /* returns 1 if voice clip still playing */
+void arcade_voice_check_done(void);   /* call each frame to resume music when done */
 
 #endif

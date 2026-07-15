@@ -4,7 +4,7 @@
  * Wraparound-scroll shoot-em-up with:
  * - Wraparound scrolling world (6 screens wide)
  * - Scanner/minimap showing full world
- * - 6 enemy types: landers, mutants, baiters, bombers, pods, swarmers
+ * - 6 enemy types: divers, stalkers, chasers, droppers, hives, drones
  * - Human rescue mechanic
  * - Smart bombs and hyperspace
  * - Multi-layer parallax scrolling
@@ -34,6 +34,7 @@
 #include <exec/memory.h>
 #include <hardware/custom.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include "bridge_client.h"
 #include "game.h"
@@ -80,11 +81,11 @@ static UWORD palette[16] = {
     0x460,  /*  4: Terrain green */
     0x5A0,  /*  5: Terrain highlight */
     0xEE0,  /*  6: Ship body yellow / explosion yellow */
-    0xF80,  /*  7: Thrust / swarmer / explosion orange */
-    0x0F0,  /*  8: Lander green */
-    0xF0F,  /*  9: Mutant magenta / pod */
-    0xF00,  /* 10: Bomber red / explosion red / mine */
-    0x0CF,  /* 11: HUD cyan / baiter */
+    0xF80,  /*  7: Thrust / drone / explosion orange */
+    0x0F0,  /*  8: Diver green */
+    0xF0F,  /*  9: Stalker magenta / hive */
+    0xF00,  /* 10: Dropper red / explosion red / mine */
+    0x0CF,  /* 11: HUD cyan / chaser */
     0x000,  /* 12: unused */
     0x000,  /* 13: unused */
     0x000,  /* 14: unused */
@@ -92,6 +93,8 @@ static UWORD palette[16] = {
 };
 
 /* ---- Display setup ---- */
+
+static void cleanup_display(void); /* forward decl - used by setup_display() failure paths */
 
 static WORD setup_display(void)
 {
@@ -124,13 +127,15 @@ static WORD setup_display(void)
         }
     }
 
-    /* Double buffering */
+    /* Double buffering. cleanup_display() handles any partial state
+     * (missing sbuf, missing safe_port, missing window). */
     sbuf[0] = AllocScreenBuffer(screen, NULL, SB_SCREEN_BITMAP);
+    if (!sbuf[0]) { cleanup_display(); return 0; }
     sbuf[1] = AllocScreenBuffer(screen, NULL, 0);
-    if (!sbuf[0] || !sbuf[1]) return 0;
+    if (!sbuf[1]) { cleanup_display(); return 0; }
 
     safe_port = CreateMsgPort();
-    if (!safe_port) return 0;
+    if (!safe_port) { cleanup_display(); return 0; }
     sbuf[0]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = safe_port;
     sbuf[1]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = safe_port;
 
@@ -154,7 +159,7 @@ static WORD setup_display(void)
         WA_IDCMP,         IDCMP_RAWKEY,
         TAG_DONE);
 
-    if (!window) return 0;
+    if (!window) { cleanup_display(); return 0; }
 
     /* Make absolutely sure we have keyboard focus */
     ScreenToFront(screen);
@@ -193,12 +198,38 @@ static void cleanup_display(void)
 
 /* ---- Bridge hooks ---- */
 
+/* Amiga's amiga.lib sprintf has no size-limited variant. We format into
+ * a fixed scratch buffer, then copy at most bufsz-1 bytes into the
+ * caller's buffer and always NUL-terminate. */
+extern int vsprintf(char *, const char *, va_list);
+
+/* Shared bounded formatter for hook responses. Rejects non-positive
+ * bufsz. Always NUL-terminates when it writes anything. */
+static void hook_reply(char *buf, int bufsz, const char *fmt, ...)
+{
+    char scratch[256];
+    va_list ap;
+    WORD i;
+
+    if (!buf || bufsz <= 0) return;
+
+    va_start(ap, fmt);
+    vsprintf(scratch, fmt, ap);
+    va_end(ap);
+    scratch[sizeof(scratch) - 1] = 0;
+
+    /* Copy into caller buffer, bounded, always NUL-terminated. */
+    for (i = 0; i < bufsz - 1 && scratch[i]; i++)
+        buf[i] = scratch[i];
+    buf[i] = 0;
+}
+
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
     (void)args;
     game_init(&gs, 1);
     gs.state = STATE_TITLE;
-    sprintf(buf, "Game reset to title");
+    hook_reply(buf, bufsz, "Game reset to title");
     return 0;
 }
 
@@ -209,7 +240,7 @@ static int hook_next_level(const char *args, char *buf, int bufsz)
     gs.state = STATE_LEVEL_START;
     gs.state_timer = 45;
     game_spawn_wave(&gs);
-    sprintf(buf, "Skipped to level %ld", (long)gs.level);
+    hook_reply(buf, bufsz, "Skipped to level %ld", (long)gs.level);
     return 0;
 }
 
@@ -217,7 +248,7 @@ static int hook_add_life(const char *args, char *buf, int bufsz)
 {
     (void)args;
     gs.lives++;
-    sprintf(buf, "Lives: %ld", (long)gs.lives);
+    hook_reply(buf, bufsz, "Lives: %ld", (long)gs.lives);
     return 0;
 }
 
@@ -225,7 +256,7 @@ static int hook_add_bomb(const char *args, char *buf, int bufsz)
 {
     (void)args;
     gs.ship.smart_bombs++;
-    sprintf(buf, "Bombs: %ld", (long)gs.ship.smart_bombs);
+    hook_reply(buf, bufsz, "Bombs: %ld", (long)gs.ship.smart_bombs);
     return 0;
 }
 
@@ -238,7 +269,7 @@ static int hook_kill_all(const char *args, char *buf, int bufsz)
     for (i = 0; i < MAX_MINES; i++)
         gs.mines[i].active = 0;
     gs.enemies_alive = 0;
-    sprintf(buf, "All enemies killed");
+    hook_reply(buf, bufsz, "All enemies killed");
     return 0;
 }
 
@@ -246,14 +277,14 @@ static int hook_invuln(const char *args, char *buf, int bufsz)
 {
     (void)args;
     gs.ship.invuln_timer = gs.ship.invuln_timer > 0 ? 0 : 30000;
-    sprintf(buf, "Invuln: %s", gs.ship.invuln_timer > 0 ? "ON" : "OFF");
+    hook_reply(buf, bufsz, "Invuln: %s", gs.ship.invuln_timer > 0 ? "ON" : "OFF");
     return 0;
 }
 
 static int hook_status(const char *args, char *buf, int bufsz)
 {
     (void)args;
-    sprintf(buf, "L%ld S%ld Lives%ld Bombs%ld E%ld H%ld St%ld F%ld In%ld",
+    hook_reply(buf, bufsz, "L%ld S%ld Lives%ld Bombs%ld E%ld H%ld St%ld F%ld In%ld",
         (long)gs.level, (long)gs.score, (long)gs.lives,
         (long)gs.ship.smart_bombs, (long)gs.enemies_alive,
         (long)gs.humans_alive, (long)gs.state, (long)gs.frame,
@@ -267,14 +298,25 @@ static int hook_keys(const char *args, char *buf, int bufsz)
 {
     WORD i;
     WORD pos = 0;
+    char tmp[8];
     (void)args;
-    for (i = 0; i < 128 && pos < bufsz - 10; i++) {
+
+    if (!buf || bufsz <= 0) return 0;
+    buf[0] = 0;
+
+    for (i = 0; i < 128; i++) {
         if (input_keys[i]) {
-            sprintf(buf + pos, "%lx ", (long)i);
-            pos = strlen(buf);
+            WORD k;
+            /* Format "hh " into tmp, then bounded-append to buf. */
+            sprintf(tmp, "%lx ", (long)i);
+            tmp[sizeof(tmp) - 1] = 0;
+            for (k = 0; tmp[k] && pos < bufsz - 1; k++)
+                buf[pos++] = tmp[k];
+            buf[pos] = 0;
+            if (pos >= bufsz - 1) break;
         }
     }
-    if (pos == 0) sprintf(buf, "none");
+    if (pos == 0) hook_reply(buf, bufsz, "none");
     return 0;
 }
 

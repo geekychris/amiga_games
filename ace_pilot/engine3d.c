@@ -85,8 +85,8 @@ LONG transform_point(const Camera *cam, LONG wx, LONG wy, LONG wz,
     /* Rotate by inverse yaw around Y axis */
     cyaw = cos_tab[cam->yaw & 255];
     syaw = sin_tab[cam->yaw & 255];
-    rx = (dx * cyaw - dz * syaw) >> 16;
-    rz = (dx * syaw + dz * cyaw) >> 16;
+    rx = (dx * cyaw + dz * syaw) >> 16;
+    rz = (-dx * syaw + dz * cyaw) >> 16;
     ry = dy;
 
     /* Rotate by -pitch around X axis */

@@ -305,12 +305,12 @@ static void draw_scanner(struct RastPort *rp, GameState *gs)
         WORD sy = (WORD)((LONG)(FROM_FP(e->wy) - PLAY_TOP) * (SCANNER_H - 4) / (PLAY_BOT - PLAY_TOP)) + 2;
         WORD col;
         switch (e->type) {
-        case ENT_LANDER:  col = COL_LANDER;  break;
-        case ENT_MUTANT:  col = COL_MUTANT;  break;
-        case ENT_BAITER:  col = COL_BAITER;  break;
-        case ENT_BOMBER:  col = COL_BOMBER;  break;
-        case ENT_POD:     col = COL_POD;     break;
-        case ENT_SWARMER: col = COL_SWARMER; break;
+        case ENT_DIVER:  col = COL_DIVER;  break;
+        case ENT_STALKER:  col = COL_STALKER;  break;
+        case ENT_CHASER:  col = COL_CHASER;  break;
+        case ENT_DROPPER:  col = COL_DROPPER;  break;
+        case ENT_HIVE:     col = COL_HIVE;     break;
+        case ENT_DRONE: col = COL_DRONE; break;
         default:          col = COL_WHITE;   break;
         }
         SetAPen(rp, col);
@@ -394,11 +394,11 @@ static void draw_enemies(struct RastPort *rp, GameState *gs)
         if (sx < -20 || sx > SCREEN_W + 20) continue;
 
         switch (e->type) {
-        case ENT_LANDER:
+        case ENT_DIVER:
             /* Green UFO shape */
-            SetAPen(rp, COL_LANDER);
+            SetAPen(rp, COL_DIVER);
             RectFill(rp, sx + 2, sy, sx + 7, sy + 2);     /* dome */
-            SetAPen(rp, COL_LANDER2);
+            SetAPen(rp, COL_DIVER2);
             RectFill(rp, sx, sy + 3, sx + 9, sy + 5);     /* body */
             RectFill(rp, sx + 2, sy + 6, sx + 7, sy + 7); /* legs */
             /* Animate: flash */
@@ -408,43 +408,43 @@ static void draw_enemies(struct RastPort *rp, GameState *gs)
             }
             break;
 
-        case ENT_MUTANT:
+        case ENT_STALKER:
             /* Magenta aggressive shape */
-            SetAPen(rp, COL_MUTANT);
+            SetAPen(rp, COL_STALKER);
             RectFill(rp, sx + 1, sy, sx + 8, sy + 7);
             SetAPen(rp, COL_WHITE);
             RectFill(rp, sx + 3, sy + 2, sx + 3, sy + 2); /* eye */
             RectFill(rp, sx + 6, sy + 2, sx + 6, sy + 2); /* eye */
             break;
 
-        case ENT_BAITER:
+        case ENT_CHASER:
             /* Blue elongated shape */
-            SetAPen(rp, COL_BAITER);
+            SetAPen(rp, COL_CHASER);
             RectFill(rp, sx, sy + 1, sx + 13, sy + 4);
             SetAPen(rp, COL_WHITE);
             RectFill(rp, sx + 1, sy, sx + 12, sy);
             RectFill(rp, sx + 1, sy + 5, sx + 12, sy + 5);
             break;
 
-        case ENT_BOMBER:
-            /* Red bomber */
-            SetAPen(rp, COL_BOMBER);
+        case ENT_DROPPER:
+            /* Red dropper */
+            SetAPen(rp, COL_DROPPER);
             RectFill(rp, sx + 1, sy, sx + 10, sy + 6);
             SetAPen(rp, COL_EXPL_ORG);
             RectFill(rp, sx + 3, sy + 2, sx + 8, sy + 4);
             break;
 
-        case ENT_POD:
+        case ENT_HIVE:
             /* Purple round-ish */
-            SetAPen(rp, COL_POD);
+            SetAPen(rp, COL_HIVE);
             RectFill(rp, sx + 2, sy, sx + 5, sy);
             RectFill(rp, sx + 1, sy + 1, sx + 6, sy + 5);
             RectFill(rp, sx + 2, sy + 6, sx + 5, sy + 6);
             break;
 
-        case ENT_SWARMER:
+        case ENT_DRONE:
             /* Small orange dot */
-            SetAPen(rp, COL_SWARMER);
+            SetAPen(rp, COL_DRONE);
             RectFill(rp, sx, sy, sx + 3, sy + 3);
             break;
         }
@@ -680,7 +680,7 @@ void draw_title(struct RastPort *rp, GameState *gs)
     draw_string_at(rp, 30, 140, "X                HYPERSPACE", 1);
 
     SetAPen(rp, COL_STAR_DIM);
-    draw_string_at(rp, 20, 160, "SHOOT LANDERS TO SAVE HUMANS!", 1);
+    draw_string_at(rp, 20, 160, "SHOOT DIVERS TO SAVE HUMANS!", 1);
 
     /* Prompt */
     if (blink) {

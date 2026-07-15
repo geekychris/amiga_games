@@ -331,34 +331,51 @@ static void draw_tile(struct RastPort *rp, WORD sx, WORD sy, UBYTE type)
     }
 }
 
-/* Draw a single tile column at bitmap position */
-void draw_tile_column(struct RastPort *rp, WORD map_col, WORD bitmap_col)
+/* Draw a single tile column at an arbitrary pixel-x on the bitmap.
+ * Accepts fractional positions so terrain can scroll in 4-pixel steps
+ * that match the entity scroll offset. */
+void draw_tile_column(struct RastPort *rp, WORD map_col, WORD pixel_x)
 {
     WORD row;
-    WORD sx = bitmap_col * TILE_W;
+    WORD sx = pixel_x;
+    WORD x0, x1;
+
+    /* Clip to bitmap horizontally */
+    if (sx >= BITMAP_W) return;
+    if (sx + TILE_W <= 0) return;
+
+    x0 = sx;
+    x1 = sx + TILE_W - 1;
+    if (x0 < 0) x0 = 0;
+    if (x1 >= BITMAP_W) x1 = BITMAP_W - 1;
 
     for (row = 0; row < MAP_H; row++) {
         WORD sy = row * TILE_H;
         UBYTE type;
 
-        /* Clear tile area first */
+        /* Clear tile area first (clipped horizontally) */
         SetAPen(rp, COL_BG);
-        RectFill(rp, sx, sy, sx + TILE_W - 1, sy + TILE_H - 1);
+        RectFill(rp, x0, sy, x1, sy + TILE_H - 1);
 
         if (map_col >= 0 && map_col < MAP_W) {
             type = level_maps[g_current_level][row][map_col];
+            /* draw_tile will render at sx; primitives get clipped by the RastPort */
             draw_tile(rp, sx, sy, type);
         }
     }
 }
 
-/* Draw all visible tiles */
+/* Draw all visible tiles, applying scroll fine_x so terrain shifts
+ * in the same sub-tile increments as entities. */
 void draw_all_tiles(struct RastPort *rp, ScrollState *sc)
 {
     WORD col;
-    for (col = 0; col < TILES_X; col++) {
+    WORD fine = sc->fine_x;
+    /* Draw one extra column so the tile sliding in from the right is present */
+    for (col = 0; col < TILES_X + 1; col++) {
         WORD map_col = sc->tile_col + col;
-        draw_tile_column(rp, map_col, col);
+        WORD pixel_x = col * TILE_W - fine;
+        draw_tile_column(rp, map_col, pixel_x);
     }
 }
 
@@ -570,8 +587,10 @@ void draw_enemies(struct RastPort *rp, Enemy *enemies, ScrollState *sc)
                 /* Health bar above boss */
                 {
                     WORD bar_w = 24;
-                    WORD hp_w = (e->health * bar_w) / (30 + 10 * 2);
+                    WORD max_hp = 30 + g_current_level * 10;
+                    WORD hp_w = (max_hp > 0) ? (e->health * bar_w) / max_hp : 0;
                     if (hp_w < 0) hp_w = 0;
+                    if (hp_w > bar_w) hp_w = bar_w;
                     SetAPen(rp, COL_HUD_LOW);
                     RectFill(rp, sx - 4, sy - 8, sx - 4 + bar_w, sy - 7);
                     SetAPen(rp, COL_HUD_BAR);

@@ -21,10 +21,12 @@
 #include <rexx/storage.h>
 #include <rexx/rxslib.h>
 #include <rexx/errors.h>
+#include <dos/dos.h>
 #include <proto/exec.h>
 #include <proto/intuition.h>
 #include <proto/graphics.h>
 #include <proto/rexxsyslib.h>
+#include <proto/dos.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +44,7 @@ static struct MsgPort *rexxPort = NULL;
 static LONG loop_count = 0;
 static LONG running = 1;
 static LONG bridge_ok = 0;
-static LONG start_tick = 0;
+static struct DateStamp start_ds;
 static LONG text_pen = 1;
 static char last_cmd[128] = "(none)";
 static char last_result[128] = "";
@@ -78,7 +80,8 @@ static void redraw(struct Window *win)
     Move(rp, 8, 54);
     {
         static char tmp[128];
-        sprintf(tmp, "Last: %s", last_cmd);
+        /* 128 - strlen("Last: ") - 1 = 121 */
+        sprintf(tmp, "Last: %.121s", last_cmd);
         len = strlen(tmp);
         if (len > 50) len = 50;
         Text(rp, tmp, len);
@@ -88,7 +91,8 @@ static void redraw(struct Window *win)
     Move(rp, 8, 68);
     {
         static char tmp[128];
-        sprintf(tmp, "Result: %s", last_result);
+        /* 128 - strlen("Result: ") - 1 = 119 */
+        sprintf(tmp, "Result: %.119s", last_result);
         len = strlen(tmp);
         if (len > 50) len = 50;
         Text(rp, tmp, len);
@@ -125,8 +129,9 @@ static int handle_rexx_msg(struct RexxMsg *rmsg)
     AB_I("ARexx cmd: %s", cmd);
 
     /* Parse command */
-    if (strncmp(cmd, "HELLO", 5) == 0 ||
-        strncmp(cmd, "hello", 5) == 0) {
+    if ((strncmp(cmd, "HELLO", 5) == 0 ||
+         strncmp(cmd, "hello", 5) == 0) &&
+        cmd[5] == '\0') {
         strcpy(resultstr, "Hello from ARexx Test App!");
         rmsg->rm_Result1 = 0;
         rmsg->rm_Result2 = (LONG)CreateArgstring(
@@ -142,18 +147,27 @@ static int handle_rexx_msg(struct RexxMsg *rmsg)
         rmsg->rm_Result2 = (LONG)CreateArgstring(
             (CONST_STRPTR)resultstr, strlen(resultstr));
     }
-    else if (strncmp(cmd, "GETCOUNT", 8) == 0 ||
-             strncmp(cmd, "getcount", 8) == 0) {
+    else if ((strncmp(cmd, "GETCOUNT", 8) == 0 ||
+              strncmp(cmd, "getcount", 8) == 0) &&
+             cmd[8] == '\0') {
         sprintf(resultstr, "%ld", (long)loop_count);
         rmsg->rm_Result1 = 0;
         rmsg->rm_Result2 = (LONG)CreateArgstring(
             (CONST_STRPTR)resultstr, strlen(resultstr));
     }
-    else if (strncmp(cmd, "GETTIME", 7) == 0 ||
-             strncmp(cmd, "gettime", 7) == 0) {
-        ULONG now = *(volatile ULONG *)0xDFF004;  /* VPOSR/VHPOSR - rough */
-        /* Use a simpler approach: count loops * delay */
-        sprintf(resultstr, "%ld", (long)(loop_count / 10));
+    else if ((strncmp(cmd, "GETTIME", 7) == 0 ||
+              strncmp(cmd, "gettime", 7) == 0) &&
+             cmd[7] == '\0') {
+        /* Compute elapsed seconds from DateStamp taken at startup. */
+        struct DateStamp now_ds;
+        long elapsed;
+        DateStamp(&now_ds);
+        elapsed =
+            (long)(now_ds.ds_Days   - start_ds.ds_Days)   * 86400L +
+            (long)(now_ds.ds_Minute - start_ds.ds_Minute) * 60L +
+            (long)(now_ds.ds_Tick   - start_ds.ds_Tick)   / (long)TICKS_PER_SECOND;
+        if (elapsed < 0) elapsed = 0;
+        sprintf(resultstr, "%ld", elapsed);
         rmsg->rm_Result1 = 0;
         rmsg->rm_Result2 = (LONG)CreateArgstring(
             (CONST_STRPTR)resultstr, strlen(resultstr));
@@ -197,8 +211,9 @@ static int handle_rexx_msg(struct RexxMsg *rmsg)
         rmsg->rm_Result2 = (LONG)CreateArgstring(
             (CONST_STRPTR)resultstr, strlen(resultstr));
     }
-    else if (strncmp(cmd, "QUIT", 4) == 0 ||
-             strncmp(cmd, "quit", 4) == 0) {
+    else if ((strncmp(cmd, "QUIT", 4) == 0 ||
+              strncmp(cmd, "quit", 4) == 0) &&
+             cmd[4] == '\0') {
         strcpy(resultstr, "Goodbye!");
         rmsg->rm_Result1 = 0;
         rmsg->rm_Result2 = (LONG)CreateArgstring(
@@ -242,6 +257,9 @@ int main(void)
     }
 
     printf("arexx_test v%s\n", VERSION);
+
+    /* Record startup time for GETTIME */
+    DateStamp(&start_ds);
 
     /* Connect to AmigaBridge daemon */
     if (ab_init("arexx_test") != 0) {

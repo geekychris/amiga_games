@@ -126,7 +126,7 @@ static void init_player(PlayerState *p, WORD idx)
     p->respawn_timer = 0;
     p->fire_cooldown = 0;
     p->gun_side = 1;
-    p->speed = (WORD)(g_tune.player_speed);
+    p->speed = (WORD)(g_tune.player_speed / 10);
     p->invuln = 100;
 }
 
@@ -752,8 +752,9 @@ update_motion:
                             LONG pts = (e->model_id == MODEL_BLIMP) ? SCORE_BLIMP : SCORE_PLANE;
                             LONG old_score = w->players[scorer].score;
                             w->players[scorer].score += pts;
-                            /* Extra life check */
-                            if (old_score / g_tune.extra_life_score < w->players[scorer].score / g_tune.extra_life_score) {
+                            /* Extra life check (zero disables extra lives) */
+                            if (g_tune.extra_life_score > 0 &&
+                                old_score / g_tune.extra_life_score < w->players[scorer].score / g_tune.extra_life_score) {
                                 w->players[scorer].lives++;
                             }
                         }
@@ -789,7 +790,8 @@ update_motion:
                     if (scorer < 2) {
                         LONG old_score = w->players[scorer].score;
                         w->players[scorer].score += g->score_value;
-                        if (old_score / g_tune.extra_life_score < w->players[scorer].score / g_tune.extra_life_score) {
+                        if (g_tune.extra_life_score > 0 &&
+                            old_score / g_tune.extra_life_score < w->players[scorer].score / g_tune.extra_life_score) {
                             w->players[scorer].lives++;
                         }
                     }
@@ -850,6 +852,14 @@ update_motion:
                 spawn_particles(w, &e->pos, 10);
                 e->active = 0;
                 w->enemies_alive--;
+                if (p->lives <= 0) {
+                    /* Check if all players dead */
+                    if ((g_tune.num_players < 2 || !w->players[1 - j].alive) &&
+                        w->players[1 - j].lives <= 0) {
+                        w->state = STATE_DYING;
+                        w->state_timer = 100;
+                    }
+                }
                 break;
             }
         }

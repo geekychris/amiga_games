@@ -176,6 +176,11 @@ void editor_update(GameState *gs)
 
     /* --- F3: Test play --- */
     if (input_key(KEY_F3)) {
+        /* Convert TILE_PLAYER / TILE_ENEMY spawn markers into live
+         * entities so the level actually plays. Without this the
+         * player would spawn wherever they were last and no enemies
+         * would exist. */
+        level_activate_spawn_markers(gs);
         gs->state = STATE_PLAYING;
         gs->gold_total = level_count_gold();
         gs->gold_collected = 0;

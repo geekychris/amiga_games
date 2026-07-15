@@ -1,5 +1,10 @@
 /*
  * Uranus Lander - Input: Joystick port 2 + keyboard
+ *
+ * We track each physical key independently and OR their contributions
+ * into the action bits. This means holding one alias (e.g. cursor-left)
+ * while releasing another (e.g. A) leaves INPUT_LEFT asserted, and
+ * vice versa — no shared-bit stomping on release.
  */
 #include <hardware/custom.h>
 #include <hardware/cia.h>
@@ -8,51 +13,91 @@
 extern volatile struct Custom custom;
 extern volatile struct CIA ciaa;
 
-static UWORD key_state = 0;
+/* Bit set indexed by rawkey code (0x00 - 0x7F). Only the keys we care
+ * about are ever set, but sizing at 128 keeps indexing trivial. */
+#define KEY_BITMAP_WORDS  (128 / 16)
+static UWORD key_bits[KEY_BITMAP_WORDS];
+
+/* Map a rawkey code to the action bit it contributes (0 = no mapping). */
+static UWORD key_to_action(UWORD code)
+{
+    switch (code) {
+        case 0x4F: return INPUT_LEFT;    /* cursor left */
+        case 0x4E: return INPUT_RIGHT;   /* cursor right */
+        case 0x4C: return INPUT_UP;      /* cursor up */
+        case 0x4D: return INPUT_DOWN;    /* cursor down */
+        case 0x40: return INPUT_THRUST;  /* space */
+        case 0x45: return INPUT_ESC;     /* escape */
+        /* WASD alternatives */
+        case 0x20: return INPUT_LEFT;    /* A */
+        case 0x22: return INPUT_RIGHT;   /* D */
+        case 0x11: return INPUT_THRUST;  /* W */
+        case 0x21: return INPUT_DOWN;    /* S (for menus) */
+        case 0x37: return INPUT_MUSIC;   /* M = toggle music */
+        default:   return 0;
+    }
+}
+
+static void key_set(UWORD code, WORD down)
+{
+    if (code >= 128) return;
+    if (down)
+        key_bits[code >> 4] |=  (UWORD)(1 << (code & 15));
+    else
+        key_bits[code >> 4] &= (UWORD)~(1 << (code & 15));
+}
+
+static WORD key_is_down(UWORD code)
+{
+    if (code >= 128) return 0;
+    return (key_bits[code >> 4] & (UWORD)(1 << (code & 15))) ? 1 : 0;
+}
+
+/* Derive the composite action bitmask from per-key state. */
+static UWORD derive_actions(void)
+{
+    UWORD result = 0;
+    /* Cursor keys */
+    if (key_is_down(0x4F)) result |= INPUT_LEFT;
+    if (key_is_down(0x4E)) result |= INPUT_RIGHT;
+    if (key_is_down(0x4C)) result |= INPUT_UP;
+    if (key_is_down(0x4D)) result |= INPUT_DOWN;
+    /* Space / escape */
+    if (key_is_down(0x40)) result |= INPUT_THRUST;
+    if (key_is_down(0x45)) result |= INPUT_ESC;
+    /* WASD */
+    if (key_is_down(0x20)) result |= INPUT_LEFT;
+    if (key_is_down(0x22)) result |= INPUT_RIGHT;
+    if (key_is_down(0x11)) result |= INPUT_THRUST;
+    if (key_is_down(0x21)) result |= INPUT_DOWN;
+    /* Music toggle */
+    if (key_is_down(0x37)) result |= INPUT_MUSIC;
+    return result;
+}
 
 void input_key_down(UWORD code)
 {
-    switch (code) {
-        case 0x4F: key_state |= INPUT_LEFT;   break;  /* cursor left */
-        case 0x4E: key_state |= INPUT_RIGHT;  break;  /* cursor right */
-        case 0x4C: key_state |= INPUT_UP;      break;  /* cursor up */
-        case 0x4D: key_state |= INPUT_DOWN;    break;  /* cursor down */
-        case 0x40: key_state |= INPUT_THRUST;  break;  /* space */
-        case 0x45: key_state |= INPUT_ESC;     break;  /* escape */
-        /* WASD alternatives */
-        case 0x20: key_state |= INPUT_LEFT;    break;  /* A */
-        case 0x22: key_state |= INPUT_RIGHT;   break;  /* D */
-        case 0x11: key_state |= INPUT_THRUST;  break;  /* W */
-        case 0x31: key_state |= INPUT_DOWN;    break;  /* S (for menus) */
-        case 0x37: key_state |= INPUT_MUSIC;   break;  /* M = toggle music */
-    }
+    /* Ignore keys we don't map so we don't waste bitmap space
+     * on unrelated presses (though we track them all the same). */
+    if (key_to_action(code) == 0) return;
+    key_set(code, 1);
 }
 
 void input_key_up(UWORD code)
 {
-    switch (code) {
-        case 0x4F: key_state &= ~INPUT_LEFT;   break;
-        case 0x4E: key_state &= ~INPUT_RIGHT;  break;
-        case 0x4C: key_state &= ~INPUT_UP;      break;
-        case 0x4D: key_state &= ~INPUT_DOWN;    break;
-        case 0x40: key_state &= ~INPUT_THRUST;  break;
-        case 0x45: key_state &= ~INPUT_ESC;     break;
-        case 0x20: key_state &= ~INPUT_LEFT;    break;
-        case 0x22: key_state &= ~INPUT_RIGHT;   break;
-        case 0x11: key_state &= ~INPUT_THRUST;  break;
-        case 0x31: key_state &= ~INPUT_DOWN;    break;
-        case 0x37: key_state &= ~INPUT_MUSIC;   break;
-    }
+    if (key_to_action(code) == 0) return;
+    key_set(code, 0);
 }
 
 void input_reset(void)
 {
-    key_state = 0;
+    WORD i;
+    for (i = 0; i < KEY_BITMAP_WORDS; i++) key_bits[i] = 0;
 }
 
 UWORD input_read(void)
 {
-    UWORD result = key_state;
+    UWORD result = derive_actions();
     UWORD joy;
 
     /* Read joystick port 2 (JOY1DAT register) */

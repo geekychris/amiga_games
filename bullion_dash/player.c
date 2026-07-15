@@ -6,6 +6,7 @@
  */
 #include "player.h"
 #include "level.h"
+#include "enemy.h"
 #include "game.h"
 
 /*--------------------------------------------------------------------
@@ -197,6 +198,10 @@ void player_update(GameState *gs, int dx, int dy, int dig_left, int dig_right)
                 p->state = PS_DIGGING;
                 p->dig_timer = 10;
                 p->dir = DIR_LEFT;
+                /* If an enemy was already standing on the tile we
+                 * just dug out, trap it in the fresh hole rather than
+                 * letting it walk out during its next update. */
+                enemy_trap_check(gs, dig_x, dig_y);
                 return;
             }
         }
@@ -213,6 +218,7 @@ void player_update(GameState *gs, int dx, int dy, int dig_left, int dig_right)
                 p->state = PS_DIGGING;
                 p->dig_timer = 10;
                 p->dir = DIR_RIGHT;
+                enemy_trap_check(gs, dig_x, dig_y);
                 return;
             }
         }

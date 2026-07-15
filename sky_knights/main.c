@@ -1,9 +1,9 @@
 /*
- * SKY KNIGHTS - flying-battle arcade for Amiga
+ * SKY KNIGHTS - aerial combat arcade for Amiga
  *
- * 1-2 player sky_knightsing on flying ostriches.
- * Defeat enemies by being higher during collision.
- * Collect eggs before they hatch!
+ * 1-2 player airborne skirmish on winged mounts.
+ * Defeat opponents by striking from above during collision.
+ * Grab the pods dropped by downed foes before they crack open!
  *
  * Controls:
  *   P1: Arrow keys / WASD + Space to flap
@@ -59,14 +59,14 @@ static UWORD palette[16] = {
     0xFFF,  /*  1: White (text) */
     0x840,  /*  2: Brown (platforms) */
     0x520,  /*  3: Dark brown (platform shadow) */
-    0xFC0,  /*  4: Yellow (P1 ostrich) */
-    0x06F,  /*  5: Blue (P1 rider) */
-    0x0CF,  /*  6: Cyan (P2 ostrich) */
-    0xF22,  /*  7: Red (P2 rider/enemies) */
-    0xF80,  /*  8: Orange (Bounder) */
-    0xAAA,  /*  9: Gray (Hunter) */
-    0x22A,  /* 10: Dark blue (Shadow Lord) */
-    0x0E0,  /* 11: Green (eggs) */
+    0xFC0,  /*  4: Yellow (P1 mount) */
+    0x06F,  /*  5: Blue (P1 knight) */
+    0x0CF,  /*  6: Cyan (P2 mount) */
+    0xF22,  /*  7: Red (P2 knight/enemies) */
+    0xF80,  /*  8: Orange (Swooper) */
+    0xAAA,  /*  9: Gray (Raider) */
+    0x22A,  /* 10: Dark blue (Wraith) */
+    0x0E0,  /* 11: Green (pods) */
     0xFF0,  /* 12: Bright yellow (score) */
     0xCA8,  /* 13: Tan (ground) */
     0xF8F,  /* 14: Pink (egg about to hatch) */

@@ -215,8 +215,9 @@ int sound_init(void)
     bass_timer = 0;
     music_playing = 0;
 
-    /* Enable audio DMA for all channels */
-    custom.dmacon = (UWORD)0x820F;
+    /* Leave audio DMA disabled here - paula_play() will enable per-channel
+     * once valid pointer/length are programmed. */
+    custom.dmacon = (UWORD)0x0000;
 
     music_playing = 1;
 

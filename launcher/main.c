@@ -34,6 +34,8 @@
 #include <dos/dostags.h>
 #include <string.h>
 
+#include "bridge_client.h"
+
 char *sprintf(char *buf, const char *fmt, ...);
 
 /* Libraries */
@@ -431,6 +433,9 @@ int main(int argc, char *argv[])
 
     (void)argc; (void)argv;
 
+    /* Register with AmigaBridge daemon (safe to call even if daemon absent) */
+    ab_init("launcher");
+
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((STRPTR)"intuition.library", 39);
     GfxBase = (struct GfxBase *)OpenLibrary((STRPTR)"graphics.library", 39);
     GadToolsBase = OpenLibrary((STRPTR)"gadtools.library", 39);
@@ -628,5 +633,6 @@ cleanup:
     if (GadToolsBase) CloseLibrary(GadToolsBase);
     if (GfxBase) CloseLibrary((struct Library *)GfxBase);
     if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
+    ab_cleanup();
     return 0;
 }
