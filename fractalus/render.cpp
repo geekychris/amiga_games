@@ -254,19 +254,28 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
      * gets painted by the terrain loop. Anything the ray-march didn't
      * reach we backstop with the horizon-fog terrain colour. */
 
-    /* --- Fast path -----------------------------------------------------
-     * Old code fired a RectFill per (col, strip) — ~8000 blitter setups
-     * per frame at 320x160. Now we raycast, find the topmost visible
-     * terrain pixel per column, and issue ONE blitter line per column
-     * (Move+Draw uses the blitter's line mode). Depth cueing survives
-     * as horizontal fog BANDS drawn once each — the eye reads distance
-     * from vertical position on screen, not from per-sample tinting.
+    /* --- Voxel-space column renderer -----------------------------------
+     * Front-to-back painter's algorithm. For each 4-pixel column band,
+     * ray-march the heightfield; every sample that pokes higher on
+     * screen than the previously-drawn top paints a stripe from
+     * screen_y down to the old top with a pen picked by (height,
+     * distance). Multiple stripes per column give the vertical
+     * gradient that reads as depth (near=crisp, far=orange fog); the
+     * silhouette of the topmost stripe is the mountain skyline.
+     *
+     * COL_STEP=4 caps blitter ops around ~600-800 per frame while
+     * keeping the horizontal resolution readable at LORES.
      * -----------------------------------------------------------------*/
 
-    const int COL_STEP = 4;                     /* 4-wide chunky columns */
-    const int NCOLS    = R_VIEW_W / COL_STEP;   /* 72 */
-    static WORD col_ytop[R_VIEW_W / 4 + 4];     /* per-4px column y_top  */
-    static UBYTE col_pen[R_VIEW_W / 4 + 4];     /* pen at that y_top     */
+    const int COL_STEP = 4;
+    const int NCOLS    = R_VIEW_W / COL_STEP;
+
+    /* Baseline fog fill below horizon — anywhere the raycaster doesn't
+     * paint (empty distance / behind camera) still gets a coherent
+     * horizon tint instead of the raw sky ramp. */
+    SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 7));
+    if (horizon_y + 1 <= R_VIEW_Y2)
+        RectFill(rp, R_VIEW_X, horizon_y + 1, R_VIEW_X2, R_VIEW_Y2);
 
     for (int ci = 0; ci < NCOLS; ci++) {
         int col = ci * COL_STEP;
@@ -275,11 +284,16 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
         LONG rdx = isin(ray_yaw);
         LONG rdz = icos(ray_yaw);
 
-        int  y_top    = R_VIEW_Y2 + 1;
-        UBYTE best_pen = PAL_TERRAIN_BASE + 4 * 8 + 4;   /* mid green */
+        /* y_top starts one past viewport bottom = "nothing drawn yet".
+         * Each sample only paints the strip ABOVE any previously-
+         * drawn terrain, which yields correct occlusion front-to-back. */
+        int y_top = R_VIEW_Y2 + 1;
+        int cx1 = R_VIEW_X + col;
+        int cx2 = cx1 + COL_STEP - 1;
+        if (cx2 > R_VIEW_X2) cx2 = R_VIEW_X2;
 
-        LONG dist = 16;
-        LONG step = 4;
+        LONG dist = 8;
+        LONG step = 3;
 
         while (dist < MAX_DIST && y_top > R_VIEW_Y) {
             LONG wx = cam_x_int + ((rdx * dist) >> TRIG_SHIFT);
@@ -289,6 +303,8 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
             LONG dy = h - cam_y;
             LONG screen_y = horizon_y - (dy * PROJ) / dist;
 
+            /* Clamp so an off-viewport peak still counts as a "top of
+             * column" without over-filling above the viewport bounds. */
             if (screen_y > R_VIEW_Y2) screen_y = R_VIEW_Y2;
             if (screen_y < R_VIEW_Y)  screen_y = R_VIEW_Y;
 
@@ -298,43 +314,18 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
                 else if (h_bin > 7) h_bin = 7;
                 int d_bin = (int)(dist / (MAX_DIST / 8));
                 if (d_bin > 7) d_bin = 7;
-                best_pen = (UBYTE)(PAL_TERRAIN_BASE + h_bin * 8 + d_bin);
+                UBYTE pen = (UBYTE)(PAL_TERRAIN_BASE + h_bin * 8 + d_bin);
+                SetAPen(rp, pen);
+                RectFill(rp, cx1, screen_y, cx2, y_top - 1);
                 y_top = (int)screen_y;
             }
 
             dist += step;
-            if (dist >  120) step = 12;
-            if (dist >  400) step = 32;
-            if (dist > 1000) step = 64;
+            if (dist >   80) step = 6;
+            if (dist >  250) step = 14;
+            if (dist >  700) step = 32;
+            if (dist > 1200) step = 60;
         }
-        col_ytop[ci] = (WORD)y_top;
-        col_pen[ci]  = best_pen;
-    }
-
-    /* Fog fill: single big blit for everything below horizon. Columns
-     * that were visible will get overpainted next. */
-    SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 7));
-    if (horizon_y + 1 <= R_VIEW_Y2)
-        RectFill(rp, R_VIEW_X, horizon_y + 1, R_VIEW_X2, R_VIEW_Y2);
-
-    /* Emit one blitter-line per column-band. Coalesce adjacent columns
-     * that share the same pen AND top-y into a single wider RectFill —
-     * with 4px steps and 8 distance bins, ~50-70% of neighbours match. */
-    int i = 0;
-    while (i < NCOLS) {
-        int j = i + 1;
-        while (j < NCOLS
-               && col_pen[j] == col_pen[i]
-               && col_ytop[j] == col_ytop[i]) j++;
-        int cx1 = R_VIEW_X + i * COL_STEP;
-        int cx2 = R_VIEW_X + j * COL_STEP - 1;
-        if (cx2 > R_VIEW_X2) cx2 = R_VIEW_X2;
-        int y0 = col_ytop[i];
-        if (y0 <= R_VIEW_Y2) {
-            SetAPen(rp, col_pen[i]);
-            RectFill(rp, cx1, y0, cx2, R_VIEW_Y2);
-        }
-        i = j;
     }
 }
 
