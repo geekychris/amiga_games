@@ -81,7 +81,7 @@ private:
     void draw_terrain(struct RastPort *rp, const GameState &gs,
                       const Terrain &world);
     void draw_sprites(struct RastPort *rp, const GameState &gs,
-                      const Combat &combat);
+                      const Combat &combat, const PilotList &pilots);
     void draw_cockpit(struct RastPort *rp, const GameState &gs);
     void draw_hud(struct RastPort *rp, const GameState &gs,
                   const PilotList &pilots);

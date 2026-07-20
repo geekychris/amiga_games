@@ -60,8 +60,8 @@ struct GameState {
 /* Ship physics constants — tuned for a Fractalus-y sluggish feel. */
 #define SHIP_MIN_ALTITUDE    16     /* world units above terrain */
 #define SHIP_MAX_ALTITUDE    2400
-#define SHIP_MAX_SPEED       48     /* world units / tick */
-#define SHIP_ACCEL           2
+#define SHIP_MAX_SPEED       32     /* world units / tick (was 48 — too fast) */
+#define SHIP_ACCEL           1      /* was 2 — half-speed accel = ~2s to max */
 #define SHIP_YAW_RATE        24     /* angle units / tick */
 #define SHIP_PITCH_RATE      16
 #define SHIP_PITCH_MAX       380    /* ~33 degrees each way */

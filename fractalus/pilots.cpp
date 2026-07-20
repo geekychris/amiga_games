@@ -9,7 +9,7 @@ static inline ULONG pl_rng()
 }
 
 void PilotList::spawn(LONG center_x, LONG center_z, ULONG seed,
-                      const Terrain &)
+                      const Terrain &world)
 {
     plseed = seed ? seed : 0xDEADBEEFUL;
 
@@ -22,6 +22,9 @@ void PilotList::spawn(LONG center_x, LONG center_z, ULONG seed,
                 - PILOT_SPAWN_RADIUS;
         pilots[i].x = center_x + dx;
         pilots[i].z = center_z + dz;
+        /* Precompute ground altitude — the renderer projects pilots
+         * as sprites sitting on the terrain surface. */
+        pilots[i].y = world.height_at_world(pilots[i].x, pilots[i].z);
         pilots[i].state = PILOT_ACTIVE;
         /* ~15% chance each pilot is a jaggi in disguise. That's the
          * classic Fractalus jump-scare rate. */

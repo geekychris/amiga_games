@@ -23,8 +23,10 @@ enum PilotState {
 struct Pilot {
     LONG x;         /* world coords */
     LONG z;
+    LONG y;         /* terrain height at (x,z) — computed at spawn */
     UBYTE state;    /* PilotState */
     UBYTE is_jaggi; /* rolled at spawn — determines airlock outcome */
+    UBYTE _pad[2];
 };
 
 class Terrain;
