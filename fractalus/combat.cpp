@@ -25,16 +25,20 @@ void Combat::init(ULONG seed, LONG cam_x, LONG cam_y, LONG cam_z)
     cseed = seed ? seed : 0x5AABBCDDUL;
     player_cooldown = 0;
 
+    /* Saucers cruise well above the tallest terrain peak so a player
+     * flying low in a valley can still see them silhouetted against
+     * the sky. cam_y is unused for altitude now but kept for API. */
+    (void)cam_y;
+    const LONG SAUCER_CRUISE_Y = 550;   /* max peak ≈ 486 */
+
     for (LONG i = 0; i < MAX_SAUCERS; i++) {
         Saucer &s = saucers[i];
-        /* Ring formation around the player at moderate distance and
-         * roughly ship altitude so they're actually visible. */
         LONG angle = (i * ANGLE_FULL) / MAX_SAUCERS
                    + crand_range(-256, 256);
         LONG dist  = crand_range(SAUCER_SPAWN_MIN, SAUCER_SPAWN_MAX);
         s.x = cam_x + ((isin(angle) * dist) >> TRIG_SHIFT);
         s.z = cam_z + ((icos(angle) * dist) >> TRIG_SHIFT);
-        s.y = cam_y + crand_range(-40, 80);
+        s.y = SAUCER_CRUISE_Y + crand_range(-30, 60);
         s.state = SS_APPROACHING;
         s.dying_timer = 0;
         s.fire_cooldown = crand_range(30, SAUCER_FIRE_COOL);
