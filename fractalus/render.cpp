@@ -271,8 +271,15 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
      * keeping the horizontal resolution readable at LORES.
      * -----------------------------------------------------------------*/
 
-    const int COL_STEP = 4;
+    /* 8-wide columns halve the raycaster + blitter cost vs COL_STEP=4
+     * with only a modest loss in horizontal detail at LORES; the eye
+     * reads the depth gradient from vertical shading anyway. */
+    const int COL_STEP = 8;
     const int NCOLS    = R_VIEW_W / COL_STEP;
+    /* Skip micro-stripes shorter than this (in screen pixels). Cuts
+     * blitter setups roughly in half — a 1px stripe costs the same
+     * blitter setup as a 20px stripe. */
+    const int MIN_STRIP = 3;
 
     /* Baseline fog fill below horizon — anywhere the raycaster doesn't
      * paint (empty distance / behind camera) still gets a coherent
@@ -312,7 +319,7 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
             if (screen_y > R_VIEW_Y2) screen_y = R_VIEW_Y2;
             if (screen_y < R_VIEW_Y)  screen_y = R_VIEW_Y;
 
-            if (screen_y < y_top) {
+            if (screen_y < y_top - (MIN_STRIP - 1)) {
                 int h_bin = (int)((h * 8) / (TERRAIN_MAX_HEIGHT + 1));
                 if (h_bin < 0) h_bin = 0;
                 else if (h_bin > 7) h_bin = 7;
