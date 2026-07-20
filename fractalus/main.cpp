@@ -57,9 +57,9 @@ static Game      g_game;
 static PilotList g_pilots;
 static Combat    g_combat;
 
-/* Raw-key codes (from devices/inputevent.h / rawkeycode). Flight-sim
- * mapping: arrows FLY the ship — up/down = thrust/brake, left/right =
- * turn. Pitch moves to Q/A. Space fires (Phase 4+). L lands. ESC quits. */
+/* Raw-key codes (Amiga rawkeycodes). Primary controls are WASD to
+ * avoid FS-UAE's default arrow-keys-mapped-to-joystick behaviour.
+ * Arrows still work if FS-UAE isn't intercepting them. */
 #define RK_ESC     0x45
 #define RK_LEFT    0x4F
 #define RK_RIGHT   0x4E
@@ -67,8 +67,12 @@ static Combat    g_combat;
 #define RK_DOWN    0x4D
 #define RK_SPACE   0x40
 #define RK_L       0x28
-#define RK_Q       0x10
+#define RK_W       0x11
 #define RK_A       0x20
+#define RK_S       0x21
+#define RK_D       0x22
+#define RK_Q       0x10
+#define RK_Z       0x31
 #define RK_UP_MASK 0x80
 
 static UWORD input_flags = 0;
@@ -80,14 +84,18 @@ static void apply_key(UWORD code)
     UWORD bit = 0;
 
     switch (raw) {
-    case RK_LEFT:  bit = INPUT_LEFT;   break;
-    case RK_RIGHT: bit = INPUT_RIGHT;  break;
-    case RK_UP:    bit = INPUT_THRUST; break;  /* arrow-up = go */
-    case RK_DOWN:  bit = INPUT_BRAKE;  break;  /* arrow-down = brake */
-    case RK_Q:     bit = INPUT_UP;     break;  /* Q = nose up */
-    case RK_A:     bit = INPUT_DOWN;   break;  /* A = nose down */
-    case RK_SPACE: bit = INPUT_FIRE;   break;  /* Phase 4 */
-    case RK_L:     bit = INPUT_LAND;   break;
+    /* Turn (yaw) */
+    case RK_A: case RK_LEFT:  bit = INPUT_LEFT;   break;
+    case RK_D: case RK_RIGHT: bit = INPUT_RIGHT;  break;
+    /* Thrust / brake */
+    case RK_W: case RK_UP:    bit = INPUT_THRUST; break;
+    case RK_S: case RK_DOWN:  bit = INPUT_BRAKE;  break;
+    /* Pitch (secondary — Q/Z, near WASD) */
+    case RK_Q:                bit = INPUT_UP;     break;
+    case RK_Z:                bit = INPUT_DOWN;   break;
+    /* Actions */
+    case RK_SPACE:            bit = INPUT_FIRE;   break;
+    case RK_L:                bit = INPUT_LAND;   break;
     default: break;
     }
 
