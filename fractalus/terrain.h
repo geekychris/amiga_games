@@ -19,8 +19,11 @@
 #define TERRAIN_CELL_SHIFT 6                    /* one cell = 64 world units */
 #define TERRAIN_CELL_UNITS (1 << TERRAIN_CELL_SHIFT)
 
-/* Height scaling: raw byte 0..255 maps to 0..MAX_HEIGHT world units. */
-#define TERRAIN_HEIGHT_SHIFT 3
+/* Height scaling: raw byte 0..255 maps to 0..MAX_HEIGHT world units.
+ * Shift 1 => max 510. Keeps terrain reliably below cam_y so the
+ * voxel renderer isn't stuck in the "camera-inside-mountain"
+ * degenerate case (see terrain_test/ for reference algorithm). */
+#define TERRAIN_HEIGHT_SHIFT 1
 #define TERRAIN_MAX_HEIGHT   (255 << TERRAIN_HEIGHT_SHIFT)
 
 class Terrain

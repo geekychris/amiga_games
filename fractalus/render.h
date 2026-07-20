@@ -23,6 +23,15 @@ struct GameState;
 #define R_VIEW_Y2     (R_VIEW_Y + R_VIEW_H - 1)
 #define R_HORIZON_Y   (R_VIEW_Y + (R_VIEW_H / 2))
 
+/* Render params — matched to terrain_test's proven config. Sprite
+ * projection must use the same values as the terrain raycaster or
+ * saucers won't sit correctly against the terrain. */
+#define R_PROJ           220
+#define R_FOV_SPAN       900        /* out of 4096 = ~79° horizontal */
+#define R_NEAR_DIST      6
+#define R_FAR_DIST       6000
+#define R_COL_STEP       4
+
 /* Palette layout — 256 pens total. */
 #define PAL_SKY_BASE       0
 #define PAL_SKY_COUNT      32     /* pens 0..31 : deep→orange gradient */
