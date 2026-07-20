@@ -1,0 +1,113 @@
+#ifndef FRACTALUS_GAME_H
+#define FRACTALUS_GAME_H
+
+#include <exec/types.h>
+#include "fixed.h"
+
+/*
+ * All the mutable per-frame state for the ship + world sits here.
+ * Rendering + input read this; game.cpp updates it each tick.
+ */
+
+struct ShipState {
+    /* Position in world units (16 bits integer, plenty for a
+     * TERRAIN_SIZE * TERRAIN_CELL_UNITS = 8192-unit world). */
+    LONG x, y, z;
+
+    /* Orientation. yaw = compass heading; pitch = nose up/down.
+     * Both in ANGLE_FULL units (4096 = full circle). */
+    LONG yaw;
+    LONG pitch;
+
+    /* Forward speed in world-units-per-tick. */
+    LONG speed;
+    LONG target_speed;
+
+    /* Vertical velocity (fixed-point, for gentle lift). */
+    LONG vy;
+};
+
+/* Rescue state machine — Fractalus's key gameplay loop. */
+enum RescueState {
+    RS_FLYING     = 0,   /* normal flight */
+    RS_LANDING    = 1,   /* auto-descend + brake */
+    RS_AIRLOCK    = 2,   /* "AIRLOCK CYCLING..." */
+    RS_REVEAL     = 3,   /* pilot or jaggi visible */
+    RS_JUMPSCARE  = 4,   /* JAGGI! red flash + shield hit */
+    RS_TAKEOFF    = 5,   /* brief lift back into flying */
+};
+
+/* Global game state, allocated in main.cpp. */
+struct GameState {
+    ShipState ship;
+    ULONG     tick;
+    ULONG     seed;
+    UWORD     running;
+
+    /* HUD / gauges */
+    LONG      fuel;              /* 0..1000 */
+    LONG      shield;            /* 0..1000 */
+    LONG      pilots_rescued;
+    LONG      pilots_lost;       /* eaten by jaggis */
+    LONG      score;
+
+    /* Rescue sequence. */
+    UBYTE     rescue_state;      /* RescueState */
+    UWORD     state_timer;       /* frames remaining in current state */
+    LONG      current_pilot;     /* -1 or index into PilotList */
+};
+
+/* Ship physics constants — tuned for a Fractalus-y sluggish feel. */
+#define SHIP_MIN_ALTITUDE    16     /* world units above terrain */
+#define SHIP_MAX_ALTITUDE    2400
+#define SHIP_MAX_SPEED       48     /* world units / tick */
+#define SHIP_ACCEL           2
+#define SHIP_YAW_RATE        24     /* angle units / tick */
+#define SHIP_PITCH_RATE      16
+#define SHIP_PITCH_MAX       380    /* ~33 degrees each way */
+
+/* Input flags (bitfield). */
+#define INPUT_LEFT   0x0001
+#define INPUT_RIGHT  0x0002
+#define INPUT_UP     0x0004
+#define INPUT_DOWN   0x0008
+#define INPUT_THRUST 0x0010
+#define INPUT_BRAKE  0x0020
+#define INPUT_FIRE   0x0040
+#define INPUT_LAND   0x0080
+
+class Terrain;
+class PilotList;
+
+/* Landing detection thresholds. */
+#define LAND_MAX_SPEED       6
+#define LAND_MAX_ALT_ABOVE   40      /* world units above ground */
+#define LAND_RADIUS          260     /* world units from a pilot to land */
+/* Timer values in game ticks. The raycaster currently runs ~2-4 FPS,
+ * so 30 ticks ≈ 10 seconds — a reasonable pause per state. */
+#define AIRLOCK_FRAMES       30
+#define REVEAL_FRAMES        20
+#define JUMPSCARE_FRAMES     15
+#define TAKEOFF_FRAMES       10
+
+class Game {
+public:
+    void init(GameState *state, Terrain *terrain, PilotList *plist);
+    void tick(UWORD input_flags);
+
+    const ShipState &ship() const { return gs->ship; }
+    const GameState &state() const { return *gs; }
+    const PilotList &pilots() const { return *pl; }
+
+private:
+    GameState *gs;
+    Terrain   *world;
+    PilotList *pl;
+
+    void update_ship(UWORD input_flags);
+    void clamp_altitude();
+    void update_rescue(UWORD input_flags);
+    void enter_state(UBYTE new_state, UWORD frames);
+};
+
+#endif
