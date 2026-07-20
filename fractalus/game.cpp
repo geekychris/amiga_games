@@ -34,6 +34,8 @@ void Game::init(GameState *state, Terrain *terrain, PilotList *plist,
     gs->rescue_state = RS_FLYING;
     gs->state_timer = 0;
     gs->current_pilot = -1;
+    gs->mode = GM_PLAYING;
+    gs->restart_pressed = 0;
 
     /* Low-flyer cruise altitude — Fractalus-style ground-hugging.
      * If a peak sticks up higher than us, the raycaster's "camera
@@ -204,6 +206,21 @@ void Game::update_rescue(UWORD in)
 
 void Game::tick(UWORD in)
 {
+    /* Mission end screens: freeze the world, just tick timer, wait for
+     * SPACE (edge-detected) to signal a restart request. Main handles
+     * the actual reset — it owns terrain / pilots / combat. */
+    if (gs->mode != GM_PLAYING) {
+        if (gs->state_timer < 65535) gs->state_timer++;
+        if (in & INPUT_FIRE) {
+            if (!gs->restart_pressed) {
+                gs->restart_pressed = 1;   /* main sees this next tick */
+            }
+        } else {
+            gs->restart_pressed = 0;
+        }
+        return;
+    }
+
     /* During non-flying states the ship's own controls are locked;
      * the state machine takes over. */
     if (gs->rescue_state == RS_FLYING) {
@@ -235,6 +252,36 @@ void Game::tick(UWORD in)
     if (gs->rescue_state == RS_FLYING) {
         cb->tick(FX16_TOINT(s.x), s.y, FX16_TOINT(s.z), s.yaw,
                  in, &gs->shield, &gs->score);
+    }
+
+    /* Fuel drain — a fixed trickle per FUEL_DRAIN_FRAMES so a full
+     * tank lasts ~4 minutes at 25 FPS. Ship still moves at fuel=0,
+     * but the mission fails. */
+    if ((gs->tick % FUEL_DRAIN_FRAMES) == 0 && gs->fuel > 0) {
+        gs->fuel -= FUEL_DRAIN_FLYING;
+        if (gs->fuel < 0) gs->fuel = 0;
+    }
+
+    /* Mission end conditions — checked once per tick. Score bonus for
+     * remaining fuel + shield rewards efficient play. */
+    if (gs->pilots_rescued >= MISSION_WIN_PILOTS) {
+        gs->score += gs->fuel + gs->shield;
+        gs->mode = GM_WIN;
+        gs->state_timer = 0;
+        gs->restart_pressed = 1;      /* consume any held FIRE this tick */
+        AB_I("MISSION COMPLETE — rescued %ld/%ld, score %ld",
+             (long)gs->pilots_rescued, (long)MISSION_WIN_PILOTS,
+             (long)gs->score);
+    } else if (gs->shield <= 0) {
+        gs->mode = GM_LOSE;
+        gs->state_timer = 0;
+        gs->restart_pressed = 1;
+        AB_I("SHIELD FAILURE — score %ld", (long)gs->score);
+    } else if (gs->fuel <= 0) {
+        gs->mode = GM_LOSE;
+        gs->state_timer = 0;
+        gs->restart_pressed = 1;
+        AB_I("FUEL EXHAUSTED — score %ld", (long)gs->score);
     }
 
     gs->tick++;

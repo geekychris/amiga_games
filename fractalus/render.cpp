@@ -747,9 +747,62 @@ void Renderer::draw_sprites(struct RastPort *rp, const GameState &gs,
     }
 }
 
+/* Full-viewport end-of-mission screen (WIN or LOSE). */
+static void draw_end_screen(struct RastPort *rp, const GameState &gs)
+{
+    /* Solid backdrop over the viewport — no terrain behind. */
+    UBYTE bg = (gs.mode == GM_WIN) ? PAL_TERRAIN_BASE + 3   /* deep green */
+                                   : PAL_MISC_BASE + 2;     /* dark red */
+    SetAPen(rp, bg);
+    RectFill(rp, R_VIEW_X, R_VIEW_Y, R_VIEW_X2, R_VIEW_Y2);
+
+    /* Central banner */
+    int by  = R_HORIZON_Y - 30;
+    int by2 = R_HORIZON_Y + 40;
+    SetAPen(rp, 0);
+    RectFill(rp, R_VIEW_X + 10, by, R_VIEW_X2 - 10, by2);
+    SetAPen(rp, PAL_HUD_BASE + 14);
+    Move(rp, R_VIEW_X + 10, by);       Draw(rp, R_VIEW_X2 - 10, by);
+    Draw(rp, R_VIEW_X2 - 10, by2);     Draw(rp, R_VIEW_X + 10, by2);
+    Draw(rp, R_VIEW_X + 10, by);
+
+    SetDrMd(rp, JAM1);
+    SetAPen(rp, (gs.mode == GM_WIN) ? PAL_HUD_BASE + 15
+                                     : PAL_MISC_BASE + 4);
+    int tx = R_VIEW_X + 40;
+    if (gs.mode == GM_WIN) {
+        Move(rp, tx + 20, by + 20); Text(rp, (STRPTR)"MISSION COMPLETE", 16);
+    } else {
+        /* Distinguish shield failure vs fuel exhaustion by which
+         * gauge is zero. */
+        if (gs.fuel <= 0) {
+            Move(rp, tx + 24, by + 20); Text(rp, (STRPTR)"OUT OF FUEL", 11);
+        } else {
+            Move(rp, tx + 8, by + 20);  Text(rp, (STRPTR)"SHIELDS DESTROYED", 17);
+        }
+    }
+    /* Stats */
+    SetAPen(rp, PAL_HUD_BASE + 12);
+    char buf[40];
+    sprintf(buf, "RESCUED %ld / %ld",
+            (long)gs.pilots_rescued, (long)MISSION_WIN_PILOTS);
+    Move(rp, tx + 20, by + 40); Text(rp, (STRPTR)buf, strlen(buf));
+    sprintf(buf, "SCORE %05ld", (long)gs.score);
+    Move(rp, tx + 20, by + 52); Text(rp, (STRPTR)buf, strlen(buf));
+
+    /* Restart hint — blinks every ~30 frames so it draws attention. */
+    if (((gs.state_timer >> 4) & 1) == 0) {
+        SetAPen(rp, PAL_HUD_BASE + 15);
+        Move(rp, tx + 8, by + 66); Text(rp, (STRPTR)"SPACE = NEW MISSION", 19);
+    }
+}
+
 /* Overlays drawn on top of the terrain during the rescue sequence. */
 void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
 {
+    /* End screen wins over any in-progress rescue state. */
+    if (gs.mode != GM_PLAYING) { draw_end_screen(rp, gs); return; }
+
     if (gs.rescue_state == RS_FLYING) return;
 
     /* Semi-opaque banner across the middle of the viewport. */

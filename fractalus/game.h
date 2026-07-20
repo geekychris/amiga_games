@@ -37,6 +37,18 @@ enum RescueState {
     RS_TAKEOFF    = 5,   /* brief lift back into flying */
 };
 
+/* Top-level game mode. Restart transitions LOSE/WIN -> PLAYING. */
+enum GameMode {
+    GM_PLAYING = 0,
+    GM_WIN     = 1,
+    GM_LOSE    = 2,
+};
+
+/* Mission tunables. */
+#define MISSION_WIN_PILOTS   5       /* rescue N of MAX_PILOTS to win */
+#define FUEL_DRAIN_FLYING    1       /* fuel units drained per N frames */
+#define FUEL_DRAIN_FRAMES    6       /* -> 1000 fuel / (25fps / 6) = ~240s */
+
 /* Global game state, allocated in main.cpp. */
 struct GameState {
     ShipState ship;
@@ -55,6 +67,10 @@ struct GameState {
     UBYTE     rescue_state;      /* RescueState */
     UWORD     state_timer;       /* frames remaining in current state */
     LONG      current_pilot;     /* -1 or index into PilotList */
+
+    /* Mission. */
+    UBYTE     mode;              /* GameMode */
+    UBYTE     restart_pressed;   /* edge-detect SPACE in end screens */
 };
 
 /* Ship physics constants — tuned for a Fractalus-y sluggish feel. */
