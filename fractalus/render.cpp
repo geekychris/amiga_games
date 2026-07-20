@@ -18,6 +18,10 @@
 #include <stdio.h>
 #include <string.h>
 
+extern "C" {
+#include "bridge_client.h"
+}
+
 extern struct IntuitionBase *IntuitionBase;
 extern struct GfxBase       *GfxBase;
 
@@ -693,19 +697,32 @@ void Renderer::render(const GameState &gs, const Terrain &world,
     struct RastPort *rp = &rp_buf[cur_buf];
     rp->BitMap = sbuf[cur_buf]->sb_BitMap;
 
+    ab_perf_section_start("sky");
     draw_sky(rp);
+    ab_perf_section_end("sky");
+
     if (gs.rescue_state == RS_FLYING) {
+        ab_perf_section_start("terrain");
         draw_terrain(rp, gs, world);
+        ab_perf_section_end("terrain");
+
+        ab_perf_section_start("sprites");
         draw_sprites(rp, gs, combat);
+        ab_perf_section_end("sprites");
     } else {
         SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 7));
         if (R_HORIZON_Y + 1 <= R_VIEW_Y2)
             RectFill(rp, R_VIEW_X, R_HORIZON_Y + 1,
                          R_VIEW_X2, R_VIEW_Y2);
     }
+
+    ab_perf_section_start("cockpit_hud");
     draw_overlay(rp, gs);
     draw_cockpit(rp, gs);
     draw_hud(rp, gs, pilots);
+    ab_perf_section_end("cockpit_hud");
 
+    ab_perf_section_start("flip");
     flip();
+    ab_perf_section_end("flip");
 }
