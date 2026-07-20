@@ -35,11 +35,15 @@ void Game::init(GameState *state, Terrain *terrain, PilotList *plist,
     gs->state_timer = 0;
     gs->current_pilot = -1;
 
-    /* Spawn well above every terrain peak (TERRAIN_MAX_HEIGHT = 510
-     * with HEIGHT_SHIFT=1) so the voxel renderer's above-terrain
-     * projection is valid from frame one. Fractalus's low-flying feel
-     * comes back once we know the render is stable. */
-    gs->ship.y = TERRAIN_MAX_HEIGHT + 250;   /* 760 */
+    /* Low-flyer cruise altitude — Fractalus-style ground-hugging.
+     * If a peak sticks up higher than us, the raycaster's "camera
+     * inside mountain" degenerate case fires per-column (that column
+     * fills with the peak's colour) — physically correct: the peak
+     * is in your face. Global render still works because most
+     * columns still see over lower terrain. */
+    LONG ground = world->height_at_world(FX16_TOINT(gs->ship.x),
+                                         FX16_TOINT(gs->ship.z));
+    gs->ship.y = ground + 100;
 }
 
 void Game::update_ship(UWORD in)
