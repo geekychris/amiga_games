@@ -72,6 +72,26 @@ static inline void fill_strip8(int x, int y0, int y1, UBYTE pen)
     }
 }
 
+/* Fill an axis-aligned rectangle covering whole bytes horizontally.
+ * x1..x2 in pixel coords, both 8-aligned (x2+1 must be multiple of 8).
+ * y1..y2 inclusive. memset per row so gcc uses word/long stores. */
+static inline void fill_rect_bytes(int x1, int x2, int y1, int y2, UBYTE pen)
+{
+    int byte_x = x1 >> 3;
+    int byte_w = ((x2 + 1) >> 3) - byte_x;
+    int rows   = y2 - y1 + 1;
+    int p;
+    for (p = 0; p < 8; p++) {
+        UBYTE v = ((pen >> p) & 1) ? 0xFF : 0x00;
+        UBYTE *row = g_plane[p] + y1 * g_plane_bpr + byte_x;
+        int n = rows;
+        while (n-- > 0) {
+            memset(row, v, byte_w);
+            row += g_plane_bpr;
+        }
+    }
+}
+
 /*
  * Runtime bench mask — bit toggles let us disable individual render
  * phases from the bridge without recompiling. Points a stopwatch at
@@ -280,13 +300,17 @@ struct MsgPort *Renderer::user_port() const
 
 void Renderer::draw_sky(struct RastPort *rp)
 {
-    /* Vertical gradient across the whole viewport. Above the horizon
-     * we show the sky; below, we'll get overwritten by terrain. */
+    /* 32 horizontal bands across the flying viewport. Direct-plane
+     * fills — same trick as draw_terrain. Viewport spans x=16..303
+     * = bytes 2..37 (36 bytes wide) which is 8-aligned both ends,
+     * so memset-per-row nails it. Saves ~20 ms/frame vs 32 RectFills. */
+    WaitBlit();
+    snapshot_planes(rp->BitMap);
     for (int i = 0; i < PAL_SKY_COUNT; i++) {
         int y0 = R_VIEW_Y + (i * R_VIEW_H) / PAL_SKY_COUNT;
         int y1 = R_VIEW_Y + ((i + 1) * R_VIEW_H) / PAL_SKY_COUNT - 1;
-        SetAPen(rp, (UBYTE)(PAL_SKY_BASE + i));
-        RectFill(rp, R_VIEW_X, y0, R_VIEW_X2, y1);
+        fill_rect_bytes(R_VIEW_X, R_VIEW_X2, y0, y1,
+                        (UBYTE)(PAL_SKY_BASE + i));
     }
 }
 
@@ -400,19 +424,24 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
  */
 void Renderer::draw_cockpit(struct RastPort *rp, const GameState &)
 {
-    /* Left/right pillars around the viewport. */
-    SetAPen(rp, PAL_COCKPIT_BASE + 3);
-    RectFill(rp, 0, 0, R_VIEW_X - 1, R_SCREEN_H - 1);
-    RectFill(rp, R_VIEW_X2 + 1, 0, R_SCREEN_W - 1, R_SCREEN_H - 1);
+    /* Four large frame fills go direct-to-plane; only the 1-pixel
+     * highlight border still uses the blitter Line mode via
+     * Move/Draw where the byte-alignment win doesn't matter. */
+    WaitBlit();
+    snapshot_planes(rp->BitMap);
+    /* Left pillar (0..15) and right pillar (304..319) — 2 bytes wide each. */
+    fill_rect_bytes(0,             R_VIEW_X - 1,   0, R_SCREEN_H - 1,
+                    (UBYTE)(PAL_COCKPIT_BASE + 3));
+    fill_rect_bytes(R_VIEW_X2 + 1, R_SCREEN_W - 1, 0, R_SCREEN_H - 1,
+                    (UBYTE)(PAL_COCKPIT_BASE + 3));
+    /* Top strip above the viewport. */
+    fill_rect_bytes(R_VIEW_X, R_VIEW_X2, 0, R_VIEW_Y - 1,
+                    (UBYTE)(PAL_COCKPIT_BASE + 3));
+    /* Bottom dashboard — full-screen width. */
+    fill_rect_bytes(0, R_SCREEN_W - 1, R_VIEW_Y2 + 1, R_SCREEN_H - 1,
+                    (UBYTE)(PAL_COCKPIT_BASE + 2));
 
-    /* Top strip. */
-    RectFill(rp, R_VIEW_X, 0, R_VIEW_X2, R_VIEW_Y - 1);
-
-    /* Bottom dashboard. */
-    SetAPen(rp, PAL_COCKPIT_BASE + 2);
-    RectFill(rp, 0, R_VIEW_Y2 + 1, R_SCREEN_W - 1, R_SCREEN_H - 1);
-
-    /* Inner highlight lines to frame the viewport. */
+    /* Highlight border: 4 short lines, cheap via graphics.library. */
     SetAPen(rp, PAL_COCKPIT_BASE + 8);
     Move(rp, R_VIEW_X - 1, R_VIEW_Y - 1);
     Draw(rp, R_VIEW_X2 + 1, R_VIEW_Y - 1);
