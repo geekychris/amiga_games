@@ -444,10 +444,10 @@ void Renderer::draw_hud(struct RastPort *rp, const GameState &gs,
             (long)gs.pilots_rescued, (long)MAX_PILOTS);
     Move(rp, 108, dash_y + 39);    Text(rp, (STRPTR)buf, 10);
 
-    /* Keys hint bottom-right — jog the player's memory each frame. */
+    /* Keys hint bottom-right. */
     SetAPen(rp, PAL_HUD_BASE + 9);
-    Move(rp, 200, dash_y + 55); Text(rp, (STRPTR)"UP/DN THRUST", 12);
-    Move(rp, 200, dash_y + 65); Text(rp, (STRPTR)"LR TURN  L LAND", 15);
+    Move(rp, 200, dash_y + 55); Text(rp, (STRPTR)"W/S THRUST", 10);
+    Move(rp, 200, dash_y + 65); Text(rp, (STRPTR)"A/D TURN  L", 11);
 
     /* Radar dot in the middle of the dashboard, arrow to nearest pilot. */
     int rx = 155, ry = dash_y + 25;
