@@ -40,6 +40,7 @@ LONG isin(LONG a);
 LONG icos(LONG a);
 
 class PilotList;
+class Combat;
 
 class Renderer {
 public:
@@ -49,7 +50,7 @@ public:
 
     /* Draw one frame given the current game/ship state. */
     void render(const GameState &gs, const Terrain &world,
-                const PilotList &pilots);
+                const PilotList &pilots, const Combat &combat);
 
     /* IDCMP UserPort for input. */
     struct MsgPort *user_port() const;
@@ -70,6 +71,8 @@ private:
     void draw_sky(struct RastPort *rp);
     void draw_terrain(struct RastPort *rp, const GameState &gs,
                       const Terrain &world);
+    void draw_sprites(struct RastPort *rp, const GameState &gs,
+                      const Combat &combat);
     void draw_cockpit(struct RastPort *rp, const GameState &gs);
     void draw_hud(struct RastPort *rp, const GameState &gs,
                   const PilotList &pilots);

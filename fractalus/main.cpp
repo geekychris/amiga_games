@@ -30,6 +30,7 @@ extern "C" {
 #include "terrain.h"
 #include "game.h"
 #include "pilots.h"
+#include "combat.h"
 
 /* Amiga library bases — declared in render.cpp as extern. */
 struct IntuitionBase *IntuitionBase = NULL;
@@ -52,6 +53,7 @@ static Terrain   g_terrain;
 static Renderer  g_renderer;
 static Game      g_game;
 static PilotList g_pilots;
+static Combat    g_combat;
 
 /* Raw-key codes (from devices/inputevent.h / rawkeycode). Flight-sim
  * mapping: arrows FLY the ship — up/down = thrust/brake, left/right =
@@ -102,6 +104,7 @@ int main(void)
     Renderer  &renderer = g_renderer;
     Game      &game     = g_game;
     PilotList &pilots   = g_pilots;
+    Combat    &combat   = g_combat;
 
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
                         (CONST_STRPTR)"intuition.library", 39);
@@ -164,16 +167,28 @@ int main(void)
         return 20;
     }
 
-    game.init(&g_state, &terrain, &pilots);
+    game.init(&g_state, &terrain, &pilots, &combat);
     pilots.spawn(FX16_TOINT(g_state.ship.x),
                  FX16_TOINT(g_state.ship.z),
                  g_state.seed ^ 0xA5A5A5A5UL, terrain);
+    combat.init(g_state.seed ^ 0x33445566UL,
+                FX16_TOINT(g_state.ship.x),
+                g_state.ship.y,
+                FX16_TOINT(g_state.ship.z));
     if (bridge_ok) {
         AB_I("spawned %ld pilots", (long)pilots.count());
         for (LONG pi = 0; pi < pilots.count(); pi++) {
             AB_I("  pilot %ld: x=%ld z=%ld jaggi=%ld", (long)pi,
                  (long)pilots[pi].x, (long)pilots[pi].z,
                  (long)pilots[pi].is_jaggi);
+        }
+        for (LONG si = 0; si < combat.saucer_count(); si++) {
+            AB_I("  saucer %ld: x=%ld y=%ld z=%ld hp=%ld",
+                 (long)si,
+                 (long)combat.saucer(si).x,
+                 (long)combat.saucer(si).y,
+                 (long)combat.saucer(si).z,
+                 (long)combat.saucer(si).hp);
         }
     }
 
@@ -202,7 +217,7 @@ int main(void)
         if (bridge_ok) ab_poll();
         game.tick(input_flags);
         if (bridge_ok) ab_poll();
-        renderer.render(g_state, terrain, pilots);
+        renderer.render(g_state, terrain, pilots, combat);
         g_frame_count++;
         if (bridge_ok) ab_poll();
     }
