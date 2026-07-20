@@ -30,7 +30,7 @@ struct GameState;
 #define R_FOV_SPAN       900        /* out of 4096 = ~79° horizontal */
 #define R_NEAR_DIST      6
 #define R_FAR_DIST       6000
-#define R_COL_STEP       4
+#define R_COL_STEP       8         /* must match direct-plane fill in render.cpp */
 
 /* Palette layout — 256 pens total. */
 #define PAL_SKY_BASE       0

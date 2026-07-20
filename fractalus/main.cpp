@@ -128,6 +128,7 @@ int main(void)
 
     /* Optional bridge — we don't hard-fail if the daemon isn't running,
      * so the game plays standalone from Workbench too. */
+    extern LONG g_bench_mask;
     int bridge_ok = (ab_init("fractalus") == 0);
     if (bridge_ok) {
         AB_I("fractalus v0.1 (Phase 1) starting");
@@ -146,6 +147,9 @@ int main(void)
         ab_register_var("pilots_saved",   AB_TYPE_I32, &g_state.pilots_rescued);
         ab_register_var("pilots_lost",    AB_TYPE_I32, &g_state.pilots_lost);
         ab_register_var("score",          AB_TYPE_I32, &g_state.score);
+        /* Toggle from the bridge to isolate render bottlenecks —
+         * see g_bench_mask BENCH_* bit table in render.cpp. */
+        ab_register_var("bench_mask",     AB_TYPE_I32, &g_bench_mask);
     }
 
     render_init_math();
