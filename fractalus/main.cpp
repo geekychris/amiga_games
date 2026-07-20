@@ -13,6 +13,8 @@
 #include <intuition/screens.h>
 #include <devices/inputevent.h>
 #include <libraries/dos.h>
+#include <dos/dos.h>
+#include <dos/dosextens.h>
 
 #include <proto/exec.h>
 #include <proto/intuition.h>
@@ -215,11 +217,50 @@ int main(void)
          * hundreds of ms per frame, and one-poll-per-frame lets the
          * host's command timeouts fire while we're mid-scanline. */
         if (bridge_ok) ab_poll();
+
+        if (bridge_ok) ab_perf_frame_start();
+
+        if (bridge_ok) ab_perf_section_start("game_tick");
         game.tick(input_flags);
+        if (bridge_ok) ab_perf_section_end("game_tick");
+
         if (bridge_ok) ab_poll();
+
+        if (bridge_ok) ab_perf_section_start("render");
         renderer.render(g_state, terrain, pilots, combat);
+        if (bridge_ok) ab_perf_section_end("render");
+
+        if (bridge_ok) ab_perf_frame_end();
+
         g_frame_count++;
         if (bridge_ok) ab_poll();
+
+        /* Cheap heartbeat + real wall-clock FPS from DateStamp (50Hz
+         * PAL ticks). If this stops arriving the game has FROZEN; if
+         * it keeps arriving but with tiny FPS, the raycaster stalled
+         * on some path; if fps stays healthy but input doesn't
+         * respond, keyboard focus is the culprit not the game. */
+        if (bridge_ok && (g_frame_count % 30) == 0) {
+            struct DateStamp now;
+            DateStamp(&now);
+            static struct DateStamp prev = { 0, 0, 0 };
+            static LONG prev_frame = 0;
+            LONG dticks = (now.ds_Days   - prev.ds_Days)   * 24 * 60 * 3000
+                        + (now.ds_Minute - prev.ds_Minute) * 3000
+                        + (now.ds_Tick   - prev.ds_Tick);
+            LONG dframes = g_frame_count - prev_frame;
+            /* 50 ticks/sec → fps10 = 500 * dframes / dticks (fps × 10). */
+            LONG fps10 = (dticks > 0) ? (500L * dframes) / dticks : 0;
+            AB_I("hb: frame=%ld fps=%ld.%ld yaw=%ld spd=%ld resc=%ld sh=%ld",
+                 (long)g_frame_count,
+                 (long)(fps10 / 10), (long)(fps10 % 10),
+                 (long)g_state.ship.yaw,
+                 (long)g_state.ship.speed,
+                 (long)g_state.rescue_state,
+                 (long)g_state.shield);
+            prev = now;
+            prev_frame = g_frame_count;
+        }
     }
 
     if (bridge_ok) {
