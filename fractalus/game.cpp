@@ -1,16 +1,19 @@
 #include "game.h"
 #include "terrain.h"
 #include "pilots.h"
+#include "combat.h"
 
 extern "C" {
 #include "bridge_client.h"
 }
 
-void Game::init(GameState *state, Terrain *terrain, PilotList *plist)
+void Game::init(GameState *state, Terrain *terrain, PilotList *plist,
+                Combat *combat)
 {
     gs = state;
     world = terrain;
     pl = plist;
+    cb = combat;
 
     gs->ship.x = FX16(4096);   /* middle of the world */
     gs->ship.z = FX16(4096);
@@ -222,6 +225,13 @@ void Game::tick(UWORD in)
     }
 
     update_rescue(in);
+
+    /* Enemy AI + player firing + bullet motion. Only runs during
+     * flight; while landed we're a sitting duck by design. */
+    if (gs->rescue_state == RS_FLYING) {
+        cb->tick(FX16_TOINT(s.x), s.y, FX16_TOINT(s.z), s.yaw,
+                 in, &gs->shield, &gs->score);
+    }
 
     gs->tick++;
 }

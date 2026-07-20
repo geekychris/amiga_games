@@ -78,6 +78,7 @@ struct GameState {
 
 class Terrain;
 class PilotList;
+class Combat;
 
 /* Landing detection thresholds. */
 #define LAND_MAX_SPEED       6
@@ -92,17 +93,20 @@ class PilotList;
 
 class Game {
 public:
-    void init(GameState *state, Terrain *terrain, PilotList *plist);
+    void init(GameState *state, Terrain *terrain, PilotList *plist,
+              Combat *combat);
     void tick(UWORD input_flags);
 
     const ShipState &ship() const { return gs->ship; }
     const GameState &state() const { return *gs; }
     const PilotList &pilots() const { return *pl; }
+    const Combat    &combat() const { return *cb; }
 
 private:
     GameState *gs;
     Terrain   *world;
     PilotList *pl;
+    Combat    *cb;
 
     void update_ship(UWORD input_flags);
     void clamp_altitude();

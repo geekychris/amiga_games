@@ -2,6 +2,7 @@
 #include "terrain.h"
 #include "game.h"
 #include "pilots.h"
+#include "combat.h"
 
 #include <exec/memory.h>
 #include <graphics/gfxbase.h>
@@ -28,24 +29,31 @@ LONG isin(LONG a) { return sin_table[a & ANGLE_MASK]; }
 LONG icos(LONG a) { return sin_table[(a + ANGLE_QUART) & ANGLE_MASK]; }
 
 /*
- * We generate the sine table without libm: sin(x) ≈ 4x(pi-x) / (5pi²-4x(pi-x))
- * (Bhaskara I approximation, accurate to ~0.16%). Then mirror for the
- * second half and negate.
+ * Bhaskara I sine approximation, accurate to ~0.16%:
+ *   sin(x) ≈ 16 x (π - x) / (5π² - 4 x (π - x))    for x in [0, π]
+ *
+ * In our units x is [0, ANGLE_HALF] representing [0, π]. Result is
+ * scaled by TRIG_ONE (4096). Denominator is pre-divided by TRIG_ONE
+ * so the final division stays in 32-bit even without long-long.
+ *
+ * (Earlier version had a factor-of-4 bug in the numerator — every
+ * rotation in the game was 1/4 of intended, which showed up first as
+ * saucer spawn distances collapsing to a quarter of the requested
+ * range. Fixed here.)
  */
 void render_init_math()
 {
     for (LONG i = 0; i < ANGLE_FULL; i++) {
-        LONG a = i;                       /* 0..ANGLE_FULL-1 */
+        LONG a = i;
         LONG sign = 1;
         if (a >= ANGLE_HALF) { a -= ANGLE_HALF; sign = -1; }
-        /* Approximation input: t = a * pi / ANGLE_HALF. Do it in fixed
-         * point without ever computing pi explicitly. */
-        LONG x = a;                             /* 0..ANGLE_HALF */
+        LONG x = a;
         LONG y = ANGLE_HALF - a;
-        LONG num = 4L * x * y;                  /* fits: 2048*2048*4 = 16M */
-        LONG den = (5L * ANGLE_HALF * ANGLE_HALF - num) / TRIG_ONE;
+        LONG xy  = x * y;                        /* 0..1M */
+        LONG num = 16L * xy;                     /* 0..16.7M */
+        LONG den = (5L * ANGLE_HALF * ANGLE_HALF - 4L * xy) / TRIG_ONE;
         if (den == 0) den = 1;
-        LONG s = num / den;                     /* TRIG_ONE-scaled */
+        LONG s = num / den;                      /* TRIG_ONE-scaled 0..4096 */
         sin_table[i] = (LONG)(s * sign);
     }
 }
@@ -485,6 +493,132 @@ void Renderer::draw_hud(struct RastPort *rp, const GameState &gs,
     }
 }
 
+/* Project a world point (wx, wy, wz) into the flying viewport using
+ * the same math the terrain raycaster uses. Returns 0 if the point is
+ * behind the camera or off-screen. If in-view, fills sx/sy and sz
+ * (depth for size scaling). */
+static int project(LONG wx, LONG wy, LONG wz,
+                   LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
+                   LONG horizon_y, LONG proj,
+                   int *sx, int *sy, LONG *sz_out)
+{
+    LONG dx = wx - cam_x;
+    LONG dz = wz - cam_z;
+    LONG sy_yaw = isin(cam_yaw);
+    LONG cy_yaw = icos(cam_yaw);
+    LONG local_z = ((dx * sy_yaw + dz * cy_yaw) >> TRIG_SHIFT);
+    if (local_z < 16) return 0;   /* behind or too close */
+    LONG local_x = ((dx * cy_yaw - dz * sy_yaw) >> TRIG_SHIFT);
+    LONG dy = wy - cam_y;
+    LONG screen_x = R_VIEW_X + (R_VIEW_W >> 1) + (local_x * proj) / local_z;
+    LONG screen_y = horizon_y - (dy * proj) / local_z;
+    /* Only cull sprites that are wildly off-screen; anything within
+     * ~150px overhang still gets a partially-clipped draw so mid-
+     * altitude enemies close to the horizon read as approaching. */
+    if (screen_x < R_VIEW_X - 150 || screen_x > R_VIEW_X2 + 150) return 0;
+    if (screen_y < R_VIEW_Y - 150 || screen_y > R_VIEW_Y2 + 150) return 0;
+    *sx = (int)screen_x;
+    *sy = (int)screen_y;
+    *sz_out = local_z;
+    return 1;
+}
+
+static void draw_saucer(struct RastPort *rp, int sx, int sy, int size,
+                        UBYTE dying)
+{
+    /* Saucer body is an oval-ish 3-band shape drawn with RectFills.
+     * Size scales with distance; kept clipped so nothing writes off
+     * the viewport bounds. */
+    if (size < 3) size = 3;
+    if (size > 60) size = 60;
+    int hw = size;             /* half-width */
+    int hh = size >> 1;        /* half-height */
+    UBYTE body = dying ? PAL_MISC_BASE + 4 : PAL_MISC_BASE + 3;   /* yellow / red */
+    UBYTE dark = dying ? PAL_MISC_BASE + 3 : PAL_MISC_BASE + 2;
+    UBYTE glass = dying ? PAL_MISC_BASE + 7 : PAL_MISC_BASE + 5;  /* teeth-white / laser-green */
+
+    int x0 = sx - hw, x1 = sx + hw;
+    int y0 = sy - hh, y1 = sy + hh;
+    if (x0 < R_VIEW_X) x0 = R_VIEW_X;
+    if (x1 > R_VIEW_X2) x1 = R_VIEW_X2;
+    if (y0 < R_VIEW_Y) y0 = R_VIEW_Y;
+    if (y1 > R_VIEW_Y2) y1 = R_VIEW_Y2;
+    if (x0 >= x1 || y0 >= y1) return;
+
+    /* Wide middle band. */
+    SetAPen(rp, body);
+    RectFill(rp, x0, sy - 1, x1, sy + 1);
+    /* Thinner top/bottom rims. */
+    int rim = hw - (hw >> 2);
+    SetAPen(rp, dark);
+    int rx0 = sx - rim, rx1 = sx + rim;
+    if (rx0 < R_VIEW_X) rx0 = R_VIEW_X;
+    if (rx1 > R_VIEW_X2) rx1 = R_VIEW_X2;
+    if (rx0 < rx1) {
+        RectFill(rp, rx0, sy - 3, rx1, sy - 2);
+        RectFill(rp, rx0, sy + 2, rx1, sy + 3);
+    }
+    /* Cockpit blister on top. */
+    int dome = hw >> 2;
+    if (dome < 2) dome = 2;
+    int dx0 = sx - dome, dx1 = sx + dome;
+    if (dx0 < R_VIEW_X) dx0 = R_VIEW_X;
+    if (dx1 > R_VIEW_X2) dx1 = R_VIEW_X2;
+    if (dx0 < dx1) {
+        SetAPen(rp, glass);
+        RectFill(rp, dx0, sy - 5, dx1, sy - 4);
+    }
+}
+
+static void draw_bullet_dot(struct RastPort *rp, int sx, int sy,
+                            UBYTE owner)
+{
+    if (sx < R_VIEW_X + 1 || sx > R_VIEW_X2 - 1) return;
+    if (sy < R_VIEW_Y + 1 || sy > R_VIEW_Y2 - 1) return;
+    UBYTE pen = (owner == BO_PLAYER) ? PAL_MISC_BASE + 5   /* laser green */
+                                     : PAL_MISC_BASE + 3;  /* enemy red */
+    SetAPen(rp, pen);
+    RectFill(rp, sx - 1, sy - 1, sx + 1, sy + 1);
+}
+
+void Renderer::draw_sprites(struct RastPort *rp, const GameState &gs,
+                            const Combat &combat)
+{
+    const LONG PROJ = 400;
+    LONG cam_x = FX16_TOINT(gs.ship.x);
+    LONG cam_z = FX16_TOINT(gs.ship.z);
+    LONG cam_y = gs.ship.y;
+    LONG horizon_y = R_HORIZON_Y
+                   + (-(gs.ship.pitch * 40) / SHIP_PITCH_MAX);
+    if (horizon_y < R_VIEW_Y) horizon_y = R_VIEW_Y;
+    if (horizon_y > R_VIEW_Y2) horizon_y = R_VIEW_Y2;
+
+    /* Saucers. Size scales inverse to distance. */
+    for (LONG i = 0; i < combat.saucer_count(); i++) {
+        const Saucer &s = combat.saucer(i);
+        if (s.state == SS_INACTIVE) continue;
+        int sx, sy; LONG sz;
+        if (!project(s.x, s.y, s.z, cam_x, cam_y, cam_z, gs.ship.yaw,
+                     horizon_y, PROJ, &sx, &sy, &sz)) continue;
+        /* Saucer projected size — grows dramatically as it closes.
+         * Clamped so a very close one doesn't consume the viewport. */
+        int size = (int)(8000 / (sz + 40));
+        if (size < 6) size = 6;
+        UBYTE dying = (s.state == SS_DYING) ? 1 : 0;
+        draw_saucer(rp, sx, sy, size, dying);
+    }
+
+    /* Bullets — draw last so they sit on top of everything. */
+    for (LONG i = 0; i < combat.bullet_count(); i++) {
+        const Bullet &b = combat.bullet(i);
+        if (b.owner == BO_INACTIVE) continue;
+        int sx, sy; LONG sz;
+        if (!project(b.x, b.y, b.z, cam_x, cam_y, cam_z, gs.ship.yaw,
+                     horizon_y, PROJ, &sx, &sy, &sz)) continue;
+        draw_bullet_dot(rp, sx, sy, b.owner);
+    }
+}
+
 /* Overlays drawn on top of the terrain during the rescue sequence. */
 void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
 {
@@ -563,21 +697,16 @@ void Renderer::flip()
 }
 
 void Renderer::render(const GameState &gs, const Terrain &world,
-                      const PilotList &pilots)
+                      const PilotList &pilots, const Combat &combat)
 {
     struct RastPort *rp = &rp_buf[cur_buf];
     rp->BitMap = sbuf[cur_buf]->sb_BitMap;
 
     draw_sky(rp);
-    /* During rescue overlays the terrain is fully covered by the
-     * dialogue banner / jumpscare — skipping the raycaster there
-     * gives us multiple frames-per-second even when the flying
-     * loop drops below one. */
     if (gs.rescue_state == RS_FLYING) {
         draw_terrain(rp, gs, world);
+        draw_sprites(rp, gs, combat);
     } else {
-        /* Backfill below-horizon with the fog colour so the overlay
-         * sits on a coherent scene instead of the raw sky ramp. */
         SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 7));
         if (R_HORIZON_Y + 1 <= R_VIEW_Y2)
             RectFill(rp, R_VIEW_X, R_HORIZON_Y + 1,
