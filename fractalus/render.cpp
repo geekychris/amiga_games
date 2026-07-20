@@ -25,6 +25,74 @@ extern "C" {
 extern struct IntuitionBase *IntuitionBase;
 extern struct GfxBase       *GfxBase;
 
+/* ------------------------------------------------------------------
+ * Direct-to-bitplane terrain fill.
+ *
+ * graphics.library RectFill for a 4-pixel-wide vertical stripe costs
+ * ~700us per call; the actual blitter work is a fraction of that,
+ * the rest is graphics.library overhead per call (SetAPen +
+ * dispatch). Per-frame render was ~700 calls x 700us = 490ms.
+ *
+ * Our terrain stripes are 8 pixels wide (COL_STEP=8) and byte-aligned
+ * (R_VIEW_X = 16). At 8bpp planar that's exactly one byte per plane
+ * per row, no masking. Writing the bytes ourselves is ~250ns per
+ * stripe row (8 plane writes) — 100-200x faster than RectFill.
+ *
+ * Safety: only ever called while drawing to the OFF-screen buffer,
+ * so display DMA can't race us. A WaitBlit() at the start of
+ * draw_terrain fences any in-flight blitter ops from draw_sky.
+ * ------------------------------------------------------------------ */
+static UBYTE *g_plane[8];
+static int    g_plane_bpr;
+
+static void snapshot_planes(struct BitMap *bm)
+{
+    int p;
+    for (p = 0; p < 8 && p < bm->Depth; p++) g_plane[p] = bm->Planes[p];
+    g_plane_bpr = bm->BytesPerRow;
+}
+
+/* Fill an 8-pixel-wide column band from y0..y1 (inclusive) with pen.
+ * x MUST be 8-aligned. y0 <= y1 assumed. */
+static inline void fill_strip8(int x, int y0, int y1, UBYTE pen)
+{
+    int byte_off = x >> 3;
+    int rows = y1 - y0 + 1;
+    int p;
+    /* Iterate plane-by-plane: writes stay in the same chip-RAM page,
+     * which is dramatically friendlier than 8-plane-per-row hopping. */
+    for (p = 0; p < 8; p++) {
+        UBYTE v = ((pen >> p) & 1) ? 0xFF : 0x00;
+        UBYTE *dst = g_plane[p] + y0 * g_plane_bpr + byte_off;
+        int n = rows;
+        while (n-- > 0) {
+            *dst = v;
+            dst += g_plane_bpr;
+        }
+    }
+}
+
+/*
+ * Runtime bench mask — bit toggles let us disable individual render
+ * phases from the bridge without recompiling. Points a stopwatch at
+ * each phase in isolation so we know where to optimise instead of
+ * guessing.
+ *
+ *   bit 0  skip terrain (replace with one flat RectFill)
+ *   bit 1  skip sprites (saucers + bullets)
+ *   bit 2  skip cockpit frame
+ *   bit 3  skip HUD (bars, text, radar)
+ *   bit 4  skip sky gradient (replace with one flat RectFill)
+ *   bit 5  skip flip (no ChangeScreenBuffer, no WaitTOF)
+ */
+LONG g_bench_mask = 0;
+#define BENCH_TERRAIN  0x01
+#define BENCH_SPRITES  0x02
+#define BENCH_COCKPIT  0x04
+#define BENCH_HUD      0x08
+#define BENCH_SKY      0x10
+#define BENCH_FLIP     0x20
+
 /* ------------------------------------------------------------------ */
 /* Shared integer sin/cos — TRIG_ONE scaled, ANGLE_FULL entries.        */
 LONG sin_table[ANGLE_FULL];
@@ -271,10 +339,14 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
      * keeping the horizontal resolution readable at LORES.
      * -----------------------------------------------------------------*/
 
-    /* Canonical voxel-space raycaster (ported from terrain_test).
-     * No micro-strip filter, no fast-path shortcuts — every sample
-     * that raises y_top gets painted so the vertical depth gradient
-     * survives. Correctness first; the loop is still fast enough. */
+    /* Voxel-space raycaster. Fills are direct byte writes into the
+     * bitplanes via fill_strip8 — see the header comment above for
+     * why this beats RectFill 100:1 for narrow stripes.
+     *
+     * WaitBlit fences the sky's in-flight blitter ops so we don't
+     * race the blitter writing to the same plane bytes. */
+    WaitBlit();
+    snapshot_planes(rp->BitMap);
 
     for (int col = 0; col < R_VIEW_W; col += R_COL_STEP) {
         LONG dcol    = (LONG)col - (R_VIEW_W >> 1);
@@ -305,8 +377,8 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
                 int d_bin = (int)((dist * 8) / MAX_DIST);
                 if (h_bin < 0) h_bin = 0; else if (h_bin > 7) h_bin = 7;
                 if (d_bin < 0) d_bin = 0; else if (d_bin > 7) d_bin = 7;
-                SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + h_bin * 8 + d_bin));
-                RectFill(rp, cx1, (int)projected, cx2, y_top - 1);
+                fill_strip8(cx1, (int)projected, y_top - 1,
+                            (UBYTE)(PAL_TERRAIN_BASE + h_bin * 8 + d_bin));
                 y_top = (int)projected;
             }
 
@@ -686,16 +758,27 @@ void Renderer::render(const GameState &gs, const Terrain &world,
     rp->BitMap = sbuf[cur_buf]->sb_BitMap;
 
     ab_perf_section_start("sky");
-    draw_sky(rp);
+    if (g_bench_mask & BENCH_SKY) {
+        SetAPen(rp, 0);
+        RectFill(rp, 0, 0, R_SCREEN_W - 1, R_SCREEN_H - 1);
+    } else {
+        draw_sky(rp);
+    }
     ab_perf_section_end("sky");
 
     if (gs.rescue_state == RS_FLYING) {
         ab_perf_section_start("terrain");
-        draw_terrain(rp, gs, world);
+        if (g_bench_mask & BENCH_TERRAIN) {
+            SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 4 * 8));
+            RectFill(rp, R_VIEW_X, R_HORIZON_Y, R_VIEW_X2, R_VIEW_Y2);
+        } else {
+            draw_terrain(rp, gs, world);
+        }
         ab_perf_section_end("terrain");
 
         ab_perf_section_start("sprites");
-        draw_sprites(rp, gs, combat);
+        if (!(g_bench_mask & BENCH_SPRITES))
+            draw_sprites(rp, gs, combat);
         ab_perf_section_end("sprites");
     } else {
         SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 7));
@@ -706,11 +789,12 @@ void Renderer::render(const GameState &gs, const Terrain &world,
 
     ab_perf_section_start("cockpit_hud");
     draw_overlay(rp, gs);
-    draw_cockpit(rp, gs);
-    draw_hud(rp, gs, pilots);
+    if (!(g_bench_mask & BENCH_COCKPIT)) draw_cockpit(rp, gs);
+    if (!(g_bench_mask & BENCH_HUD))     draw_hud(rp, gs, pilots);
     ab_perf_section_end("cockpit_hud");
 
     ab_perf_section_start("flip");
-    flip();
+    if (!(g_bench_mask & BENCH_FLIP)) flip();
+    else                              WaitTOF();
     ab_perf_section_end("flip");
 }
