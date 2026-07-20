@@ -559,10 +559,15 @@ void Renderer::draw_hud(struct RastPort *rp, const GameState &gs,
     Draw(rp, rx + 15, ry + 15); Draw(rp, rx - 15, ry + 15);
     Draw(rp, rx - 15, ry - 15);
 
+    /* Radar shows the nearest ACTIVE pilot regardless of distance —
+     * on this map some spawns are 3-4000 units out, and the previous
+     * 4000-unit cutoff made the arrow blink out when the nearest one
+     * drifted out of range. Terrain wraps at 8192 so anything farther
+     * than that is aliased-in via another wrap anyway. */
     LONG pdist = 0;
     LONG pi = pilots.find_nearest(FX16_TOINT(gs.ship.x),
                                   FX16_TOINT(gs.ship.z),
-                                  4000, &pdist);
+                                  99999, &pdist);
     if (pi >= 0) {
         /* World delta */
         LONG wdx = pilots[pi].x - FX16_TOINT(gs.ship.x);
@@ -665,8 +670,34 @@ static void draw_bullet_dot(struct RastPort *rp, int sx, int sy,
     RectFill(rp, sx - 1, sy - 1, sx + 1, sy + 1);
 }
 
+static void draw_pilot_sprite(struct RastPort *rp, int sx, int sy, int size)
+{
+    /* Tiny stick figure — 2px head + 3px body. Sized down with distance
+     * so pilots that are far away are just a dot; close pilots read
+     * as a person waving. Bright white/orange against the terrain. */
+    if (size < 2) size = 2;
+    if (size > 12) size = 12;
+    int head_r = size / 3; if (head_r < 1) head_r = 1;
+    int body_h = size;
+    int y0 = sy - body_h;
+    int y1 = sy;
+    if (y0 < R_VIEW_Y)   y0 = R_VIEW_Y;
+    if (y1 > R_VIEW_Y2)  y1 = R_VIEW_Y2;
+    if (sx < R_VIEW_X + 1 || sx > R_VIEW_X2 - 1) return;
+    if (y0 >= y1) return;
+    /* Body */
+    SetAPen(rp, PAL_MISC_BASE + 6);            /* pilot-suit white */
+    RectFill(rp, sx, y0 + head_r * 2, sx, y1);
+    SetAPen(rp, PAL_MISC_BASE + 4);            /* orange visor */
+    RectFill(rp, sx - head_r, y0, sx + head_r, y0 + head_r * 2 - 1);
+    /* Waving arm dot — bright */
+    SetAPen(rp, PAL_MISC_BASE + 7);
+    if (sx + head_r <= R_VIEW_X2)
+        RectFill(rp, sx + head_r, y0 + head_r, sx + head_r, y0 + head_r);
+}
+
 void Renderer::draw_sprites(struct RastPort *rp, const GameState &gs,
-                            const Combat &combat)
+                            const Combat &combat, const PilotList &pilots)
 {
     const LONG PROJ = 400;
     LONG cam_x = FX16_TOINT(gs.ship.x);
@@ -690,6 +721,19 @@ void Renderer::draw_sprites(struct RastPort *rp, const GameState &gs,
         if (size < 6) size = 6;
         UBYTE dying = (s.state == SS_DYING) ? 1 : 0;
         draw_saucer(rp, sx, sy, size, dying);
+    }
+
+    /* Pilots on the ground — small figures that scale with distance
+     * so the player can visually spot rescue targets in addition to
+     * the radar arrow. */
+    for (LONG i = 0; i < pilots.count(); i++) {
+        const Pilot &p = pilots[i];
+        if (p.state != PILOT_ACTIVE) continue;
+        int sx, sy; LONG sz;
+        if (!project(p.x, p.y, p.z, cam_x, cam_y, cam_z, gs.ship.yaw,
+                     horizon_y, PROJ, &sx, &sy, &sz)) continue;
+        int size = (int)(1200 / (sz + 40));
+        draw_pilot_sprite(rp, sx, sy, size);
     }
 
     /* Bullets — draw last so they sit on top of everything. */
@@ -807,7 +851,7 @@ void Renderer::render(const GameState &gs, const Terrain &world,
 
         ab_perf_section_start("sprites");
         if (!(g_bench_mask & BENCH_SPRITES))
-            draw_sprites(rp, gs, combat);
+            draw_sprites(rp, gs, combat, pilots);
         ab_perf_section_end("sprites");
     } else {
         SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 7));

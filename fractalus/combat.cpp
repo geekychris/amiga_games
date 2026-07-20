@@ -87,12 +87,49 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
     /* --- Player firing ---------------------------------------------- */
     if (player_cooldown > 0) player_cooldown--;
     if ((input_flags & INPUT_FIRE) && player_cooldown == 0) {
-        LONG sy = isin(cam_yaw);
-        LONG cy = icos(cam_yaw);
-        LONG vx = (BULLET_SPEED * sy) >> TRIG_SHIFT;
-        LONG vz = (BULLET_SPEED * cy) >> TRIG_SHIFT;
-        spawn_bullet(cam_x, cam_y - 4, cam_z,
-                     vx, 0, vz, BO_PLAYER);
+        /* Auto-aim: find the nearest live saucer and aim the bullet at
+         * it. Without this, bullets fly horizontally at ship altitude
+         * (~200) while saucers cruise at ~550 — every shot passes
+         * hundreds of units below the target and never hits. */
+        LONG best_i = -1;
+        LONG best_d2 = 0x7FFFFFFF;
+        for (LONG i = 0; i < MAX_SAUCERS; i++) {
+            const Saucer &s = saucers[i];
+            if (s.state != SS_APPROACHING && s.state != SS_ATTACKING) continue;
+            LONG dx = s.x - cam_x;
+            LONG dy = s.y - cam_y;
+            LONG dz = s.z - cam_z;
+            LONG d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < best_d2) { best_d2 = d2; best_i = i; }
+        }
+
+        LONG bvx, bvy, bvz;
+        if (best_i >= 0) {
+            const Saucer &s = saucers[best_i];
+            LONG dx = s.x - cam_x;
+            LONG dy = s.y - cam_y;
+            LONG dz = s.z - cam_z;
+            /* Integer sqrt of d2 for the normalise. */
+            LONG len = 0, r = 0, bit = 1L << 30, v = best_d2;
+            while (bit > v) bit >>= 2;
+            while (bit) {
+                if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; }
+                else r >>= 1;
+                bit >>= 2;
+            }
+            len = r ? r : 1;
+            bvx = (dx * BULLET_SPEED) / len;
+            bvy = (dy * BULLET_SPEED) / len;
+            bvz = (dz * BULLET_SPEED) / len;
+        } else {
+            /* No live target — fire forward along yaw. */
+            LONG sy = isin(cam_yaw);
+            LONG cy = icos(cam_yaw);
+            bvx = (BULLET_SPEED * sy) >> TRIG_SHIFT;
+            bvy = 0;
+            bvz = (BULLET_SPEED * cy) >> TRIG_SHIFT;
+        }
+        spawn_bullet(cam_x, cam_y - 4, cam_z, bvx, bvy, bvz, BO_PLAYER);
         player_cooldown = PLAYER_FIRE_COOL;
     }
 
