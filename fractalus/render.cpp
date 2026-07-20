@@ -248,11 +248,11 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
     if (horizon_y < R_VIEW_Y) horizon_y = R_VIEW_Y;
     if (horizon_y > R_VIEW_Y2) horizon_y = R_VIEW_Y2;
 
-    /* Projection scale (focal length in pixels). Chosen to give ~28°
-     * vertical FOV over R_VIEW_H — tight enough to feel telephoto and
-     * make distant mountains satisfyingly large. */
-    const LONG PROJ = 400;
-    const LONG MAX_DIST = 1600;
+    /* Match terrain_test's proven config exactly — same PROJ so
+     * sprite billboarding lines up, same FAR_DIST so ground samples
+     * actually reach the horizon on screen. */
+    const LONG PROJ    = R_PROJ;
+    const LONG MAX_DIST = R_FAR_DIST;
 
     /* Sky already fills above horizon; below-horizon starts empty and
      * gets painted by the terrain loop. Anything the ray-march didn't
@@ -271,71 +271,52 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
      * keeping the horizontal resolution readable at LORES.
      * -----------------------------------------------------------------*/
 
-    /* 8-wide columns halve the raycaster + blitter cost vs COL_STEP=4
-     * with only a modest loss in horizontal detail at LORES; the eye
-     * reads the depth gradient from vertical shading anyway. */
-    const int COL_STEP = 8;
-    const int NCOLS    = R_VIEW_W / COL_STEP;
-    /* Skip micro-stripes shorter than this (in screen pixels). Cuts
-     * blitter setups roughly in half — a 1px stripe costs the same
-     * blitter setup as a 20px stripe. */
-    const int MIN_STRIP = 3;
+    /* Canonical voxel-space raycaster (ported from terrain_test).
+     * No micro-strip filter, no fast-path shortcuts — every sample
+     * that raises y_top gets painted so the vertical depth gradient
+     * survives. Correctness first; the loop is still fast enough. */
 
-    /* Baseline fog fill below horizon — anywhere the raycaster doesn't
-     * paint (empty distance / behind camera) still gets a coherent
-     * horizon tint instead of the raw sky ramp. */
-    SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 7));
-    if (horizon_y + 1 <= R_VIEW_Y2)
-        RectFill(rp, R_VIEW_X, horizon_y + 1, R_VIEW_X2, R_VIEW_Y2);
-
-    for (int ci = 0; ci < NCOLS; ci++) {
-        int col = ci * COL_STEP;
-        LONG dcol = (LONG)col - (R_VIEW_W >> 1);
+    for (int col = 0; col < R_VIEW_W; col += R_COL_STEP) {
+        LONG dcol    = (LONG)col - (R_VIEW_W >> 1);
         LONG ray_yaw = (cam_yaw + (dcol * fov_span) / R_VIEW_W) & ANGLE_MASK;
-        LONG rdx = isin(ray_yaw);
-        LONG rdz = icos(ray_yaw);
+        LONG rdx     = isin(ray_yaw);
+        LONG rdz     = icos(ray_yaw);
 
-        /* y_top starts one past viewport bottom = "nothing drawn yet".
-         * Each sample only paints the strip ABOVE any previously-
-         * drawn terrain, which yields correct occlusion front-to-back. */
-        int y_top = R_VIEW_Y2 + 1;
-        int cx1 = R_VIEW_X + col;
-        int cx2 = cx1 + COL_STEP - 1;
+        int y_top = R_VIEW_Y2 + 1;              /* nothing drawn yet */
+        int cx1   = R_VIEW_X + col;
+        int cx2   = cx1 + R_COL_STEP - 1;
         if (cx2 > R_VIEW_X2) cx2 = R_VIEW_X2;
 
-        LONG dist = 8;
-        LONG step = 3;
+        LONG dist = R_NEAR_DIST;
+        LONG step = 2;
 
         while (dist < MAX_DIST && y_top > R_VIEW_Y) {
             LONG wx = cam_x_int + ((rdx * dist) >> TRIG_SHIFT);
             LONG wz = cam_z_int + ((rdz * dist) >> TRIG_SHIFT);
             LONG h  = world.height_at_world(wx, wz);
 
-            LONG dy = h - cam_y;
-            LONG screen_y = horizon_y - (dy * PROJ) / dist;
+            LONG dy        = h - cam_y;
+            LONG projected = horizon_y - (dy * PROJ) / dist;
+            if (projected < R_VIEW_Y)  projected = R_VIEW_Y;
+            if (projected > R_VIEW_Y2) projected = R_VIEW_Y2;
 
-            /* Clamp so an off-viewport peak still counts as a "top of
-             * column" without over-filling above the viewport bounds. */
-            if (screen_y > R_VIEW_Y2) screen_y = R_VIEW_Y2;
-            if (screen_y < R_VIEW_Y)  screen_y = R_VIEW_Y;
-
-            if (screen_y < y_top - (MIN_STRIP - 1)) {
+            if (projected < y_top) {
                 int h_bin = (int)((h * 8) / (TERRAIN_MAX_HEIGHT + 1));
-                if (h_bin < 0) h_bin = 0;
-                else if (h_bin > 7) h_bin = 7;
-                int d_bin = (int)(dist / (MAX_DIST / 8));
-                if (d_bin > 7) d_bin = 7;
-                UBYTE pen = (UBYTE)(PAL_TERRAIN_BASE + h_bin * 8 + d_bin);
-                SetAPen(rp, pen);
-                RectFill(rp, cx1, screen_y, cx2, y_top - 1);
-                y_top = (int)screen_y;
+                int d_bin = (int)((dist * 8) / MAX_DIST);
+                if (h_bin < 0) h_bin = 0; else if (h_bin > 7) h_bin = 7;
+                if (d_bin < 0) d_bin = 0; else if (d_bin > 7) d_bin = 7;
+                SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + h_bin * 8 + d_bin));
+                RectFill(rp, cx1, (int)projected, cx2, y_top - 1);
+                y_top = (int)projected;
             }
 
+            /* Log-ish adaptive step (from terrain_test). */
             dist += step;
-            if (dist >   80) step = 6;
-            if (dist >  250) step = 14;
-            if (dist >  700) step = 32;
-            if (dist > 1200) step = 60;
+            if (dist >   40) step = 4;
+            if (dist >  120) step = 10;
+            if (dist >  400) step = 30;
+            if (dist > 1200) step = 80;
+            if (dist > 3000) step = 200;
         }
     }
 }
