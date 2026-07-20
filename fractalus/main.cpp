@@ -153,8 +153,22 @@ int main(void)
     }
 
     render_init_math();
-    g_state.seed = 0xC0FFEE01UL;
-    terrain.generate(g_state.seed);
+    /* World reset — called on boot and on SPACE-restart from end
+     * screens. Regenerates terrain from a fresh seed, respawns pilots
+     * and saucers, resets ship + score + shield + fuel. */
+    auto reset_world = [&](ULONG seed) {
+        g_state.seed = seed;
+        terrain.generate(seed);
+        game.init(&g_state, &terrain, &pilots, &combat);
+        pilots.spawn(FX16_TOINT(g_state.ship.x),
+                     FX16_TOINT(g_state.ship.z),
+                     seed ^ 0xA5A5A5A5UL, terrain);
+        combat.init(seed ^ 0x33445566UL,
+                    FX16_TOINT(g_state.ship.x),
+                    g_state.ship.y,
+                    FX16_TOINT(g_state.ship.z));
+    };
+    reset_world(0xC0FFEE01UL);
 
     /* Sanity-check terrain generation — useful when tuning fractal
      * parameters. Bridge picks up the log line automatically. */
@@ -181,29 +195,12 @@ int main(void)
         return 20;
     }
 
-    game.init(&g_state, &terrain, &pilots, &combat);
-    pilots.spawn(FX16_TOINT(g_state.ship.x),
-                 FX16_TOINT(g_state.ship.z),
-                 g_state.seed ^ 0xA5A5A5A5UL, terrain);
-    combat.init(g_state.seed ^ 0x33445566UL,
-                FX16_TOINT(g_state.ship.x),
-                g_state.ship.y,
-                FX16_TOINT(g_state.ship.z));
+    /* Boot-time world init already done by reset_world above — the
+     * per-pilot / per-saucer dump was diagnostic scaffolding, no
+     * longer needed now that spawns are deterministic per seed. */
     if (bridge_ok) {
-        AB_I("spawned %ld pilots", (long)pilots.count());
-        for (LONG pi = 0; pi < pilots.count(); pi++) {
-            AB_I("  pilot %ld: x=%ld z=%ld jaggi=%ld", (long)pi,
-                 (long)pilots[pi].x, (long)pilots[pi].z,
-                 (long)pilots[pi].is_jaggi);
-        }
-        for (LONG si = 0; si < combat.saucer_count(); si++) {
-            AB_I("  saucer %ld: x=%ld y=%ld z=%ld hp=%ld",
-                 (long)si,
-                 (long)combat.saucer(si).x,
-                 (long)combat.saucer(si).y,
-                 (long)combat.saucer(si).z,
-                 (long)combat.saucer(si).hp);
-        }
+        AB_I("mission: rescue %ld of %ld pilots",
+             (long)MISSION_WIN_PILOTS, (long)pilots.count());
     }
 
     /* Main loop. Input is polled from IDCMP each frame; game logic runs
@@ -235,6 +232,23 @@ int main(void)
         if (bridge_ok) ab_perf_section_start("game_tick");
         game.tick(input_flags);
         if (bridge_ok) ab_perf_section_end("game_tick");
+
+        /* End-screen restart: after the mission has ended, if SPACE is
+         * pressed AND the end screen has been showing for >30 ticks
+         * (so a mid-airlock fire doesn't accidentally restart), regen
+         * the world from a fresh seed. */
+        if (g_state.mode != GM_PLAYING
+            && (input_flags & INPUT_FIRE)
+            && g_state.state_timer > 30) {
+            ULONG next_seed = g_state.seed * 1103515245UL + 12345UL;
+            if (bridge_ok) AB_I("restart: new mission, seed=%ld",
+                                (long)next_seed);
+            reset_world(next_seed);
+            /* Clear input flags so the still-held SPACE doesn't
+             * spray bullets into the fresh mission — player must
+             * release + re-press to fire in the new game. */
+            input_flags = 0;
+        }
 
         if (bridge_ok) ab_poll();
 
