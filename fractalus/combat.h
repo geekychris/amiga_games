@@ -12,14 +12,19 @@
 
 #define MAX_SAUCERS      4
 #define MAX_BULLETS      16
-#define PLAYER_FIRE_COOL 8     /* frames between player shots */
-#define SAUCER_FIRE_COOL 90    /* base cooldown */
+#define PLAYER_FIRE_COOL 6     /* frames between player shots */
+#define SAUCER_FIRE_COOL 180   /* base cooldown (was 90 — too spammy) */
 #define BULLET_LIFETIME  120
-#define BULLET_SPEED     70    /* world units / tick */
-#define SAUCER_SPEED     18
-#define SAUCER_ATTACK_DIST  400
+#define BULLET_SPEED     80    /* world units / tick */
+#define SAUCER_SPEED     14
+#define SAUCER_ATTACK_DIST  500
 #define SAUCER_SPAWN_MIN    650
 #define SAUCER_SPAWN_MAX    900
+
+/* Damage per hit landed by an enemy bolt on the player. Player bullets
+ * have a fixed hit radius (see combat.cpp) rather than a damage number
+ * — one hit takes 1/3 of a saucer's HP. */
+#define ENEMY_HIT_DAMAGE  20
 
 enum SaucerState {
     SS_INACTIVE    = 0,

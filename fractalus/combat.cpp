@@ -32,9 +32,6 @@ void Combat::init(ULONG seed, LONG cam_x, LONG cam_y, LONG cam_z)
         LONG angle = (i * ANGLE_FULL) / MAX_SAUCERS
                    + crand_range(-256, 256);
         LONG dist  = crand_range(SAUCER_SPAWN_MIN, SAUCER_SPAWN_MAX);
-        AB_I("  spawn %ld: angle=%ld dist=%ld (min=%ld max=%ld)",
-             (long)i, (long)angle, (long)dist,
-             (long)SAUCER_SPAWN_MIN, (long)SAUCER_SPAWN_MAX);
         s.x = cam_x + ((isin(angle) * dist) >> TRIG_SHIFT);
         s.z = cam_z + ((icos(angle) * dist) >> TRIG_SHIFT);
         s.y = cam_y + crand_range(-40, 80);
@@ -176,7 +173,10 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
                 LONG dx = b.x - sc.x;
                 LONG dy = b.y - sc.y;
                 LONG dz = b.z - sc.z;
-                if (dist2(dx, dy, dz) < 80L * 80L) {
+                /* Generous 150-unit collision — the bullets are only a
+                 * few pixels wide once projected and demanding pixel-
+                 * perfect aim on a 2-4 FPS raycaster is cruel. */
+                if (dist2(dx, dy, dz) < 150L * 150L) {
                     sc.hp--;
                     b.owner = BO_INACTIVE;
                     if (sc.hp <= 0) {
@@ -194,7 +194,7 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
             LONG dz = b.z - cam_z;
             if (dist2(dx, dy, dz) < 60L * 60L) {
                 if (shield_out) {
-                    *shield_out -= 40;
+                    *shield_out -= ENEMY_HIT_DAMAGE;
                     if (*shield_out < 0) *shield_out = 0;
                 }
                 b.owner = BO_INACTIVE;
