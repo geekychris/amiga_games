@@ -53,17 +53,19 @@ static Renderer  g_renderer;
 static Game      g_game;
 static PilotList g_pilots;
 
-/* Raw-key codes we react to (from devices/inputevent.h / rawkeycode). */
+/* Raw-key codes (from devices/inputevent.h / rawkeycode). Flight-sim
+ * mapping: arrows FLY the ship — up/down = thrust/brake, left/right =
+ * turn. Pitch moves to Q/A. Space fires (Phase 4+). L lands. ESC quits. */
 #define RK_ESC     0x45
 #define RK_LEFT    0x4F
 #define RK_RIGHT   0x4E
 #define RK_UP      0x4C
 #define RK_DOWN    0x4D
 #define RK_SPACE   0x40
-#define RK_SHIFT   0x60
-#define RK_CTRL    0x63
 #define RK_L       0x28
-#define RK_UP_MASK 0x80    /* the top bit distinguishes key-up */
+#define RK_Q       0x10
+#define RK_A       0x20
+#define RK_UP_MASK 0x80
 
 static UWORD input_flags = 0;
 
@@ -76,11 +78,11 @@ static void apply_key(UWORD code)
     switch (raw) {
     case RK_LEFT:  bit = INPUT_LEFT;   break;
     case RK_RIGHT: bit = INPUT_RIGHT;  break;
-    case RK_UP:    bit = INPUT_UP;     break;
-    case RK_DOWN:  bit = INPUT_DOWN;   break;
-    case RK_SPACE: bit = INPUT_THRUST; break;
-    case RK_SHIFT: bit = INPUT_BRAKE;  break;
-    case RK_CTRL:  bit = INPUT_FIRE;   break;
+    case RK_UP:    bit = INPUT_THRUST; break;  /* arrow-up = go */
+    case RK_DOWN:  bit = INPUT_BRAKE;  break;  /* arrow-down = brake */
+    case RK_Q:     bit = INPUT_UP;     break;  /* Q = nose up */
+    case RK_A:     bit = INPUT_DOWN;   break;  /* A = nose down */
+    case RK_SPACE: bit = INPUT_FIRE;   break;  /* Phase 4 */
     case RK_L:     bit = INPUT_LAND;   break;
     default: break;
     }
