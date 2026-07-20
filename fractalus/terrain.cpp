@@ -53,7 +53,7 @@ void Terrain::midpoint_displace(ULONG seed)
     sh(H, 0, 0, 128);
 
     LONG step = TERRAIN_SIZE;
-    LONG amp  = 96;
+    LONG amp  = 128;                /* was 96 — bigger peaks */
 
     while (step > 1) {
         LONG half = step >> 1;
@@ -97,7 +97,9 @@ void Terrain::midpoint_displace(ULONG seed)
         }
 
         step = half;
-        amp  = (amp * 5) >> 3;   /* roughness = 0.625 per octave */
+        amp  = (amp * 6) >> 3;   /* roughness = 0.75 per octave — keeps
+                                    high-freq detail alive so the terrain
+                                    reads as rough rather than rolling */
     }
 }
 
@@ -125,7 +127,9 @@ void Terrain::generate(ULONG seed)
 {
     for (LONG i = 0; i < TERRAIN_SIZE * TERRAIN_SIZE; i++) heights[i] = 0;
     midpoint_displace(seed);
-    smooth();
+    /* Skip smooth() — was averaging out the sharp midpoint spikes and
+     * making the terrain look too rolling. The raycaster's adaptive
+     * step naturally averages micro-detail so aliasing isn't a problem. */
 }
 
 LONG Terrain::height_at_world(LONG wx, LONG wz) const
