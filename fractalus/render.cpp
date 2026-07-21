@@ -874,28 +874,130 @@ void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
     default: break;
     }
 
-    /* The jump-scare: full-viewport red flash + Jaggi face.
-     * Alternate between two shades on odd/even frames for a strobe. */
+    /* --- Jaggi jumpscare animation ---
+     * state_timer counts down JUMPSCARE_FRAMES..0. Split into three
+     * phases: BUILD (face grows/lunges), STRIKE (holds + flashes),
+     * FADE (recedes). Screen shake decays with progress. */
     if (gs.rescue_state == RS_JUMPSCARE) {
-        UBYTE flash = (gs.state_timer & 1) ? PAL_MISC_BASE + 4
-                                           : PAL_MISC_BASE + 2;
+        int prog = JUMPSCARE_FRAMES - (int)gs.state_timer;   /* 0..N */
+        if (prog < 0) prog = 0;
+        if (prog > JUMPSCARE_FRAMES) prog = JUMPSCARE_FRAMES;
+
+        /* Scale (0..200%). Grow fast on entry, hold near peak in the
+         * middle, then shrink out. */
+        int scale;
+        int build_end  = JUMPSCARE_FRAMES / 3;              /* 0..5   */
+        int strike_end = (JUMPSCARE_FRAMES * 2) / 3;        /* 6..10  */
+        if (prog <= build_end) {
+            scale = 40 + (prog * 180) / (build_end + 1);
+        } else if (prog <= strike_end) {
+            scale = 220;
+        } else {
+            int fade = prog - strike_end;
+            int fade_len = JUMPSCARE_FRAMES - strike_end;
+            scale = 220 - (fade * 200) / (fade_len + 1);
+        }
+        if (scale < 20) scale = 20;
+
+        /* Shake — decays through fade phase. Uses tick+prog for
+         * pseudo-random offset in a small range. */
+        int shake = (prog < strike_end) ? 6 : 6 - (prog - strike_end);
+        if (shake < 0) shake = 0;
+        int sx_off = (int)((gs.tick * 7 + prog * 13) & 7) - 4;
+        int sy_off = (int)((gs.tick * 11 + prog * 5) & 7) - 4;
+        sx_off = (sx_off * shake) / 4;
+        sy_off = (sy_off * shake) / 4;
+
+        /* Full-viewport red flash — alternates two reds. */
+        UBYTE flash = (prog & 1) ? PAL_MISC_BASE + 3    /* mid red */
+                                 : PAL_MISC_BASE + 2;   /* dark red */
         SetAPen(rp, flash);
         RectFill(rp, R_VIEW_X, R_VIEW_Y, R_VIEW_X2, R_VIEW_Y2);
-        /* Crude Jaggi face — big green head, black eyes, sharp teeth. */
-        int fx = R_VIEW_X + R_VIEW_W / 2;
-        int fy = R_VIEW_Y + R_VIEW_H / 2;
-        SetAPen(rp, PAL_TERRAIN_BASE + 4 * 8 + 0);   /* bright green */
-        RectFill(rp, fx - 60, fy - 40, fx + 60, fy + 40);
-        SetAPen(rp, 0);
-        RectFill(rp, fx - 40, fy - 20, fx - 15, fy - 5);   /* eye L */
-        RectFill(rp, fx + 15, fy - 20, fx + 40, fy - 5);   /* eye R */
-        SetAPen(rp, PAL_MISC_BASE + 7);              /* teeth pen */
-        for (int t = 0; t < 6; t++) {
-            int tx0 = fx - 40 + t * 16;
-            RectFill(rp, tx0, fy + 10, tx0 + 6, fy + 30);
+
+        /* Face geometry scaled from a 120x80 base at 200%. */
+        int fx = R_VIEW_X + R_VIEW_W / 2 + sx_off;
+        int fy = R_VIEW_Y + R_VIEW_H / 2 + sy_off;
+        int hw = (60 * scale) / 200;
+        int hh = (40 * scale) / 200;
+
+        /* Head — bright green, with a paler ridge during STRIKE. */
+        UBYTE head_pen = (prog >= build_end && prog <= strike_end
+                          && (prog & 1))
+            ? (UBYTE)(PAL_TERRAIN_BASE + 6 * 8)    /* pale sun-lit */
+            : (UBYTE)(PAL_TERRAIN_BASE + 4 * 8);   /* mid green */
+        SetAPen(rp, head_pen);
+        int hx0 = fx - hw, hy0 = fy - hh;
+        int hx1 = fx + hw, hy1 = fy + hh;
+        if (hx0 < R_VIEW_X)  hx0 = R_VIEW_X;
+        if (hy0 < R_VIEW_Y)  hy0 = R_VIEW_Y;
+        if (hx1 > R_VIEW_X2) hx1 = R_VIEW_X2;
+        if (hy1 > R_VIEW_Y2) hy1 = R_VIEW_Y2;
+        if (hx0 < hx1 && hy0 < hy1)
+            RectFill(rp, hx0, hy0, hx1, hy1);
+
+        /* Eyes — grow with scale, pulse black/red during STRIKE. */
+        int ew = (25 * scale) / 200;
+        int eh = (15 * scale) / 200;
+        if (ew > 0 && eh > 0 && prog >= 1) {
+            UBYTE eye_pen = (prog >= build_end && (prog & 1))
+                ? (UBYTE)(PAL_MISC_BASE + 4)     /* bright accent */
+                : (UBYTE)0;
+            SetAPen(rp, eye_pen);
+            int ey0 = fy - hh / 2 - eh / 2;
+            int ey1 = ey0 + eh;
+            /* Left */
+            int lx0 = fx - (hw * 2) / 3;
+            int lx1 = lx0 + ew;
+            if (lx0 < R_VIEW_X)  lx0 = R_VIEW_X;
+            if (lx1 > R_VIEW_X2) lx1 = R_VIEW_X2;
+            if (ey0 < R_VIEW_Y)  ey0 = R_VIEW_Y;
+            if (ey1 > R_VIEW_Y2) ey1 = R_VIEW_Y2;
+            if (lx0 < lx1 && ey0 < ey1) RectFill(rp, lx0, ey0, lx1, ey1);
+            /* Right */
+            int rx1_ = fx + (hw * 2) / 3;
+            int rx0_ = rx1_ - ew;
+            if (rx0_ < R_VIEW_X)  rx0_ = R_VIEW_X;
+            if (rx1_ > R_VIEW_X2) rx1_ = R_VIEW_X2;
+            if (rx0_ < rx1_ && ey0 < ey1)
+                RectFill(rp, rx0_, ey0, rx1_, ey1);
         }
-        SetAPen(rp, PAL_HUD_BASE + 15);
-        Move(rp, fx - 40, fy + 55); Text(rp, (STRPTR)"JAGGI!!", 7);
+
+        /* Teeth — the mouth opens (teeth drop down) as it strikes,
+         * then closes. Six vertical fangs across the lower jaw. */
+        int mouth_open = 0;
+        if (prog >= build_end && prog <= strike_end)
+            mouth_open = ((prog - build_end + 1) * 8);
+        int th = (25 * scale) / 200;
+        if (th > 0 && prog >= 1) {
+            SetAPen(rp, PAL_MISC_BASE + 7);           /* off-white */
+            int spacing = (hw * 2) / 6;
+            int tw = spacing > 3 ? (spacing / 2) : 1;
+            int ty0 = fy + hh / 4 + mouth_open;
+            int ty1 = ty0 + th;
+            if (ty0 < R_VIEW_Y) ty0 = R_VIEW_Y;
+            if (ty1 > R_VIEW_Y2) ty1 = R_VIEW_Y2;
+            if (ty0 < ty1) {
+                for (int ti = 0; ti < 6; ti++) {
+                    int tx0 = fx - hw + spacing / 2 + ti * spacing;
+                    int tx1 = tx0 + tw;
+                    if (tx0 < R_VIEW_X)  continue;
+                    if (tx1 > R_VIEW_X2) tx1 = R_VIEW_X2;
+                    if (tx0 < tx1) RectFill(rp, tx0, ty0, tx1, ty1);
+                }
+            }
+        }
+
+        /* "JAGGI!!" text — only during STRIKE and FADE so the BUILD
+         * frames read as a lunging shape without cueing the word yet. */
+        if (prog >= build_end) {
+            SetAPen(rp, PAL_HUD_BASE + 15);
+            SetDrMd(rp, JAM1);
+            int text_y = fy + hh + 20;
+            if (text_y > R_VIEW_Y && text_y < R_VIEW_Y2 - 8) {
+                Move(rp, fx - 32, text_y);
+                Text(rp, (STRPTR)"JAGGI!!", 7);
+            }
+        }
     }
 }
 

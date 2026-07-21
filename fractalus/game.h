@@ -102,12 +102,13 @@ class Sfx;
 #define LAND_MAX_SPEED       6
 #define LAND_MAX_ALT_ABOVE   80      /* world units above ground */
 #define LAND_RADIUS          500     /* world units from a pilot to land */
-/* Timer values in game ticks. The raycaster currently runs ~2-4 FPS,
- * so 30 ticks ≈ 10 seconds — a reasonable pause per state. */
-#define AIRLOCK_FRAMES       30
-#define REVEAL_FRAMES        20
-#define JUMPSCARE_FRAMES     15
-#define TAKEOFF_FRAMES       10
+/* Timer values in game ticks. Engine runs ~25 FPS after the
+ * optimisation pass, so bump these so states feel like Fractalus's
+ * unhurried pacing rather than a millisecond flash. */
+#define AIRLOCK_FRAMES       60      /* ~2.4s */
+#define REVEAL_FRAMES        40      /* ~1.6s */
+#define JUMPSCARE_FRAMES     45      /* ~1.8s — long enough to see the animation */
+#define TAKEOFF_FRAMES       20      /* ~0.8s */
 
 class Game {
 public:
