@@ -71,21 +71,19 @@ void Game::update_ship(UWORD in)
                                           ? s.pitch + SHIP_PITCH_RATE : 0;
     }
 
-    /* Throttle model: speed depends on how long W is held.
+    /* Cruise-control throttle. Speed only changes while a key is
+     * held; released, it stays where you left it.
      *   W held    -> +SHIP_ACCEL per frame, up to SHIP_MAX_SPEED
-     *   S held    -> -2 per frame (brake harder than natural drag)
-     *   neither   -> gentle drag (-1 every 4 frames) so you coast
-     *                a while rather than snapping to a stop
-     * A quick tap of W nudges speed by 1; a long hold reaches max.
-     * Player picks any cruise speed in between. */
+     *   S held    -> -2 per frame, down to 0 (brake)
+     *   neither   -> hold current cruise speed (no drag)
+     * Tap W a few times to step up incrementally, hold to go max,
+     * S to slow down. */
     if (in & INPUT_THRUST) {
         s.speed += SHIP_ACCEL;
         if (s.speed > SHIP_MAX_SPEED) s.speed = SHIP_MAX_SPEED;
     } else if (in & INPUT_BRAKE) {
         s.speed -= 2;
         if (s.speed < 0) s.speed = 0;
-    } else if (s.speed > 0 && (gs->tick & 3) == 0) {
-        s.speed -= 1;
     }
     s.target_speed = s.speed;  /* kept in sync so RS_LANDING sees it */
 }
