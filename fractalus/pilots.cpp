@@ -26,9 +26,13 @@ void PilotList::spawn(LONG center_x, LONG center_z, ULONG seed,
          * as sprites sitting on the terrain surface. */
         pilots[i].y = world.height_at_world(pilots[i].x, pilots[i].z);
         pilots[i].state = PILOT_ACTIVE;
-        /* ~15% chance each pilot is a jaggi in disguise. That's the
-         * classic Fractalus jump-scare rate. */
-        pilots[i].is_jaggi = ((pl_rng() % 100) < 15) ? 1 : 0;
+        /* ~33% chance each pilot is a jaggi in disguise. Higher than
+         * the 15% Fractalus original because we've only got 12 total
+         * and a win requires 5 — at 15% you'd average 0.75 jumpscare
+         * encounters per mission, easily missing them entirely.
+         * 33% gives ~1.7 per successful mission — enough tension that
+         * every airlock cycle feels risky. */
+        pilots[i].is_jaggi = ((pl_rng() % 100) < 33) ? 1 : 0;
     }
 }
 

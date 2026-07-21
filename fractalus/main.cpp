@@ -211,8 +211,12 @@ int main(void)
      * per-pilot / per-saucer dump was diagnostic scaffolding, no
      * longer needed now that spawns are deterministic per seed. */
     if (bridge_ok) {
-        AB_I("mission: rescue %ld of %ld pilots",
-             (long)MISSION_WIN_PILOTS, (long)pilots.count());
+        LONG jaggi_count = 0;
+        for (LONG pi = 0; pi < pilots.count(); pi++)
+            if (pilots[pi].is_jaggi) jaggi_count++;
+        AB_I("mission: rescue %ld of %ld pilots (%ld jaggis hiding)",
+             (long)MISSION_WIN_PILOTS, (long)pilots.count(),
+             (long)jaggi_count);
     }
 
     /* Main loop. Input is polled from IDCMP each frame; game logic runs
