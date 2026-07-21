@@ -670,30 +670,63 @@ static void draw_bullet_dot(struct RastPort *rp, int sx, int sy,
     RectFill(rp, sx - 1, sy - 1, sx + 1, sy + 1);
 }
 
-static void draw_pilot_sprite(struct RastPort *rp, int sx, int sy, int size)
+static void draw_pilot_sprite(struct RastPort *rp, int sx, int sy,
+                              int size, UBYTE in_range, ULONG tick)
 {
-    /* Tiny stick figure — 2px head + 3px body. Sized down with distance
-     * so pilots that are far away are just a dot; close pilots read
-     * as a person waving. Bright white/orange against the terrain. */
-    if (size < 2) size = 2;
-    if (size > 12) size = 12;
-    int head_r = size / 3; if (head_r < 1) head_r = 1;
+    /* Recognisable little figure — round-ish head + wider body + two
+     * dot arms. Scales with distance. When in landing range, the
+     * whole sprite flashes bright yellow so the player knows they
+     * can commit. */
+    if (size < 3)  size = 3;
+    if (size > 20) size = 20;
+    int head_r = size / 3;   if (head_r < 1) head_r = 1;
     int body_h = size;
-    int y0 = sy - body_h;
+    int body_hw = (size >> 2) + 1;
+    int y0 = sy - body_h - head_r * 2;
     int y1 = sy;
-    if (y0 < R_VIEW_Y)   y0 = R_VIEW_Y;
-    if (y1 > R_VIEW_Y2)  y1 = R_VIEW_Y2;
-    if (sx < R_VIEW_X + 1 || sx > R_VIEW_X2 - 1) return;
-    if (y0 >= y1) return;
-    /* Body */
-    SetAPen(rp, PAL_MISC_BASE + 6);            /* pilot-suit white */
-    RectFill(rp, sx, y0 + head_r * 2, sx, y1);
-    SetAPen(rp, PAL_MISC_BASE + 4);            /* orange visor */
-    RectFill(rp, sx - head_r, y0, sx + head_r, y0 + head_r * 2 - 1);
-    /* Waving arm dot — bright */
-    SetAPen(rp, PAL_MISC_BASE + 7);
-    if (sx + head_r <= R_VIEW_X2)
-        RectFill(rp, sx + head_r, y0 + head_r, sx + head_r, y0 + head_r);
+    if (sx - head_r < R_VIEW_X)   return;
+    if (sx + head_r > R_VIEW_X2)  return;
+    if (y1 < R_VIEW_Y || y0 > R_VIEW_Y2) return;
+
+    UBYTE suit_pen  = PAL_MISC_BASE + 6;   /* white */
+    UBYTE head_pen  = PAL_MISC_BASE + 4;   /* yellow */
+    if (in_range && (tick & 4)) {
+        /* Blink to bright accent while in range. */
+        suit_pen = PAL_MISC_BASE + 7;
+        head_pen = PAL_MISC_BASE + 5;      /* laser green */
+    }
+
+    /* Body: wider rect from below head to feet */
+    int bx0 = sx - body_hw;
+    int bx1 = sx + body_hw;
+    int by0 = y0 + head_r * 2;
+    if (by0 < R_VIEW_Y)  by0 = R_VIEW_Y;
+    int by1 = y1;
+    if (by1 > R_VIEW_Y2) by1 = R_VIEW_Y2;
+    if (bx0 < R_VIEW_X)  bx0 = R_VIEW_X;
+    if (bx1 > R_VIEW_X2) bx1 = R_VIEW_X2;
+    if (by0 <= by1) {
+        SetAPen(rp, suit_pen);
+        RectFill(rp, bx0, by0, bx1, by1);
+    }
+    /* Head: square-ish above body */
+    int hy0 = y0;
+    if (hy0 < R_VIEW_Y)  hy0 = R_VIEW_Y;
+    int hy1 = y0 + head_r * 2 - 1;
+    if (hy1 > R_VIEW_Y2) hy1 = R_VIEW_Y2;
+    if (hy0 <= hy1) {
+        SetAPen(rp, head_pen);
+        RectFill(rp, sx - head_r, hy0, sx + head_r, hy1);
+    }
+    /* Two arm dots waving */
+    SetAPen(rp, suit_pen);
+    int arm_y = y0 + head_r * 2 + (body_h >> 2);
+    if (arm_y >= R_VIEW_Y && arm_y <= R_VIEW_Y2) {
+        int lx = sx - body_hw - 2;
+        int rx = sx + body_hw + 2;
+        if (lx >= R_VIEW_X)  RectFill(rp, lx, arm_y - 1, lx, arm_y);
+        if (rx <= R_VIEW_X2) RectFill(rp, rx, arm_y - 1, rx, arm_y);
+    }
 }
 
 void Renderer::draw_sprites(struct RastPort *rp, const GameState &gs,
@@ -723,17 +756,22 @@ void Renderer::draw_sprites(struct RastPort *rp, const GameState &gs,
         draw_saucer(rp, sx, sy, size, dying);
     }
 
-    /* Pilots on the ground — small figures that scale with distance
-     * so the player can visually spot rescue targets in addition to
-     * the radar arrow. */
+    /* Pilots on the ground — figures that scale with distance so the
+     * player can visually spot rescue targets in addition to the
+     * radar arrow. Flashes green/white when within LAND_RADIUS to
+     * signal "press L now". */
     for (LONG i = 0; i < pilots.count(); i++) {
         const Pilot &p = pilots[i];
         if (p.state != PILOT_ACTIVE) continue;
         int sx, sy; LONG sz;
         if (!project(p.x, p.y, p.z, cam_x, cam_y, cam_z, gs.ship.yaw,
                      horizon_y, PROJ, &sx, &sy, &sz)) continue;
-        int size = (int)(1200 / (sz + 40));
-        draw_pilot_sprite(rp, sx, sy, size);
+        /* Bigger constant so close pilots read as a person. */
+        int size = (int)(2400 / (sz + 40));
+        LONG dx = p.x - cam_x, dz = p.z - cam_z;
+        LONG d2 = dx * dx + dz * dz;
+        UBYTE in_range = (d2 < (LONG)LAND_RADIUS * (LONG)LAND_RADIUS) ? 1 : 0;
+        draw_pilot_sprite(rp, sx, sy, size, in_range, gs.tick);
     }
 
     /* Bullets — draw last so they sit on top of everything. */
