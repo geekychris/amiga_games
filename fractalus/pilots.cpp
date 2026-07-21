@@ -1,6 +1,12 @@
 #include "pilots.h"
 #include "terrain.h"
 
+/* Debug knob — settable from the bridge. 0 = normal 33% jaggi rate,
+ * 1 = force every pilot to be a jaggi (for animating/testing the
+ * jumpscare path without hunting for one). Read by spawn() only at
+ * mission-start, so toggle it then press RETURN to regen. */
+LONG g_debug_all_jaggis = 0;
+
 static ULONG plseed;
 static inline ULONG pl_rng()
 {
@@ -26,13 +32,13 @@ void PilotList::spawn(LONG center_x, LONG center_z, ULONG seed,
          * as sprites sitting on the terrain surface. */
         pilots[i].y = world.height_at_world(pilots[i].x, pilots[i].z);
         pilots[i].state = PILOT_ACTIVE;
-        /* ~33% chance each pilot is a jaggi in disguise. Higher than
-         * the 15% Fractalus original because we've only got 12 total
-         * and a win requires 5 — at 15% you'd average 0.75 jumpscare
-         * encounters per mission, easily missing them entirely.
-         * 33% gives ~1.7 per successful mission — enough tension that
-         * every airlock cycle feels risky. */
-        pilots[i].is_jaggi = ((pl_rng() % 100) < 33) ? 1 : 0;
+        /* Normal: 33% chance each pilot is a jaggi. Debug override
+         * forces all pilots to be jaggis for animation testing. */
+        if (g_debug_all_jaggis) {
+            pilots[i].is_jaggi = 1;
+        } else {
+            pilots[i].is_jaggi = ((pl_rng() % 100) < 33) ? 1 : 0;
+        }
     }
 }
 
