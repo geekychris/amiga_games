@@ -71,17 +71,23 @@ void Game::update_ship(UWORD in)
                                           ? s.pitch + SHIP_PITCH_RATE : 0;
     }
 
-    /* Thrust */
-    if (in & INPUT_THRUST) s.target_speed = SHIP_MAX_SPEED;
-    else if (in & INPUT_BRAKE) s.target_speed = 0;
-
-    if (s.speed < s.target_speed) {
+    /* Throttle model: speed depends on how long W is held.
+     *   W held    -> +SHIP_ACCEL per frame, up to SHIP_MAX_SPEED
+     *   S held    -> -2 per frame (brake harder than natural drag)
+     *   neither   -> gentle drag (-1 every 4 frames) so you coast
+     *                a while rather than snapping to a stop
+     * A quick tap of W nudges speed by 1; a long hold reaches max.
+     * Player picks any cruise speed in between. */
+    if (in & INPUT_THRUST) {
         s.speed += SHIP_ACCEL;
-        if (s.speed > s.target_speed) s.speed = s.target_speed;
-    } else if (s.speed > s.target_speed) {
-        s.speed -= SHIP_ACCEL;
-        if (s.speed < s.target_speed) s.speed = s.target_speed;
+        if (s.speed > SHIP_MAX_SPEED) s.speed = SHIP_MAX_SPEED;
+    } else if (in & INPUT_BRAKE) {
+        s.speed -= 2;
+        if (s.speed < 0) s.speed = 0;
+    } else if (s.speed > 0 && (gs->tick & 3) == 0) {
+        s.speed -= 1;
     }
+    s.target_speed = s.speed;  /* kept in sync so RS_LANDING sees it */
 }
 
 /* Look up sin/cos from the shared table in render.cpp — extern here so
