@@ -100,8 +100,8 @@ class Sfx;
 
 /* Landing detection thresholds. */
 #define LAND_MAX_SPEED       6
-#define LAND_MAX_ALT_ABOVE   40      /* world units above ground */
-#define LAND_RADIUS          260     /* world units from a pilot to land */
+#define LAND_MAX_ALT_ABOVE   80      /* world units above ground */
+#define LAND_RADIUS          500     /* world units from a pilot to land */
 /* Timer values in game ticks. The raycaster currently runs ~2-4 FPS,
  * so 30 ticks ≈ 10 seconds — a reasonable pause per state. */
 #define AIRLOCK_FRAMES       30
