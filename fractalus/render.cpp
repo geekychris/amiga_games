@@ -785,6 +785,44 @@ void Renderer::draw_sprites(struct RastPort *rp, const GameState &gs,
     }
 }
 
+/* Title screen — briefing before the first mission and after each
+ * WIN/LOSE reset (via TITLE-mode entry from a fresh game boot). */
+static void draw_title_screen(struct RastPort *rp, const GameState &gs)
+{
+    /* Solid dark sky backdrop. */
+    SetAPen(rp, PAL_SKY_BASE + 2);
+    RectFill(rp, R_VIEW_X, R_VIEW_Y, R_VIEW_X2, R_VIEW_Y2);
+
+    /* Big title text — Amiga topaz is 8x8 so we hand-position with
+     * some spacing. */
+    SetDrMd(rp, JAM1);
+    SetAPen(rp, PAL_TERRAIN_BASE + 7 * 8);  /* sunny highlight yellow */
+    Move(rp, R_VIEW_X + 60, R_VIEW_Y + 30);
+    Text(rp, (STRPTR)" F R A C T A L U S ", 19);
+
+    SetAPen(rp, PAL_HUD_BASE + 12);
+    Move(rp, R_VIEW_X + 92, R_VIEW_Y + 46);
+    Text(rp, (STRPTR)"planet rescue", 13);
+
+    /* Briefing */
+    SetAPen(rp, PAL_MISC_BASE + 6);         /* pilot-suit white */
+    int y = R_VIEW_Y + 70;
+    Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"Downed pilots need extraction.", 30); y += 10;
+    Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"Some are Jaggis in disguise.",   28); y += 10;
+    Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"Rescue 5 of 12 to complete.",     27); y += 14;
+
+    SetAPen(rp, PAL_HUD_BASE + 15);
+    Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"WASD  fly    SPACE  fire", 24); y += 10;
+    Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"L     land   Q/Z    pitch",  25); y += 16;
+
+    /* Blinking "PRESS SPACE" prompt at the bottom. */
+    if (((gs.state_timer >> 3) & 1) == 0) {
+        SetAPen(rp, PAL_MISC_BASE + 4);     /* bright yellow */
+        Move(rp, R_VIEW_X + 68, R_VIEW_Y2 - 10);
+        Text(rp, (STRPTR)"PRESS SPACE TO LAUNCH", 21);
+    }
+}
+
 /* Full-viewport end-of-mission screen (WIN or LOSE). */
 static void draw_end_screen(struct RastPort *rp, const GameState &gs)
 {
@@ -794,9 +832,9 @@ static void draw_end_screen(struct RastPort *rp, const GameState &gs)
     SetAPen(rp, bg);
     RectFill(rp, R_VIEW_X, R_VIEW_Y, R_VIEW_X2, R_VIEW_Y2);
 
-    /* Central banner */
-    int by  = R_HORIZON_Y - 30;
-    int by2 = R_HORIZON_Y + 40;
+    /* Central banner — sized for title + 4 stat lines + restart hint */
+    int by  = R_HORIZON_Y - 40;
+    int by2 = R_HORIZON_Y + 50;
     SetAPen(rp, 0);
     RectFill(rp, R_VIEW_X + 10, by, R_VIEW_X2 - 10, by2);
     SetAPen(rp, PAL_HUD_BASE + 14);
@@ -819,19 +857,26 @@ static void draw_end_screen(struct RastPort *rp, const GameState &gs)
             Move(rp, tx + 8, by + 20);  Text(rp, (STRPTR)"SHIELDS DESTROYED", 17);
         }
     }
-    /* Stats */
+    /* Stats — rescued, jaggis encountered (shield damage), score */
     SetAPen(rp, PAL_HUD_BASE + 12);
     char buf[40];
     sprintf(buf, "RESCUED %ld / %ld",
             (long)gs.pilots_rescued, (long)MISSION_WIN_PILOTS);
-    Move(rp, tx + 20, by + 40); Text(rp, (STRPTR)buf, strlen(buf));
+    Move(rp, tx + 20, by + 32); Text(rp, (STRPTR)buf, strlen(buf));
+    SetAPen(rp, PAL_MISC_BASE + 3);
+    sprintf(buf, "JAGGIS SPRUNG %ld", (long)gs.pilots_lost);
+    Move(rp, tx + 20, by + 44); Text(rp, (STRPTR)buf, strlen(buf));
+    SetAPen(rp, PAL_HUD_BASE + 12);
+    sprintf(buf, "SHIELD LEFT %ld", (long)gs.shield);
+    Move(rp, tx + 20, by + 56); Text(rp, (STRPTR)buf, strlen(buf));
+    SetAPen(rp, PAL_HUD_BASE + 15);
     sprintf(buf, "SCORE %05ld", (long)gs.score);
-    Move(rp, tx + 20, by + 52); Text(rp, (STRPTR)buf, strlen(buf));
+    Move(rp, tx + 20, by + 68); Text(rp, (STRPTR)buf, strlen(buf));
 
     /* Restart hint — blinks every ~30 frames so it draws attention. */
-    if (((gs.state_timer >> 4) & 1) == 0) {
+    if (((gs.state_timer >> 3) & 1) == 0) {
         SetAPen(rp, PAL_HUD_BASE + 15);
-        Move(rp, tx + 8, by + 66); Text(rp, (STRPTR)"RETURN = NEW MISSION", 20);
+        Move(rp, tx + 8, by + 82); Text(rp, (STRPTR)"RETURN = NEW MISSION", 20);
     }
 }
 
@@ -1079,7 +1124,8 @@ static void draw_jaggi_slam(struct RastPort *rp, const GameState &gs)
 /* Overlays drawn on top of the terrain during the rescue sequence. */
 void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
 {
-    /* End screen wins over any in-progress rescue state. */
+    /* Title screen and end screens win over any in-progress rescue. */
+    if (gs.mode == GM_TITLE) { draw_title_screen(rp, gs); return; }
     if (gs.mode != GM_PLAYING) { draw_end_screen(rp, gs); return; }
 
     if (gs.rescue_state == RS_FLYING) return;

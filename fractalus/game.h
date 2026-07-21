@@ -37,11 +37,12 @@ enum RescueState {
     RS_TAKEOFF    = 5,   /* brief lift back into flying */
 };
 
-/* Top-level game mode. Restart transitions LOSE/WIN -> PLAYING. */
+/* Top-level game mode. Restart transitions LOSE/WIN -> TITLE. */
 enum GameMode {
     GM_PLAYING = 0,
     GM_WIN     = 1,
     GM_LOSE    = 2,
+    GM_TITLE   = 3,     /* pre-mission briefing, waiting for SPACE */
 };
 
 /* Mission tunables. */

@@ -35,7 +35,7 @@ void Game::init(GameState *state, Terrain *terrain, PilotList *plist,
     gs->rescue_state = RS_FLYING;
     gs->state_timer = 0;
     gs->current_pilot = -1;
-    gs->mode = GM_PLAYING;
+    gs->mode = GM_TITLE;       /* start at the title screen */
     gs->restart_pressed = 0;
 
     /* Low-flyer cruise altitude — Fractalus-style ground-hugging.
@@ -212,14 +212,18 @@ void Game::update_rescue(UWORD in)
 
 void Game::tick(UWORD in)
 {
-    /* Mission end screens: freeze the world, just tick timer, wait for
-     * RETURN (edge-detected) to signal a restart request. Main handles
-     * the actual reset — it owns terrain / pilots / combat.
-     * SPACE (fire) is intentionally NOT used for restart so it can
-     * still be the fire button in play. */
+    /* Non-PLAYING modes (TITLE, WIN, LOSE): freeze the world, tick a
+     * timer for animations, and edge-detect the start/restart key.
+     *   TITLE       SPACE begins a new mission (fire is the natural
+     *               "go" key on the title screen)
+     *   WIN / LOSE  RETURN begins a new mission
+     * Main.cpp watches the same flag to trigger reset_world. */
     if (gs->mode != GM_PLAYING) {
         if (gs->state_timer < 65535) gs->state_timer++;
-        if (in & INPUT_RESTART) {
+        UWORD go = (gs->mode == GM_TITLE)
+            ? (in & INPUT_FIRE)      /* SPACE starts from title */
+            : (in & INPUT_RESTART);  /* RETURN restarts after end */
+        if (go) {
             if (!gs->restart_pressed) gs->restart_pressed = 1;
         } else {
             gs->restart_pressed = 0;
