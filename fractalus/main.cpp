@@ -34,6 +34,7 @@ extern "C" {
 #include "pilots.h"
 #include "combat.h"
 #include "sfx.h"
+#include "modplay.h"
 
 /* Amiga library bases — declared in render.cpp as extern. */
 struct IntuitionBase *IntuitionBase = NULL;
@@ -168,10 +169,14 @@ int main(void)
     }
 
     render_init_math();
-    /* Sound: optional — game still plays if audio.device is locked
-     * or unavailable. */
-    int sfx_ok = (sfx.init() == 0);
-    if (bridge_ok) AB_I("sfx %s", sfx_ok ? "up" : "unavailable");
+    /* Audio: modplay owns Paula directly (music on ch 0-2, SFX on
+     * ch 3 stolen from music briefly). Sfx generates its samples in
+     * chip RAM and hands them to modplay_sfx() on play(). */
+    int mod_ok = (modplay_init() == 0);
+    if (bridge_ok) AB_I("modplay %s", mod_ok ? "up" : "unavailable");
+    if (mod_ok) modplay_start();
+
+    sfx.init();
     game.bind_sfx(&sfx);
     combat.bind_sfx(&sfx);
 
@@ -292,7 +297,8 @@ int main(void)
 
         g_frame_count++;
         if (bridge_ok) ab_poll();
-        sfx.tick();          /* reap completed audio.device messages */
+        modplay_tick();      /* one music tick per frame (VBlank-ish) */
+        sfx.tick();
 
         /* Cheap heartbeat + real wall-clock FPS from DateStamp (50Hz
          * PAL ticks). If this stops arriving the game has FROZEN; if
@@ -326,6 +332,8 @@ int main(void)
         AB_I("fractalus shutting down (%ld frames)", (long)g_frame_count);
     }
     sfx.shutdown();
+    modplay_stop();
+    modplay_cleanup();
     renderer.close_display();
     if (bridge_ok) ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
