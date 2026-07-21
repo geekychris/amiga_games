@@ -174,7 +174,8 @@ int main(void)
      * chip RAM and hands them to modplay_sfx() on play(). */
     int mod_ok = (modplay_init() == 0);
     if (bridge_ok) AB_I("modplay %s", mod_ok ? "up" : "unavailable");
-    if (mod_ok) modplay_start();
+    /* Music kicks in when the player leaves the title screen — kept
+     * quiet during briefing so the intro reads clearly. */
 
     sfx.init();
     game.bind_sfx(&sfx);
@@ -265,26 +266,42 @@ int main(void)
 
         if (bridge_ok) ab_perf_frame_start();
 
+        UBYTE prev_mode = g_state.mode;
         if (bridge_ok) ab_perf_section_start("game_tick");
         game.tick(input_flags);
         if (bridge_ok) ab_perf_section_end("game_tick");
+        /* Music silences when we hit an end screen so the score
+         * screen isn't fighting a heavy-metal riff. */
+        if (prev_mode == GM_PLAYING && g_state.mode != GM_PLAYING) {
+            modplay_stop();
+        }
 
         /* End-screen restart: after the mission has ended, if SPACE is
          * pressed AND the end screen has been showing for >30 ticks
          * (so a mid-airlock fire doesn't accidentally restart), regen
          * the world from a fresh seed. */
-        UWORD want_restart =
-            ((g_state.mode != GM_PLAYING
-              && (input_flags & INPUT_RESTART)
-              && g_state.state_timer > 30)
-             || g_force_restart);
-        if (want_restart) {
+        /* Start / restart triggers:
+         *   TITLE      : SPACE (INPUT_FIRE) — the "go" key
+         *   WIN/LOSE   : RETURN (INPUT_RESTART)
+         *   any mode   : force_restart bridge var
+         * Debounced: state_timer > 30 avoids accidental double-fires. */
+        UWORD title_go =
+            (g_state.mode == GM_TITLE
+             && (input_flags & INPUT_FIRE)
+             && g_state.state_timer > 15);
+        UWORD end_go =
+            ((g_state.mode == GM_WIN || g_state.mode == GM_LOSE)
+             && (input_flags & INPUT_RESTART)
+             && g_state.state_timer > 30);
+        if (title_go || end_go || g_force_restart) {
             ULONG next_seed = g_state.seed * 1103515245UL + 12345UL;
             if (bridge_ok) AB_I("restart: new mission, seed=%ld",
                                 (long)next_seed);
             reset_world(next_seed);
+            g_state.mode = GM_PLAYING;   /* leave title / end screen */
             input_flags = 0;
             g_force_restart = 0;
+            modplay_start();             /* (re-)start music for play */
         }
 
         if (bridge_ok) ab_poll();
