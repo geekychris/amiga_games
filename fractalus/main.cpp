@@ -33,6 +33,7 @@ extern "C" {
 #include "game.h"
 #include "pilots.h"
 #include "combat.h"
+#include "sfx.h"
 
 /* Amiga library bases — declared in render.cpp as extern. */
 struct IntuitionBase *IntuitionBase = NULL;
@@ -56,6 +57,7 @@ static Renderer  g_renderer;
 static Game      g_game;
 static PilotList g_pilots;
 static Combat    g_combat;
+static Sfx       g_sfx;
 
 /* Raw-key codes (Amiga rawkeycodes). Primary controls are WASD to
  * avoid FS-UAE's default arrow-keys-mapped-to-joystick behaviour.
@@ -115,6 +117,7 @@ int main(void)
     Game      &game     = g_game;
     PilotList &pilots   = g_pilots;
     Combat    &combat   = g_combat;
+    Sfx       &sfx      = g_sfx;
 
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
                         (CONST_STRPTR)"intuition.library", 39);
@@ -153,6 +156,13 @@ int main(void)
     }
 
     render_init_math();
+    /* Sound: optional — game still plays if audio.device is locked
+     * or unavailable. */
+    int sfx_ok = (sfx.init() == 0);
+    if (bridge_ok) AB_I("sfx %s", sfx_ok ? "up" : "unavailable");
+    game.bind_sfx(&sfx);
+    combat.bind_sfx(&sfx);
+
     /* World reset — called on boot and on SPACE-restart from end
      * screens. Regenerates terrain from a fresh seed, respawns pilots
      * and saucers, resets ship + score + shield + fuel. */
@@ -260,6 +270,7 @@ int main(void)
 
         g_frame_count++;
         if (bridge_ok) ab_poll();
+        sfx.tick();          /* reap completed audio.device messages */
 
         /* Cheap heartbeat + real wall-clock FPS from DateStamp (50Hz
          * PAL ticks). If this stops arriving the game has FROZEN; if
@@ -292,6 +303,7 @@ int main(void)
     if (bridge_ok) {
         AB_I("fractalus shutting down (%ld frames)", (long)g_frame_count);
     }
+    sfx.shutdown();
     renderer.close_display();
     if (bridge_ok) ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);

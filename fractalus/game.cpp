@@ -2,6 +2,7 @@
 #include "terrain.h"
 #include "pilots.h"
 #include "combat.h"
+#include "sfx.h"
 
 extern "C" {
 #include "bridge_client.h"
@@ -174,6 +175,7 @@ void Game::update_rescue(UWORD in)
                 (*pl)[pi].state = PILOT_RESCUED;
                 gs->pilots_rescued++;
                 gs->score += 500;
+                if (sfx) sfx->play(SFX_RESCUE);
                 enter_state(RS_REVEAL, REVEAL_FRAMES);
             } else {
                 enter_state(RS_FLYING, 0);
