@@ -213,14 +213,14 @@ void Game::update_rescue(UWORD in)
 void Game::tick(UWORD in)
 {
     /* Mission end screens: freeze the world, just tick timer, wait for
-     * SPACE (edge-detected) to signal a restart request. Main handles
-     * the actual reset — it owns terrain / pilots / combat. */
+     * RETURN (edge-detected) to signal a restart request. Main handles
+     * the actual reset — it owns terrain / pilots / combat.
+     * SPACE (fire) is intentionally NOT used for restart so it can
+     * still be the fire button in play. */
     if (gs->mode != GM_PLAYING) {
         if (gs->state_timer < 65535) gs->state_timer++;
-        if (in & INPUT_FIRE) {
-            if (!gs->restart_pressed) {
-                gs->restart_pressed = 1;   /* main sees this next tick */
-            }
+        if (in & INPUT_RESTART) {
+            if (!gs->restart_pressed) gs->restart_pressed = 1;
         } else {
             gs->restart_pressed = 0;
         }
@@ -274,19 +274,19 @@ void Game::tick(UWORD in)
         gs->score += gs->fuel + gs->shield;
         gs->mode = GM_WIN;
         gs->state_timer = 0;
-        gs->restart_pressed = 1;      /* consume any held FIRE this tick */
+        gs->restart_pressed = 0;
         AB_I("MISSION COMPLETE — rescued %ld/%ld, score %ld",
              (long)gs->pilots_rescued, (long)MISSION_WIN_PILOTS,
              (long)gs->score);
     } else if (gs->shield <= 0) {
         gs->mode = GM_LOSE;
         gs->state_timer = 0;
-        gs->restart_pressed = 1;
+        gs->restart_pressed = 0;
         AB_I("SHIELD FAILURE — score %ld", (long)gs->score);
     } else if (gs->fuel <= 0) {
         gs->mode = GM_LOSE;
         gs->state_timer = 0;
-        gs->restart_pressed = 1;
+        gs->restart_pressed = 0;
         AB_I("FUEL EXHAUSTED — score %ld", (long)gs->score);
     }
 
