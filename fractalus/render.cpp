@@ -835,6 +835,247 @@ static void draw_end_screen(struct RastPort *rp, const GameState &gs)
     }
 }
 
+/* -------------------------------------------------------------
+ * Full-body jaggi slamming the cockpit glass.
+ *
+ * The jaggi is a lumpy green thing with a wide torso, dome head
+ * with two red eyes and a fanged mouth, and two arms extending
+ * outward that pound rhythmically on the "glass". Cracks radiate
+ * from each fist during the strike phase.
+ *
+ * Animation:
+ *   BUILD   0..N/3     alien grows from small centre out
+ *   STRIKE  N/3..2N/3  full size, arms slam up/down each frame
+ *   FADE    2N/3..N    alien recedes, cracks fade
+ * ------------------------------------------------------------- */
+static void draw_v_crack(struct RastPort *rp, int x, int y,
+                         int dir, int len, UBYTE pen)
+{
+    /* Radiating impact crack — three lines from (x,y) fanning out
+     * in the direction of `dir` (-1 = leftward, +1 = rightward). */
+    SetAPen(rp, pen);
+    Move(rp, x, y); Draw(rp, x + dir * len, y - len);
+    Move(rp, x, y); Draw(rp, x + dir * len, y);
+    Move(rp, x, y); Draw(rp, x + dir * len, y + len);
+}
+
+static void draw_jaggi_slam(struct RastPort *rp, const GameState &gs)
+{
+    int prog = JUMPSCARE_FRAMES - (int)gs.state_timer;
+    if (prog < 0) prog = 0;
+    if (prog > JUMPSCARE_FRAMES) prog = JUMPSCARE_FRAMES;
+
+    int build_end  = JUMPSCARE_FRAMES / 3;
+    int strike_end = (JUMPSCARE_FRAMES * 2) / 3;
+
+    /* Scale ramps up in BUILD, holds at STRIKE, ramps down in FADE. */
+    int scale;
+    if (prog <= build_end) {
+        scale = 40 + (prog * 200) / (build_end + 1);
+    } else if (prog <= strike_end) {
+        scale = 240;
+    } else {
+        int fade = prog - strike_end;
+        int fade_len = JUMPSCARE_FRAMES - strike_end + 1;
+        scale = 240 - (fade * 220) / fade_len;
+    }
+    if (scale < 20) scale = 20;
+
+    /* Screen shake — biggest on impact frames of STRIKE, decays. */
+    int shake = 6;
+    if (prog > strike_end) shake = 6 - (prog - strike_end);
+    if (shake < 0) shake = 0;
+    int sx_off = (int)((gs.tick * 7 + prog * 13) & 7) - 4;
+    int sy_off = (int)((gs.tick * 11 + prog * 5) & 7) - 4;
+    sx_off = (sx_off * shake) / 4;
+    sy_off = (sy_off * shake) / 4;
+
+    /* Full-viewport red backdrop, pulses between two shades. */
+    SetAPen(rp, (UBYTE)((prog & 1) ? PAL_MISC_BASE + 3
+                                    : PAL_MISC_BASE + 2));
+    RectFill(rp, R_VIEW_X, R_VIEW_Y, R_VIEW_X2, R_VIEW_Y2);
+
+    /* Anchor. cy is a bit above centre so the arms have room to slam
+     * near the viewport edges. */
+    int cx = R_VIEW_X + R_VIEW_W / 2 + sx_off;
+    int cy = R_VIEW_Y + R_VIEW_H * 5 / 12 + sy_off;
+
+    /* Slam offset — arms pulse UP on even STRIKE frames, DOWN on
+     * odd, creating a percussive rhythm. Zero outside STRIKE. */
+    int slam = 0;
+    if (prog >= build_end && prog <= strike_end)
+        slam = (prog & 1) ? 6 : -6;
+
+    /* Palette pens. */
+    UBYTE body_pen  = (UBYTE)(PAL_TERRAIN_BASE + 3 * 8);   /* dark green */
+    UBYTE hi_pen    = (UBYTE)(PAL_TERRAIN_BASE + 5 * 8);   /* mid-bright */
+    UBYTE head_pen  = (UBYTE)(PAL_TERRAIN_BASE + 4 * 8);   /* mid green */
+    UBYTE eye_pen   = (UBYTE)(PAL_MISC_BASE + 3);          /* red */
+    UBYTE eye_flash = (UBYTE)(PAL_MISC_BASE + 4);          /* yellow */
+    UBYTE tooth_pen = (UBYTE)(PAL_MISC_BASE + 7);          /* off-white */
+    UBYTE claw_pen  = (UBYTE)(PAL_MISC_BASE + 7);
+    UBYTE crack_pen = (UBYTE)(PAL_MISC_BASE + 1);          /* light grey */
+
+    /* --- Torso (rounded via stacked rects) --- */
+    int tw = (60 * scale) / 200;      /* half-width */
+    int th = (50 * scale) / 200;      /* half-height */
+    SetAPen(rp, body_pen);
+    /* Wide middle band + thinner top/bottom for a slightly ovoid look. */
+    int by0 = cy;
+    int by1 = cy + th;
+    if (by0 < R_VIEW_Y)  by0 = R_VIEW_Y;
+    if (by1 > R_VIEW_Y2) by1 = R_VIEW_Y2;
+    int bx0 = cx - tw, bx1 = cx + tw;
+    if (bx0 < R_VIEW_X)  bx0 = R_VIEW_X;
+    if (bx1 > R_VIEW_X2) bx1 = R_VIEW_X2;
+    if (bx0 < bx1 && by0 < by1) RectFill(rp, bx0, by0, bx1, by1);
+    /* Highlight strip down the centre — vertebra look. */
+    SetAPen(rp, hi_pen);
+    int spinew = 4;
+    if (cx - spinew >= R_VIEW_X && cx + spinew <= R_VIEW_X2 && by0 < by1)
+        RectFill(rp, cx - spinew, by0, cx + spinew, by1);
+
+    /* --- Arms + fists slamming the glass ---
+     * Each arm is a horizontal rectangle from torso edge out to the
+     * viewport edge, ending in a fist that overlaps the "glass". */
+    int arm_h = (18 * scale) / 200; if (arm_h < 3) arm_h = 3;
+    int arm_y = cy + (th / 4) + slam;
+    /* Left arm — from torso left edge out to viewport left. */
+    SetAPen(rp, body_pen);
+    int lax1 = cx - tw;
+    int lax0 = R_VIEW_X + 4;
+    if (lax0 < lax1) {
+        int ay0 = arm_y - arm_h / 2;
+        int ay1 = arm_y + arm_h / 2;
+        if (ay0 < R_VIEW_Y)  ay0 = R_VIEW_Y;
+        if (ay1 > R_VIEW_Y2) ay1 = R_VIEW_Y2;
+        if (ay0 < ay1) RectFill(rp, lax0, ay0, lax1, ay1);
+    }
+    /* Right arm. */
+    int rax0 = cx + tw;
+    int rax1 = R_VIEW_X2 - 4;
+    if (rax1 > rax0) {
+        int ay0 = arm_y - arm_h / 2;
+        int ay1 = arm_y + arm_h / 2;
+        if (ay0 < R_VIEW_Y)  ay0 = R_VIEW_Y;
+        if (ay1 > R_VIEW_Y2) ay1 = R_VIEW_Y2;
+        if (ay0 < ay1) RectFill(rp, rax0, ay0, rax1, ay1);
+    }
+
+    /* Fists — bigger blob at each arm's end. */
+    SetAPen(rp, hi_pen);
+    int fist = (22 * scale) / 200; if (fist < 5) fist = 5;
+    /* Left fist */
+    int lfx0 = R_VIEW_X + 2;
+    int lfx1 = lfx0 + fist;
+    int lfy0 = arm_y - fist / 2;
+    int lfy1 = arm_y + fist / 2;
+    if (lfy0 < R_VIEW_Y)  lfy0 = R_VIEW_Y;
+    if (lfy1 > R_VIEW_Y2) lfy1 = R_VIEW_Y2;
+    if (lfx1 > R_VIEW_X2) lfx1 = R_VIEW_X2;
+    if (lfx0 < lfx1 && lfy0 < lfy1) RectFill(rp, lfx0, lfy0, lfx1, lfy1);
+    /* Right fist */
+    int rfx1 = R_VIEW_X2 - 2;
+    int rfx0 = rfx1 - fist;
+    int rfy0 = arm_y - fist / 2;
+    int rfy1 = arm_y + fist / 2;
+    if (rfy0 < R_VIEW_Y)  rfy0 = R_VIEW_Y;
+    if (rfy1 > R_VIEW_Y2) rfy1 = R_VIEW_Y2;
+    if (rfx0 < R_VIEW_X)  rfx0 = R_VIEW_X;
+    if (rfx0 < rfx1 && rfy0 < rfy1) RectFill(rp, rfx0, rfy0, rfx1, rfy1);
+
+    /* Claws — 3 small pointy bits protruding forward from each fist. */
+    if (prog >= build_end / 2) {
+        SetAPen(rp, claw_pen);
+        int cw = fist / 4; if (cw < 2) cw = 2;
+        int ch = fist / 3; if (ch < 3) ch = 3;
+        for (int k = 0; k < 3; k++) {
+            int cy0 = arm_y - fist / 2 + k * (fist / 3);
+            int cy1 = cy0 + ch;
+            if (cy0 < R_VIEW_Y || cy1 > R_VIEW_Y2) continue;
+            /* Left claws point right (into cockpit) */
+            int lcx0 = lfx1;
+            int lcx1 = lfx1 + cw;
+            if (lcx1 <= R_VIEW_X2) RectFill(rp, lcx0, cy0, lcx1, cy1);
+            /* Right claws point left */
+            int rcx1 = rfx0;
+            int rcx0 = rcx1 - cw;
+            if (rcx0 >= R_VIEW_X) RectFill(rp, rcx0, cy0, rcx1, cy1);
+        }
+    }
+
+    /* --- Glass cracks radiating from each fist during STRIKE --- */
+    if (prog >= build_end && prog <= strike_end + 3) {
+        int cl = 20 + shake * 2;
+        draw_v_crack(rp, lfx1, arm_y, +1, cl, crack_pen);
+        draw_v_crack(rp, rfx0, arm_y, -1, cl, crack_pen);
+    }
+
+    /* --- Head sitting on top of torso --- */
+    int hw = (40 * scale) / 200;
+    int hh = (32 * scale) / 200;
+    int hy1 = cy - 2;
+    int hy0 = hy1 - hh * 2;
+    int hx0 = cx - hw, hx1 = cx + hw;
+    if (hx0 < R_VIEW_X)  hx0 = R_VIEW_X;
+    if (hx1 > R_VIEW_X2) hx1 = R_VIEW_X2;
+    if (hy0 < R_VIEW_Y)  hy0 = R_VIEW_Y;
+    if (hy1 > R_VIEW_Y2) hy1 = R_VIEW_Y2;
+    SetAPen(rp, head_pen);
+    if (hx0 < hx1 && hy0 < hy1) RectFill(rp, hx0, hy0, hx1, hy1);
+
+    /* --- Eyes — glowing red, pulse yellow on STRIKE beats --- */
+    if (hw > 4 && hh > 2) {
+        int ew = (14 * scale) / 200; if (ew < 3) ew = 3;
+        int eh = (10 * scale) / 200; if (eh < 3) eh = 3;
+        int ey_mid = hy0 + (hy1 - hy0) / 3;
+        SetAPen(rp, (prog >= build_end && (prog & 1)) ? eye_flash : eye_pen);
+        int lex0 = cx - (hw * 2) / 3, lex1 = lex0 + ew;
+        int rex1 = cx + (hw * 2) / 3, rex0 = rex1 - ew;
+        int ey0 = ey_mid - eh / 2, ey1 = ey_mid + eh / 2;
+        if (lex0 >= R_VIEW_X && lex1 <= R_VIEW_X2 && ey0 >= R_VIEW_Y && ey1 <= R_VIEW_Y2)
+            RectFill(rp, lex0, ey0, lex1, ey1);
+        if (rex0 >= R_VIEW_X && rex1 <= R_VIEW_X2 && ey0 >= R_VIEW_Y && ey1 <= R_VIEW_Y2)
+            RectFill(rp, rex0, ey0, rex1, ey1);
+    }
+
+    /* --- Mouth: dark cavity + teeth. Opens up during STRIKE. --- */
+    if (hw > 6) {
+        int mw = (hw * 3) / 4;
+        int mh = ((6 + (slam > 0 ? slam : 0)) * scale) / 200;
+        if (mh < 3) mh = 3;
+        int my0 = hy1 - mh - 2;
+        int my1 = hy1 - 2;
+        if (my0 >= R_VIEW_Y && my1 <= R_VIEW_Y2) {
+            SetAPen(rp, PAL_MISC_BASE + 0);   /* dark grey = mouth cavity */
+            RectFill(rp, cx - mw, my0, cx + mw, my1);
+            /* Teeth: alternating up/down triangles rendered as narrow rects. */
+            SetAPen(rp, tooth_pen);
+            int nteeth = 6;
+            int space = (mw * 2) / nteeth;
+            for (int i = 0; i < nteeth; i++) {
+                int tx0 = cx - mw + i * space;
+                int tx1 = tx0 + space / 2;
+                if (tx1 > R_VIEW_X2) break;
+                if (i & 1) {
+                    RectFill(rp, tx0, my0, tx1, my0 + mh / 2);
+                } else {
+                    RectFill(rp, tx0, my1 - mh / 2, tx1, my1);
+                }
+            }
+        }
+    }
+
+    /* --- "JAGGI!!" text at bottom, only during STRIKE + FADE --- */
+    if (prog >= build_end) {
+        SetAPen(rp, PAL_HUD_BASE + 15);
+        SetDrMd(rp, JAM1);
+        int text_y = R_VIEW_Y2 - 12;
+        Move(rp, cx - 32, text_y);
+        Text(rp, (STRPTR)"JAGGI!!", 7);
+    }
+}
+
 /* Overlays drawn on top of the terrain during the rescue sequence. */
 void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
 {
@@ -874,131 +1115,8 @@ void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
     default: break;
     }
 
-    /* --- Jaggi jumpscare animation ---
-     * state_timer counts down JUMPSCARE_FRAMES..0. Split into three
-     * phases: BUILD (face grows/lunges), STRIKE (holds + flashes),
-     * FADE (recedes). Screen shake decays with progress. */
-    if (gs.rescue_state == RS_JUMPSCARE) {
-        int prog = JUMPSCARE_FRAMES - (int)gs.state_timer;   /* 0..N */
-        if (prog < 0) prog = 0;
-        if (prog > JUMPSCARE_FRAMES) prog = JUMPSCARE_FRAMES;
-
-        /* Scale (0..200%). Grow fast on entry, hold near peak in the
-         * middle, then shrink out. */
-        int scale;
-        int build_end  = JUMPSCARE_FRAMES / 3;              /* 0..5   */
-        int strike_end = (JUMPSCARE_FRAMES * 2) / 3;        /* 6..10  */
-        if (prog <= build_end) {
-            scale = 40 + (prog * 180) / (build_end + 1);
-        } else if (prog <= strike_end) {
-            scale = 220;
-        } else {
-            int fade = prog - strike_end;
-            int fade_len = JUMPSCARE_FRAMES - strike_end;
-            scale = 220 - (fade * 200) / (fade_len + 1);
-        }
-        if (scale < 20) scale = 20;
-
-        /* Shake — decays through fade phase. Uses tick+prog for
-         * pseudo-random offset in a small range. */
-        int shake = (prog < strike_end) ? 6 : 6 - (prog - strike_end);
-        if (shake < 0) shake = 0;
-        int sx_off = (int)((gs.tick * 7 + prog * 13) & 7) - 4;
-        int sy_off = (int)((gs.tick * 11 + prog * 5) & 7) - 4;
-        sx_off = (sx_off * shake) / 4;
-        sy_off = (sy_off * shake) / 4;
-
-        /* Full-viewport red flash — alternates two reds. */
-        UBYTE flash = (prog & 1) ? PAL_MISC_BASE + 3    /* mid red */
-                                 : PAL_MISC_BASE + 2;   /* dark red */
-        SetAPen(rp, flash);
-        RectFill(rp, R_VIEW_X, R_VIEW_Y, R_VIEW_X2, R_VIEW_Y2);
-
-        /* Face geometry scaled from a 120x80 base at 200%. */
-        int fx = R_VIEW_X + R_VIEW_W / 2 + sx_off;
-        int fy = R_VIEW_Y + R_VIEW_H / 2 + sy_off;
-        int hw = (60 * scale) / 200;
-        int hh = (40 * scale) / 200;
-
-        /* Head — bright green, with a paler ridge during STRIKE. */
-        UBYTE head_pen = (prog >= build_end && prog <= strike_end
-                          && (prog & 1))
-            ? (UBYTE)(PAL_TERRAIN_BASE + 6 * 8)    /* pale sun-lit */
-            : (UBYTE)(PAL_TERRAIN_BASE + 4 * 8);   /* mid green */
-        SetAPen(rp, head_pen);
-        int hx0 = fx - hw, hy0 = fy - hh;
-        int hx1 = fx + hw, hy1 = fy + hh;
-        if (hx0 < R_VIEW_X)  hx0 = R_VIEW_X;
-        if (hy0 < R_VIEW_Y)  hy0 = R_VIEW_Y;
-        if (hx1 > R_VIEW_X2) hx1 = R_VIEW_X2;
-        if (hy1 > R_VIEW_Y2) hy1 = R_VIEW_Y2;
-        if (hx0 < hx1 && hy0 < hy1)
-            RectFill(rp, hx0, hy0, hx1, hy1);
-
-        /* Eyes — grow with scale, pulse black/red during STRIKE. */
-        int ew = (25 * scale) / 200;
-        int eh = (15 * scale) / 200;
-        if (ew > 0 && eh > 0 && prog >= 1) {
-            UBYTE eye_pen = (prog >= build_end && (prog & 1))
-                ? (UBYTE)(PAL_MISC_BASE + 4)     /* bright accent */
-                : (UBYTE)0;
-            SetAPen(rp, eye_pen);
-            int ey0 = fy - hh / 2 - eh / 2;
-            int ey1 = ey0 + eh;
-            /* Left */
-            int lx0 = fx - (hw * 2) / 3;
-            int lx1 = lx0 + ew;
-            if (lx0 < R_VIEW_X)  lx0 = R_VIEW_X;
-            if (lx1 > R_VIEW_X2) lx1 = R_VIEW_X2;
-            if (ey0 < R_VIEW_Y)  ey0 = R_VIEW_Y;
-            if (ey1 > R_VIEW_Y2) ey1 = R_VIEW_Y2;
-            if (lx0 < lx1 && ey0 < ey1) RectFill(rp, lx0, ey0, lx1, ey1);
-            /* Right */
-            int rx1_ = fx + (hw * 2) / 3;
-            int rx0_ = rx1_ - ew;
-            if (rx0_ < R_VIEW_X)  rx0_ = R_VIEW_X;
-            if (rx1_ > R_VIEW_X2) rx1_ = R_VIEW_X2;
-            if (rx0_ < rx1_ && ey0 < ey1)
-                RectFill(rp, rx0_, ey0, rx1_, ey1);
-        }
-
-        /* Teeth — the mouth opens (teeth drop down) as it strikes,
-         * then closes. Six vertical fangs across the lower jaw. */
-        int mouth_open = 0;
-        if (prog >= build_end && prog <= strike_end)
-            mouth_open = ((prog - build_end + 1) * 8);
-        int th = (25 * scale) / 200;
-        if (th > 0 && prog >= 1) {
-            SetAPen(rp, PAL_MISC_BASE + 7);           /* off-white */
-            int spacing = (hw * 2) / 6;
-            int tw = spacing > 3 ? (spacing / 2) : 1;
-            int ty0 = fy + hh / 4 + mouth_open;
-            int ty1 = ty0 + th;
-            if (ty0 < R_VIEW_Y) ty0 = R_VIEW_Y;
-            if (ty1 > R_VIEW_Y2) ty1 = R_VIEW_Y2;
-            if (ty0 < ty1) {
-                for (int ti = 0; ti < 6; ti++) {
-                    int tx0 = fx - hw + spacing / 2 + ti * spacing;
-                    int tx1 = tx0 + tw;
-                    if (tx0 < R_VIEW_X)  continue;
-                    if (tx1 > R_VIEW_X2) tx1 = R_VIEW_X2;
-                    if (tx0 < tx1) RectFill(rp, tx0, ty0, tx1, ty1);
-                }
-            }
-        }
-
-        /* "JAGGI!!" text — only during STRIKE and FADE so the BUILD
-         * frames read as a lunging shape without cueing the word yet. */
-        if (prog >= build_end) {
-            SetAPen(rp, PAL_HUD_BASE + 15);
-            SetDrMd(rp, JAM1);
-            int text_y = fy + hh + 20;
-            if (text_y > R_VIEW_Y && text_y < R_VIEW_Y2 - 8) {
-                Move(rp, fx - 32, text_y);
-                Text(rp, (STRPTR)"JAGGI!!", 7);
-            }
-        }
-    }
+    if (gs.rescue_state == RS_JUMPSCARE)
+        draw_jaggi_slam(rp, gs);
 }
 
 void Renderer::flip()
