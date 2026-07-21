@@ -1,11 +1,15 @@
 CXX      = m68k-amigaos-g++
+CC       = m68k-amigaos-gcc
 CXXFLAGS = -noixemul -O2 -m68020 -Wall -Wno-unused-function \
            -fno-exceptions -fno-rtti \
            -I../../amiga-bridge/include
+CFLAGS   = -noixemul -O2 -m68020 -Wall -Wno-unused-function \
+           -I../../amiga-bridge/include
 LDFLAGS  = -noixemul -m68020 -L../../amiga-bridge -lbridge -lamiga
 TARGET   = fractalus
-SRCS     = main.cpp terrain.cpp render.cpp game.cpp pilots.cpp combat.cpp sfx.cpp
-OBJS     = $(SRCS:.cpp=.o)
+CPPSRCS  = main.cpp terrain.cpp render.cpp game.cpp pilots.cpp combat.cpp sfx.cpp
+CSRCS    = modplay.c
+OBJS     = $(CPPSRCS:.cpp=.o) $(CSRCS:.c=.o)
 
 all: $(TARGET)
 
@@ -14,6 +18,9 @@ $(TARGET): $(OBJS)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 # Header dependencies — small enough to just enumerate. Prevents the
 # "changed a #define, didn't get picked up" trap we hit during Phase 4.
