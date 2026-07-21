@@ -111,6 +111,7 @@ static void apply_key(UWORD code)
 /* Bridge-exposed state, so we can poke values live during dev. */
 static GameState g_state;
 static ULONG     g_frame_count = 0;
+static LONG      g_force_restart = 0;
 
 int main(void)
 {
@@ -134,6 +135,7 @@ int main(void)
     /* Optional bridge — we don't hard-fail if the daemon isn't running,
      * so the game plays standalone from Workbench too. */
     extern LONG g_bench_mask;
+    extern LONG g_debug_all_jaggis;
     int bridge_ok = (ab_init("fractalus") == 0);
     if (bridge_ok) {
         AB_I("fractalus v0.1 (Phase 1) starting");
@@ -155,6 +157,14 @@ int main(void)
         /* Toggle from the bridge to isolate render bottlenecks —
          * see g_bench_mask BENCH_* bit table in render.cpp. */
         ab_register_var("bench_mask",     AB_TYPE_I32, &g_bench_mask);
+        /* Debug: force every spawned pilot to be a jaggi. */
+        ab_register_var("debug_all_jaggis", AB_TYPE_I32,
+                        &g_debug_all_jaggis);
+        /* Debug: set to 1 to force a mid-mission restart on the
+         * next frame — useful for applying a debug-var change
+         * without having to die first. Auto-clears back to 0. */
+        ab_register_var("force_restart",    AB_TYPE_I32,
+                        &g_force_restart);
     }
 
     render_init_math();
@@ -179,6 +189,13 @@ int main(void)
                     FX16_TOINT(g_state.ship.x),
                     g_state.ship.y,
                     FX16_TOINT(g_state.ship.z));
+        if (bridge_ok) {
+            LONG jaggis = 0;
+            for (LONG pi = 0; pi < pilots.count(); pi++)
+                if (pilots[pi].is_jaggi) jaggis++;
+            AB_I("mission ready: %ld/12 jaggis hiding (debug=%ld)",
+                 (long)jaggis, (long)g_debug_all_jaggis);
+        }
     };
     reset_world(0xC0FFEE01UL);
 
@@ -210,13 +227,11 @@ int main(void)
     /* Boot-time world init already done by reset_world above — the
      * per-pilot / per-saucer dump was diagnostic scaffolding, no
      * longer needed now that spawns are deterministic per seed. */
+    /* jaggi count now logged from inside reset_world so restarts
+     * report too. Static win-target line stays useful. */
     if (bridge_ok) {
-        LONG jaggi_count = 0;
-        for (LONG pi = 0; pi < pilots.count(); pi++)
-            if (pilots[pi].is_jaggi) jaggi_count++;
-        AB_I("mission: rescue %ld of %ld pilots (%ld jaggis hiding)",
-             (long)MISSION_WIN_PILOTS, (long)pilots.count(),
-             (long)jaggi_count);
+        AB_I("goal: rescue %ld of %ld pilots to win",
+             (long)MISSION_WIN_PILOTS, (long)pilots.count());
     }
 
     /* Main loop. Input is polled from IDCMP each frame; game logic runs
@@ -253,14 +268,18 @@ int main(void)
          * pressed AND the end screen has been showing for >30 ticks
          * (so a mid-airlock fire doesn't accidentally restart), regen
          * the world from a fresh seed. */
-        if (g_state.mode != GM_PLAYING
-            && (input_flags & INPUT_RESTART)
-            && g_state.state_timer > 30) {
+        UWORD want_restart =
+            ((g_state.mode != GM_PLAYING
+              && (input_flags & INPUT_RESTART)
+              && g_state.state_timer > 30)
+             || g_force_restart);
+        if (want_restart) {
             ULONG next_seed = g_state.seed * 1103515245UL + 12345UL;
             if (bridge_ok) AB_I("restart: new mission, seed=%ld",
                                 (long)next_seed);
             reset_world(next_seed);
             input_flags = 0;
+            g_force_restart = 0;
         }
 
         if (bridge_ok) ab_poll();
