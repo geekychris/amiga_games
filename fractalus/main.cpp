@@ -68,6 +68,7 @@ static Sfx       g_sfx;
 #define RK_UP      0x4C
 #define RK_DOWN    0x4D
 #define RK_SPACE   0x40
+#define RK_RETURN  0x44
 #define RK_L       0x28
 #define RK_W       0x11
 #define RK_A       0x20
@@ -96,8 +97,9 @@ static void apply_key(UWORD code)
     case RK_Q:                bit = INPUT_UP;     break;
     case RK_Z:                bit = INPUT_DOWN;   break;
     /* Actions */
-    case RK_SPACE:            bit = INPUT_FIRE;   break;
-    case RK_L:                bit = INPUT_LAND;   break;
+    case RK_SPACE:            bit = INPUT_FIRE;    break;
+    case RK_RETURN:           bit = INPUT_RESTART; break;
+    case RK_L:                bit = INPUT_LAND;    break;
     default: break;
     }
 
@@ -248,15 +250,12 @@ int main(void)
          * (so a mid-airlock fire doesn't accidentally restart), regen
          * the world from a fresh seed. */
         if (g_state.mode != GM_PLAYING
-            && (input_flags & INPUT_FIRE)
+            && (input_flags & INPUT_RESTART)
             && g_state.state_timer > 30) {
             ULONG next_seed = g_state.seed * 1103515245UL + 12345UL;
             if (bridge_ok) AB_I("restart: new mission, seed=%ld",
                                 (long)next_seed);
             reset_world(next_seed);
-            /* Clear input flags so the still-held SPACE doesn't
-             * spray bullets into the fresh mission — player must
-             * release + re-press to fire in the new game. */
             input_flags = 0;
         }
 

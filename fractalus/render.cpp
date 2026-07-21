@@ -793,7 +793,7 @@ static void draw_end_screen(struct RastPort *rp, const GameState &gs)
     /* Restart hint — blinks every ~30 frames so it draws attention. */
     if (((gs.state_timer >> 4) & 1) == 0) {
         SetAPen(rp, PAL_HUD_BASE + 15);
-        Move(rp, tx + 8, by + 66); Text(rp, (STRPTR)"SPACE = NEW MISSION", 19);
+        Move(rp, tx + 8, by + 66); Text(rp, (STRPTR)"RETURN = NEW MISSION", 20);
     }
 }
 
