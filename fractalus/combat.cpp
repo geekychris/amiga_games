@@ -1,5 +1,6 @@
 #include "combat.h"
 #include "game.h"
+#include "sfx.h"
 
 extern "C" {
 #include "bridge_client.h"
@@ -24,6 +25,7 @@ void Combat::init(ULONG seed, LONG cam_x, LONG cam_y, LONG cam_z)
 {
     cseed = seed ? seed : 0x5AABBCDDUL;
     player_cooldown = 0;
+    /* sfx pointer left as-is on reset — bind once at boot. */
 
     /* Saucers cruise well above the tallest terrain peak so a player
      * flying low in a valley can still see them silhouetted against
@@ -131,6 +133,7 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
         }
         spawn_bullet(cam_x, cam_y - 4, cam_z, bvx, bvy, bvz, BO_PLAYER);
         player_cooldown = PLAYER_FIRE_COOL;
+        if (sfx) sfx->play(SFX_LASER);
     }
 
     /* --- Saucer AI -------------------------------------------------- */
@@ -224,6 +227,7 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
                         sc.state = SS_DYING;
                         sc.dying_timer = 12;
                         if (score_out) *score_out += 300;
+                        if (sfx) sfx->play(SFX_EXPLOSION);
                     }
                     break;
                 }
@@ -239,6 +243,7 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
                     if (*shield_out < 0) *shield_out = 0;
                 }
                 b.owner = BO_INACTIVE;
+                if (sfx) sfx->play(SFX_DAMAGE);
             }
         }
     }

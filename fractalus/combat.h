@@ -55,9 +55,12 @@ struct Bullet {
     UBYTE  _pad;
 };
 
+class Sfx;
+
 class Combat {
 public:
     void init(ULONG seed, LONG cam_x, LONG cam_y, LONG cam_z);
+    void bind_sfx(Sfx *s) { sfx = s; }
 
     /* Advance saucers, bullets, collisions. Reads current camera state
      * so enemies can chase the player and player bullets can be spawned
@@ -75,6 +78,7 @@ private:
     Saucer saucers[MAX_SAUCERS];
     Bullet bullets[MAX_BULLETS];
     UWORD  player_cooldown;
+    Sfx   *sfx;
 
     LONG spawn_bullet(LONG x, LONG y, LONG z,
                       LONG vx, LONG vy, LONG vz,
