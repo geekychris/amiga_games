@@ -38,6 +38,7 @@
 #include "models.h"
 #include "combat.h"
 #include "scanner.h"
+#include "gamemode.h"
 
 struct IntuitionBase *IntuitionBase;
 struct GfxBase       *GfxBase;
@@ -63,6 +64,8 @@ ULONG __stack = 65536;
 #define RK_R     0x13
 #define RK_F     0x23
 #define RK_SPACE 0x40
+#define RK_TAB   0x42                /* TAB — request dock when close to station */
+#define RK_UKEY  0x16                /* U — undock from station menu */
 #define RK_UP_MASK 0x80
 
 #define IN_PITCH_DOWN 0x0001
@@ -76,6 +79,8 @@ ULONG __stack = 65536;
 /* IN_FIRE lives in combat.h as VT_IN_FIRE = 0x0100 so combat.c
  * can read it without pulling main.c's headers. Alias here. */
 #define IN_FIRE       VT_IN_FIRE
+#define IN_DOCK       0x0200
+#define IN_UNDOCK     0x0400
 
 static UWORD input_flags;
 
@@ -94,6 +99,8 @@ static void apply_key(UWORD code)
     case RK_R: bit = IN_THRUST_FWD; break;
     case RK_F: bit = IN_THRUST_REV; break;
     case RK_SPACE: bit = IN_FIRE;   break;
+    case RK_TAB:   bit = IN_DOCK;   break;
+    case RK_UKEY:  bit = IN_UNDOCK; break;
     default: break;
     }
     if (!bit) return;
@@ -297,6 +304,38 @@ static void draw_cockpit(struct RastPort *rp, int fps, LONG speed,
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
+static UBYTE game_mode = GM_FLIGHT;
+static UWORD mode_timer = 0;           /* frames since mode entered */
+
+/* Station lives at world[2]. Rotate it each frame so it looks alive. */
+static void tick_station(void)
+{
+    if (world[2].active) {
+        world[2].roll = (world[2].roll + 1) % 360;
+        world[2].yaw  = (world[2].yaw  + 1) % 360;   /* barrel roll */
+    }
+}
+
+/* Distance from player to station. Returns MAX_LONG if station
+ * inactive so callers can compare safely. */
+static LONG station_dist(void)
+{
+    if (!world[2].active) return 0x7FFFFFFF;
+    LONG dx = world[2].x - cam.x;
+    LONG dy = world[2].y - cam.y;
+    LONG dz = world[2].z - cam.z;
+    LONG d2 = dx * dx + dy * dy + dz * dz;
+    LONG r = 0, bit = 1L << 30, v = d2;
+    if (v <= 0) return 0;
+    while (bit > v) bit >>= 2;
+    while (bit) {
+        if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; }
+        else r >>= 1;
+        bit >>= 2;
+    }
+    return r;
+}
+
 static void setup_world(void)
 {
     memset(world, 0, sizeof(world));
@@ -433,22 +472,131 @@ int main(void)
         }
         if (!running) break;
 
-        update_camera(input_flags);
-        vt_combat_tick(&combat, &cam, world, 8, input_flags);
+        /* --- Per-mode tick --- */
+        tick_station();
+        mode_timer++;
 
-        /* Render into off-screen buffer, then flip. */
+        LONG sd = station_dist();
+
+        switch (game_mode) {
+        case GM_FLIGHT:
+            update_camera(input_flags);
+            vt_combat_tick(&combat, &cam, world, 8, input_flags);
+            /* Enter docking approach on TAB within range. */
+            if ((input_flags & IN_DOCK) && sd < DOCK_APPROACH_RANGE) {
+                game_mode = GM_DOCKING;
+                mode_timer = 0;
+                input_flags = 0;
+            }
+            if (combat.game_over) {
+                game_mode = GM_GAME_OVER;
+                mode_timer = 0;
+            }
+            break;
+        case GM_DOCKING: {
+            /* Cinematic: pull the camera toward the station
+             * regardless of input. Ship yaws to face the station's
+             * centre so the docking always looks intentional. */
+            LONG dx = world[2].x - cam.x;
+            LONG dy = world[2].y - cam.y;
+            LONG dz = world[2].z - cam.z;
+            LONG d = sd > 0 ? sd : 1;
+            cam.x += (dx * 40) / d;
+            cam.y += (dy * 40) / d;
+            cam.z += (dz * 40) / d;
+            /* Auto-tumble the ship a bit for style. */
+            cam.roll = (cam.roll + 2) % 360;
+            if (sd < DOCK_LOCK_RANGE) {
+                game_mode = GM_DOCKED;
+                mode_timer = 0;
+            }
+            break;
+        }
+        case GM_DOCKED:
+            /* Frozen. U to undock. */
+            if (input_flags & IN_UNDOCK) {
+                game_mode = GM_UNDOCKING;
+                mode_timer = 0;
+                input_flags = 0;
+                /* Refuel + refill shields at the station. */
+                combat.player_energy = VT_PLAYER_MAX_ENERGY;
+            }
+            break;
+        case GM_UNDOCKING: {
+            /* Cinematic: pull out along the station's rear. */
+            LONG dx = cam.x - world[2].x;
+            LONG dy = cam.y - world[2].y;
+            LONG dz = cam.z - world[2].z;
+            LONG d = sd > 0 ? sd : 1;
+            cam.x += (dx * 60) / d;
+            cam.y += (dy * 60) / d;
+            cam.z += (dz * 60) / d;
+            if (sd > DOCK_APPROACH_RANGE + 500 || mode_timer > 60) {
+                game_mode = GM_FLIGHT;
+                mode_timer = 0;
+            }
+            break;
+        }
+        case GM_GAME_OVER:
+            /* Nothing to do — waits for the user to ESC. */
+            break;
+        }
+
+        /* --- Render --- */
         struct RastPort *rp = &rp_buf[cur_buf];
         mrp.BitMap = sbuf[cur_buf]->sb_BitMap;
         rp->BitMap = sbuf[cur_buf]->sb_BitMap;
-        e3d_render_frame(&mrp, &cam, world, 8);
-        vt_combat_render(&mrp, &combat, &cam);
-        draw_cockpit(&mrp, fps_shown, ship_speed, combat.player_energy);
-        /* GAME OVER banner on top of everything if we've died. */
-        if (combat.game_over) {
-            SetAPen(&mrp, 124);
+
+        if (game_mode == GM_DOCKED) {
+            /* Station interior placeholder — solid backdrop +
+             * simple menu text. Trading market comes in Phase 5. */
+            SetAPen(&mrp, 122);
+            RectFill(&mrp, 0, 0, SCREEN_W - 1, SCREEN_H - 1);
+            SetAPen(&mrp, 120);
             SetDrMd(&mrp, JAM1);
-            Move(&mrp, SCREEN_W/2 - 40, VIEW_H/2);
-            Text(&mrp, (STRPTR)"GAME  OVER", 10);
+            Move(&mrp, SCREEN_W/2 - 68, 40);
+            Text(&mrp, (STRPTR)"STATION  BULLETIN", 17);
+            SetAPen(&mrp, 123);
+            Move(&mrp, 40, 80);  Text(&mrp, (STRPTR)"Docking clamps engaged.", 23);
+            Move(&mrp, 40, 100); Text(&mrp, (STRPTR)"Ship refuelled + shields restored.", 34);
+            Move(&mrp, 40, 120); Text(&mrp, (STRPTR)"Trading market: coming Phase 5.", 31);
+            /* Blinking prompt */
+            if (((mode_timer >> 3) & 1) == 0) {
+                SetAPen(&mrp, 120);
+                Move(&mrp, SCREEN_W/2 - 60, SCREEN_H - 24);
+                Text(&mrp, (STRPTR)"U  =  UNDOCK", 12);
+            }
+        } else {
+            e3d_render_frame(&mrp, &cam, world, 8);
+            vt_combat_render(&mrp, &combat, &cam);
+            draw_cockpit(&mrp, fps_shown, ship_speed, combat.player_energy);
+            /* Docking prompt when in range in flight. */
+            if (game_mode == GM_FLIGHT && sd < DOCK_APPROACH_RANGE) {
+                SetAPen(&mrp, 120);
+                SetDrMd(&mrp, JAM1);
+                if ((mode_timer >> 3) & 1) {
+                    Move(&mrp, SCREEN_W/2 - 56, VIEW_H - 12);
+                    Text(&mrp, (STRPTR)"TAB TO DOCK", 11);
+                }
+            }
+            if (game_mode == GM_DOCKING) {
+                SetAPen(&mrp, 120);
+                SetDrMd(&mrp, JAM1);
+                Move(&mrp, SCREEN_W/2 - 44, VIEW_H/2 - 20);
+                Text(&mrp, (STRPTR)"DOCKING...", 10);
+            }
+            if (game_mode == GM_UNDOCKING) {
+                SetAPen(&mrp, 120);
+                SetDrMd(&mrp, JAM1);
+                Move(&mrp, SCREEN_W/2 - 48, VIEW_H/2 - 20);
+                Text(&mrp, (STRPTR)"LAUNCHING...", 12);
+            }
+            if (game_mode == GM_GAME_OVER) {
+                SetAPen(&mrp, 124);
+                SetDrMd(&mrp, JAM1);
+                Move(&mrp, SCREEN_W/2 - 40, VIEW_H/2);
+                Text(&mrp, (STRPTR)"GAME  OVER", 10);
+            }
         }
 
         WaitBlit();
