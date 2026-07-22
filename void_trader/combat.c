@@ -1,4 +1,5 @@
 #include "combat.h"
+#include "sfx.h"
 
 #include <intuition/intuition.h>
 #include <graphics/gfx.h>
@@ -191,6 +192,7 @@ void vt_combat_tick(Combat *c, Camera *cam,
         LONG sz = cam->z + ((fz * 500) >> FP);
         spawn_bullet(c, sx, sy, sz, bvx, bvy, bvz, 0);
         c->player_cooldown = VT_PLAYER_COOL;
+        vt_sfx_play(SFX_LASER);
     }
 
     /* Enemy AI. Skip entity 0 (player marker, unused for now). */
@@ -225,6 +227,7 @@ void vt_combat_tick(Combat *c, Camera *cam,
                     if (e->hp == 0) {
                         e->active = 0;
                         c->score += 100;
+                        vt_sfx_play(SFX_EXPLOSION);
                     }
                     break;
                 }
@@ -241,6 +244,9 @@ void vt_combat_tick(Combat *c, Camera *cam,
                 if (c->player_energy <= 0) {
                     c->player_energy = 0;
                     c->game_over = 1;
+                    vt_sfx_play(SFX_EXPLOSION);
+                } else {
+                    vt_sfx_play(SFX_HIT);
                 }
             }
         }
