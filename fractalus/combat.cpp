@@ -83,6 +83,21 @@ static inline LONG dist2(LONG dx, LONG dy, LONG dz)
     return dx * dx + dy * dy + dz * dz;
 }
 
+/* Digit-by-digit integer square root of a non-negative LONG. Used
+ * in three places for vector normalise; returns 1 on zero input so
+ * callers can divide without a guard. */
+static inline LONG isqrt_len(LONG d2)
+{
+    LONG r = 0, bit = 1L << 30, v = d2;
+    while (bit > v) bit >>= 2;
+    while (bit) {
+        if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; }
+        else r >>= 1;
+        bit >>= 2;
+    }
+    return r ? r : 1;
+}
+
 void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
                   UWORD input_flags, LONG *shield_out, LONG *score_out)
 {
@@ -111,15 +126,7 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
             LONG dx = s.x - cam_x;
             LONG dy = s.y - cam_y;
             LONG dz = s.z - cam_z;
-            /* Integer sqrt of d2 for the normalise. */
-            LONG len = 0, r = 0, bit = 1L << 30, v = best_d2;
-            while (bit > v) bit >>= 2;
-            while (bit) {
-                if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; }
-                else r >>= 1;
-                bit >>= 2;
-            }
-            len = r ? r : 1;
+            LONG len = isqrt_len(best_d2);
             bvx = (dx * BULLET_SPEED) / len;
             bvy = (dy * BULLET_SPEED) / len;
             bvz = (dz * BULLET_SPEED) / len;
@@ -153,14 +160,7 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
         LONG d2 = dx * dx + dz * dz;
 
         /* Ease into attack range at SAUCER_SPEED. */
-        LONG horiz_len = 0, r = 0, bit = 1L << 30, v = d2;
-        while (bit > v) bit >>= 2;
-        while (bit) {
-            if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; }
-            else r >>= 1;
-            bit >>= 2;
-        }
-        horiz_len = r ? r : 1;
+        LONG horiz_len = isqrt_len(d2);
 
         if (horiz_len > SAUCER_ATTACK_DIST) {
             /* Move toward player. */
@@ -180,15 +180,7 @@ void Combat::tick(LONG cam_x, LONG cam_y, LONG cam_z, LONG cam_yaw,
         if (s.state == SS_ATTACKING && s.fire_cooldown == 0) {
             /* Aim at the player. */
             LONG dy = cam_y - s.y;
-            LONG total_len2 = d2 + dy * dy;
-            LONG total_len = 0; r = 0; bit = 1L << 30; v = total_len2;
-            while (bit > v) bit >>= 2;
-            while (bit) {
-                if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; }
-                else r >>= 1;
-                bit >>= 2;
-            }
-            total_len = r ? r : 1;
+            LONG total_len = isqrt_len(d2 + dy * dy);
             LONG bvx = (dx * BULLET_SPEED) / total_len;
             LONG bvy = (dy * BULLET_SPEED) / total_len;
             LONG bvz = (dz * BULLET_SPEED) / total_len;

@@ -395,6 +395,8 @@ static struct ScreenBuffer *sbuf[2];
 static struct RastPort      rp_buf[2];
 static UWORD                cur_buf = 1;   /* frame 1 draws to sbuf[1] off-screen */
 
+static void close_display(void);   /* used by open_display on failure */
+
 static int open_display(void)
 {
     memset(&rp_buf[0], 0, sizeof(rp_buf[0]));
@@ -420,11 +422,11 @@ static int open_display(void)
         WA_Activate, TRUE,
         WA_IDCMP, IDCMP_RAWKEY,
         TAG_DONE);
-    if (!window) return 2;
+    if (!window) { close_display(); return 2; }
 
     sbuf[0] = AllocScreenBuffer(screen, NULL, SB_SCREEN_BITMAP);
     sbuf[1] = AllocScreenBuffer(screen, NULL, 0);
-    if (!sbuf[0] || !sbuf[1]) return 3;
+    if (!sbuf[0] || !sbuf[1]) { close_display(); return 3; }
 
     InitRastPort(&rp_buf[0]); rp_buf[0].BitMap = sbuf[0]->sb_BitMap;
     InitRastPort(&rp_buf[1]); rp_buf[1].BitMap = sbuf[1]->sb_BitMap;
@@ -449,12 +451,11 @@ static void close_display(void)
 static void flip(void)
 {
     WaitBlit();
-    if (ChangeScreenBuffer(screen, sbuf[cur_buf])) {
-        WaitTOF();
-        cur_buf ^= 1;
-    } else {
-        WaitTOF();
-    }
+    /* WaitTOF once — vblank sync happens either way; only advance
+     * cur_buf when the buffer swap was accepted. */
+    int swapped = ChangeScreenBuffer(screen, sbuf[cur_buf]) ? 1 : 0;
+    WaitTOF();
+    if (swapped) cur_buf ^= 1;
 }
 
 int main(void)

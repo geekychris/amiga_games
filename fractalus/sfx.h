@@ -4,13 +4,9 @@
 #include <exec/types.h>
 
 /*
- * Small fire-and-forget SFX system built on audio.device. Four
- * pre-generated 8-bit signed samples in chip RAM, one per channel.
- * If a channel is busy when play() is called we just skip that
- * trigger rather than queueing — sounds don't stack.
- *
- * Samples are procedural (no on-disk assets). The generation
- * routines run once in init() at startup.
+ * Four pre-generated 8-bit signed procedural samples in chip RAM,
+ * routed through modplay's channel-3 SFX slot. If the previous SFX
+ * hasn't finished, modplay_sfx() overrides it — no queueing.
  */
 
 enum SfxId {
@@ -21,28 +17,18 @@ enum SfxId {
     SFX_COUNT      = 4,
 };
 
-struct MsgPort;
-struct IOAudio;
-
 class Sfx {
 public:
-    int  init();               /* returns 0 on success, -1 if audio unavailable */
+    int  init();       /* 0 on success, -1 if no samples could be allocated */
     void shutdown();
-    void play(int id);         /* fire-and-forget; drops if channel busy */
-    void tick();               /* call once per frame to reap completions */
+    void play(int id); /* fire-and-forget; last write wins */
+    void tick();       /* no-op — modplay owns Paula timing */
 
 private:
-    struct MsgPort *port;
-    struct IOAudio *req[SFX_COUNT];
-    UBYTE           cmask[SFX_COUNT];   /* persistent channel-mask bytes */
-    BYTE           *sample[SFX_COUNT];  /* chip RAM, 8-bit signed */
-    UWORD           sample_len[SFX_COUNT];
-    UWORD           sample_period[SFX_COUNT];
-    UBYTE           busy[SFX_COUNT];
-    UBYTE           opened[SFX_COUNT];  /* which channels successfully opened */
-
-    void generate_samples();
-    void free_samples();
+    BYTE  *sample[SFX_COUNT];        /* chip RAM, 8-bit signed */
+    UWORD  sample_len[SFX_COUNT];
+    UWORD  sample_period[SFX_COUNT];
+    UBYTE  opened[SFX_COUNT];        /* per-slot allocation success flag */
 };
 
 #endif

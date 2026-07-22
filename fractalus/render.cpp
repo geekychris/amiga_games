@@ -256,10 +256,15 @@ int Renderer::open_display()
 
     sbuf[0] = AllocScreenBuffer(screen, NULL, SB_SCREEN_BITMAP);
     sbuf[1] = AllocScreenBuffer(screen, NULL, 0);
-    if (!sbuf[0] || !sbuf[1]) return 3;
+    if (!sbuf[0] || !sbuf[1]) {
+        /* close_display handles null-guarded release of any of
+         * sbuf[0/1] + window + screen that we managed to open. */
+        close_display();
+        return 3;
+    }
 
     safe_port = CreateMsgPort();
-    if (!safe_port) return 4;
+    if (!safe_port) { close_display(); return 4; }
     sbuf[0]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = safe_port;
     sbuf[1]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = safe_port;
 
@@ -732,7 +737,10 @@ static void draw_pilot_sprite(struct RastPort *rp, int sx, int sy,
 void Renderer::draw_sprites(struct RastPort *rp, const GameState &gs,
                             const Combat &combat, const PilotList &pilots)
 {
-    const LONG PROJ = 400;
+    /* Share the projection constant with draw_terrain — using a
+     * different PROJ here would place sprites at the wrong scale
+     * and altitude relative to the terrain silhouette. */
+    const LONG PROJ = R_PROJ;
     LONG cam_x = FX16_TOINT(gs.ship.x);
     LONG cam_z = FX16_TOINT(gs.ship.z);
     LONG cam_y = gs.ship.y;
