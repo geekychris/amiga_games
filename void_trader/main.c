@@ -40,6 +40,8 @@
 #include "scanner.h"
 #include "gamemode.h"
 #include "trade.h"
+#include "modplay.h"
+#include "sfx.h"
 
 struct IntuitionBase *IntuitionBase;
 struct GfxBase       *GfxBase;
@@ -517,6 +519,13 @@ int main(void)
     vt_build_models();
     reset_game();
 
+    /* Audio: modplay owns Paula (ch 0-2 music, ch 3 SFX). Both
+     * are optional — if allocation fails the game stays silent. */
+    int mod_ok = (modplay_init() == 0);
+    if (bridge_ok) AB_I("modplay %s", mod_ok ? "up" : "unavailable");
+    vt_sfx_init();
+    if (mod_ok) modplay_start_song(MODPLAY_SONG_TITLE);
+
     if (open_display()) {
         printf("open_display failed\n");
         if (bridge_ok) ab_cleanup();
@@ -556,6 +565,7 @@ int main(void)
                 game_mode = GM_FLIGHT;
                 mode_timer = 0;
                 input_flags = 0;
+                modplay_start_song(MODPLAY_SONG_GAME);
             }
             break;
         case GM_FLIGHT: {
@@ -612,6 +622,7 @@ int main(void)
             if (sd < DOCK_LOCK_RANGE) {
                 game_mode = GM_DOCKED;
                 mode_timer = 0;
+                vt_sfx_play(SFX_DOCK);
             }
             break;
         }
@@ -623,8 +634,8 @@ int main(void)
             UWORD edge = input_flags & ~prev_flags;
             if      (edge & IN_PITCH_UP)   vt_trade_menu(&trade, VT_MENU_UP);
             else if (edge & IN_PITCH_DOWN) vt_trade_menu(&trade, VT_MENU_DOWN);
-            else if (edge & IN_BUY)        vt_trade_menu(&trade, VT_MENU_BUY);
-            else if (edge & IN_SELL)       vt_trade_menu(&trade, VT_MENU_SELL);
+            else if (edge & IN_BUY)        { vt_trade_menu(&trade, VT_MENU_BUY);  vt_sfx_play(SFX_BUY); }
+            else if (edge & IN_SELL)       { vt_trade_menu(&trade, VT_MENU_SELL); vt_sfx_play(SFX_BUY); }
             prev_flags = input_flags;
 
             if (input_flags & IN_UNDOCK) {
@@ -659,6 +670,7 @@ int main(void)
                 game_mode = GM_TITLE;
                 mode_timer = 0;
                 input_flags = 0;
+                modplay_start_song(MODPLAY_SONG_TITLE);
             }
             break;
         }
@@ -762,6 +774,7 @@ int main(void)
 
         frame++;
         if (bridge_ok) ab_poll();
+        modplay_tick();      /* one music tick per game frame */
 
         /* FPS via DateStamp every 30 frames. */
         if ((frame % 30) == 0) {
@@ -784,6 +797,9 @@ int main(void)
         }
     }
 
+    vt_sfx_shutdown();
+    modplay_stop();
+    modplay_cleanup();
     close_display();
     if (bridge_ok) { AB_I("void_trader shutting down (%lu frames)", frame); ab_cleanup(); }
     CloseLibrary((struct Library *)GfxBase);
