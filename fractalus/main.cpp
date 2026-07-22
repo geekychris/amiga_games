@@ -174,8 +174,9 @@ int main(void)
      * chip RAM and hands them to modplay_sfx() on play(). */
     int mod_ok = (modplay_init() == 0);
     if (bridge_ok) AB_I("modplay %s", mod_ok ? "up" : "unavailable");
-    /* Music kicks in when the player leaves the title screen — kept
-     * quiet during briefing so the intro reads clearly. */
+    /* Title screen gets its own softer ambient track; game gets the
+     * heavy-metal riff. Boot starts on TITLE so play the ambient. */
+    if (mod_ok) modplay_start_song(MODPLAY_SONG_TITLE);
 
     sfx.init();
     game.bind_sfx(&sfx);
@@ -270,8 +271,9 @@ int main(void)
         if (bridge_ok) ab_perf_section_start("game_tick");
         game.tick(input_flags);
         if (bridge_ok) ab_perf_section_end("game_tick");
-        /* Music silences when we hit an end screen so the score
-         * screen isn't fighting a heavy-metal riff. */
+        /* Music silences when a mission ends — score screen shouldn't
+         * fight either song. Title music resumes on end-screen -> title
+         * transition (handled at reset_world time). */
         if (prev_mode == GM_PLAYING && g_state.mode != GM_PLAYING) {
             modplay_stop();
         }
@@ -301,7 +303,7 @@ int main(void)
             g_state.mode = GM_PLAYING;   /* leave title / end screen */
             input_flags = 0;
             g_force_restart = 0;
-            modplay_start();             /* (re-)start music for play */
+            modplay_start_song(MODPLAY_SONG_GAME);   /* metal for combat */
         }
 
         if (bridge_ok) ab_poll();

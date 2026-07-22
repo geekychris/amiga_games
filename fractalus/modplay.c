@@ -17,11 +17,16 @@ extern struct Custom custom;
 
 /* ---- Configuration ---- */
 #define NUM_SAMPLES   6
-#define NUM_PATTERNS  4
+#define NUM_PATTERNS  6      /* 0..3 game (metal), 4..5 title (ambient) */
 #define ROWS_PER_PAT  64
 #define NUM_CHANNELS  4
 #define SONG_LENGTH   8
-#define SPEED_DEFAULT 3  /* ticks per row - fast for metal */
+#define SPEED_DEFAULT 3      /* ticks per row - fast for metal */
+#define SPEED_TITLE   6      /* half speed for ambient title */
+
+/* Song IDs — pick with modplay_start_song. 0=game, 1=title. */
+#define SONG_GAME    0
+#define SONG_TITLE   1
 
 /* ---- Sample sizes (bytes, must be even) ---- */
 #define SZ_GUITAR   128
@@ -92,7 +97,11 @@ static struct {
     BYTE *silence;                 /* 4 bytes of silence */
 
     PNote pat[NUM_PATTERNS][ROWS_PER_PAT][NUM_CHANNELS];
-    UBYTE order[SONG_LENGTH];
+    UBYTE order[SONG_LENGTH];    /* current active order */
+    UBYTE order_game[SONG_LENGTH];
+    UBYTE order_title[SONG_LENGTH];
+    UBYTE speed_game;
+    UBYTE speed_title;
 
     struct {
         BYTE *ptr;
@@ -341,6 +350,70 @@ static void build_pattern3(void)
     }
 }
 
+/* --- Title screen music ---
+ * Slower, sparser arpeggios over a sustained bass drone. Feels
+ * ambient / heroic instead of the game's driving metal. Uses the
+ * same sample bank — no extra chip RAM needed. */
+
+static void build_pattern4(void)
+{
+    /* Am — Em — F — G progression, arpeggiated. Slow gentle bass
+     * with a hihat pulse. Runs on speed 6 so 64 rows = ~24s. */
+    int chord;
+    /* 4 chords x 16 rows */
+    static const UBYTE chord_root[4] = { A_1, E_1, F_1, G_1 };
+    static const UBYTE chord_third[4]= { C_2, G_1, A_1, B_1 };
+    static const UBYTE chord_fifth[4]= { E_2, B_1, C_2, D_2 };
+    for (chord = 0; chord < 4; chord++) {
+        int base = chord * 16;
+        UBYTE root  = chord_root[chord];
+        UBYTE third = chord_third[chord];
+        UBYTE fifth = chord_fifth[chord];
+        /* Lead — arpeggio ascending */
+        sn(4, base +  0, 0, S_GUITAR, root,  40);
+        sn(4, base +  4, 0, S_GUITAR, third, 40);
+        sn(4, base +  8, 0, S_GUITAR, fifth, 40);
+        sn(4, base + 12, 0, S_GUITAR, third, 34);
+        /* Harmony — sustained fifth on channel 1 */
+        sn(4, base + 0,  1, S_PMUTE, fifth, 30);
+        sn(4, base + 8,  1, S_PMUTE, fifth, 30);
+        /* Bass — root on beat 1 only */
+        sn(4, base + 0, 2, S_BASS, root, 48);
+        /* Hihat pulse every 4 rows */
+        sn(4, base +  0, 3, S_HIHAT, C_3, 20);
+        sn(4, base +  4, 3, S_HIHAT, C_3, 20);
+        sn(4, base +  8, 3, S_HIHAT, C_3, 20);
+        sn(4, base + 12, 3, S_HIHAT, C_3, 20);
+    }
+}
+
+static void build_pattern5(void)
+{
+    /* Bridge — descending line, C — G — Am — F */
+    int chord;
+    static const UBYTE chord_root[4] = { C_2, G_1, A_1, F_1 };
+    static const UBYTE chord_third[4]= { E_2, B_1, C_2, A_1 };
+    static const UBYTE chord_fifth[4]= { G_2, D_2, E_2, C_2 };
+    for (chord = 0; chord < 4; chord++) {
+        int base = chord * 16;
+        UBYTE root  = chord_root[chord];
+        UBYTE third = chord_third[chord];
+        UBYTE fifth = chord_fifth[chord];
+        sn(5, base +  0, 0, S_GUITAR, fifth, 42);
+        sn(5, base +  4, 0, S_GUITAR, third, 38);
+        sn(5, base +  8, 0, S_GUITAR, root,  42);
+        sn(5, base + 12, 0, S_GUITAR, third, 38);
+        sn(5, base + 0,  1, S_PMUTE, fifth, 28);
+        sn(5, base + 8,  1, S_PMUTE, root,  30);
+        sn(5, base + 0, 2, S_BASS, root, 48);
+        sn(5, base + 8, 2, S_BASS, root, 42);
+        sn(5, base +  0, 3, S_HIHAT, C_3, 22);
+        sn(5, base +  4, 3, S_HIHAT, C_3, 22);
+        sn(5, base +  8, 3, S_HIHAT, C_3, 22);
+        sn(5, base + 12, 3, S_HIHAT, C_3, 22);
+    }
+}
+
 static void build_song(void)
 {
     /* Clear all patterns */
@@ -357,16 +430,34 @@ static void build_song(void)
     build_pattern1();  /* G5/A5 variation */
     build_pattern2();  /* Breakdown */
     build_pattern3();  /* Chromatic riff */
+    build_pattern4();  /* Title ambient A/E/F/G */
+    build_pattern5();  /* Title bridge C/G/A/F */
 
-    /* Song order: verse-verse-chorus-verse-verse-chorus-breakdown-riff */
-    mp.order[0] = 0;
-    mp.order[1] = 0;
-    mp.order[2] = 1;
-    mp.order[3] = 0;
-    mp.order[4] = 0;
-    mp.order[5] = 1;
-    mp.order[6] = 2;
-    mp.order[7] = 3;
+    /* Game song order: verse-verse-chorus-verse-verse-chorus-breakdown-riff */
+    mp.order_game[0] = 0;
+    mp.order_game[1] = 0;
+    mp.order_game[2] = 1;
+    mp.order_game[3] = 0;
+    mp.order_game[4] = 0;
+    mp.order_game[5] = 1;
+    mp.order_game[6] = 2;
+    mp.order_game[7] = 3;
+
+    /* Title song order: A-A-Bridge-A-A-Bridge-A-A (loops calmly) */
+    mp.order_title[0] = 4;
+    mp.order_title[1] = 4;
+    mp.order_title[2] = 5;
+    mp.order_title[3] = 4;
+    mp.order_title[4] = 4;
+    mp.order_title[5] = 5;
+    mp.order_title[6] = 4;
+    mp.order_title[7] = 4;
+
+    mp.speed_game  = SPEED_DEFAULT;
+    mp.speed_title = SPEED_TITLE;
+
+    /* Default to game — modplay_start_song() swaps at will. */
+    for (int i = 0; i < SONG_LENGTH; i++) mp.order[i] = mp.order_game[i];
 }
 
 /* ---- Paula interface ---- */
@@ -541,6 +632,9 @@ int modplay_init(void)
 
 void modplay_start(void)
 {
+    /* Preserve current song selection; use SPEED_DEFAULT if speed
+     * wasn't set for the current order (e.g. first-time start). */
+    if (mp.speed == 0) mp.speed = SPEED_DEFAULT;
     mp.playing = 1;
     mp.tick = 0;
     mp.row = 0;
@@ -550,6 +644,16 @@ void modplay_start(void)
     custom.dmacon = (UWORD)0x820F;
 
     AB_I("modplay: started");
+}
+
+void modplay_start_song(int id)
+{
+    int i;
+    UBYTE *src = (id == SONG_TITLE) ? mp.order_title : mp.order_game;
+    for (i = 0; i < SONG_LENGTH; i++) mp.order[i] = src[i];
+    mp.speed = (id == SONG_TITLE) ? mp.speed_title : mp.speed_game;
+    modplay_start();
+    AB_I("modplay: song %ld selected", (long)id);
 }
 
 void modplay_stop(void)
