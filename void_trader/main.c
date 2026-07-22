@@ -39,6 +39,7 @@
 #include "combat.h"
 #include "scanner.h"
 #include "gamemode.h"
+#include "trade.h"
 
 struct IntuitionBase *IntuitionBase;
 struct GfxBase       *GfxBase;
@@ -66,6 +67,8 @@ ULONG __stack = 65536;
 #define RK_SPACE 0x40
 #define RK_TAB   0x42                /* TAB — request dock when close to station */
 #define RK_UKEY  0x16                /* U — undock from station menu */
+#define RK_BKEY  0x35                /* B — market buy */
+#define RK_NKEY  0x36                /* N — market sell */
 #define RK_UP_MASK 0x80
 
 #define IN_PITCH_DOWN 0x0001
@@ -81,6 +84,9 @@ ULONG __stack = 65536;
 #define IN_FIRE       VT_IN_FIRE
 #define IN_DOCK       0x0200
 #define IN_UNDOCK     0x0400
+#define IN_BUY        0x0800
+#define IN_SELL       0x1000
+/* IN_PITCH_DOWN / IN_PITCH_UP double as menu up/down when docked. */
 
 static UWORD input_flags;
 
@@ -101,6 +107,8 @@ static void apply_key(UWORD code)
     case RK_SPACE: bit = IN_FIRE;   break;
     case RK_TAB:   bit = IN_DOCK;   break;
     case RK_UKEY:  bit = IN_UNDOCK; break;
+    case RK_BKEY:  bit = IN_BUY;    break;
+    case RK_NKEY:  bit = IN_SELL;   break;
     default: break;
     }
     if (!bit) return;
@@ -256,6 +264,7 @@ static void close_display(void)
 static Camera cam;
 static Entity world[8];
 static Combat combat;
+static TradeState trade;
 
 static void draw_cockpit(struct RastPort *rp, int fps, LONG speed,
                          LONG energy)
@@ -447,6 +456,7 @@ int main(void)
     vt_build_models();
     setup_world();
     vt_combat_init(&combat);
+    vt_trade_init(&trade);
 
     if (open_display()) {
         printf("open_display failed\n");
@@ -512,16 +522,28 @@ int main(void)
             }
             break;
         }
-        case GM_DOCKED:
-            /* Frozen. U to undock. */
+        case GM_DOCKED: {
+            /* Edge-detect the menu keys — apply_key already
+             * releases them, so we compare against the previous
+             * frame's bitmask. */
+            static UWORD prev_flags = 0;
+            UWORD edge = input_flags & ~prev_flags;
+            if      (edge & IN_PITCH_UP)   vt_trade_menu(&trade, VT_MENU_UP);
+            else if (edge & IN_PITCH_DOWN) vt_trade_menu(&trade, VT_MENU_DOWN);
+            else if (edge & IN_BUY)        vt_trade_menu(&trade, VT_MENU_BUY);
+            else if (edge & IN_SELL)       vt_trade_menu(&trade, VT_MENU_SELL);
+            prev_flags = input_flags;
+
             if (input_flags & IN_UNDOCK) {
                 game_mode = GM_UNDOCKING;
                 mode_timer = 0;
                 input_flags = 0;
+                prev_flags = 0;
                 /* Refuel + refill shields at the station. */
                 combat.player_energy = VT_PLAYER_MAX_ENERGY;
             }
             break;
+        }
         case GM_UNDOCKING: {
             /* Cinematic: pull out along the station's rear. */
             LONG dx = cam.x - world[2].x;
@@ -548,24 +570,7 @@ int main(void)
         rp->BitMap = sbuf[cur_buf]->sb_BitMap;
 
         if (game_mode == GM_DOCKED) {
-            /* Station interior placeholder — solid backdrop +
-             * simple menu text. Trading market comes in Phase 5. */
-            SetAPen(&mrp, 122);
-            RectFill(&mrp, 0, 0, SCREEN_W - 1, SCREEN_H - 1);
-            SetAPen(&mrp, 120);
-            SetDrMd(&mrp, JAM1);
-            Move(&mrp, SCREEN_W/2 - 68, 40);
-            Text(&mrp, (STRPTR)"STATION  BULLETIN", 17);
-            SetAPen(&mrp, 123);
-            Move(&mrp, 40, 80);  Text(&mrp, (STRPTR)"Docking clamps engaged.", 23);
-            Move(&mrp, 40, 100); Text(&mrp, (STRPTR)"Ship refuelled + shields restored.", 34);
-            Move(&mrp, 40, 120); Text(&mrp, (STRPTR)"Trading market: coming Phase 5.", 31);
-            /* Blinking prompt */
-            if (((mode_timer >> 3) & 1) == 0) {
-                SetAPen(&mrp, 120);
-                Move(&mrp, SCREEN_W/2 - 60, SCREEN_H - 24);
-                Text(&mrp, (STRPTR)"U  =  UNDOCK", 12);
-            }
+            vt_trade_render(&mrp, &trade);
         } else {
             e3d_render_frame(&mrp, &cam, world, 8);
             vt_combat_render(&mrp, &combat, &cam);
