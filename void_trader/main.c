@@ -294,6 +294,10 @@ static void draw_cockpit(struct RastPort *rp, int fps, LONG speed,
     Move(rp, 8, VIEW_H + 24); Text(rp, (STRPTR)buf, 9);
     sprintf(buf, "FPS %ld", (long)fps);
     Move(rp, SCREEN_W - 56, VIEW_H + 12); Text(rp, (STRPTR)buf, strlen(buf));
+    sprintf(buf, "CR %ld", (long)trade.credits);
+    Move(rp, SCREEN_W - 76, VIEW_H + 24); Text(rp, (STRPTR)buf, strlen(buf));
+    sprintf(buf, "KILL %ld", (long)(combat.score / 100));
+    Move(rp, SCREEN_W - 76, VIEW_H + 36); Text(rp, (STRPTR)buf, strlen(buf));
 
     /* Scanner ellipse in the middle of the dashboard —
      * see scanner.c for the mapping. */
@@ -313,8 +317,10 @@ static void draw_cockpit(struct RastPort *rp, int fps, LONG speed,
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
-static UBYTE game_mode = GM_FLIGHT;
+static UBYTE game_mode = GM_TITLE;
 static UWORD mode_timer = 0;           /* frames since mode entered */
+static UWORD enemy_respawn_timer = 0;  /* counts down from ENEMY_RESPAWN_FRAMES when 0 enemies alive */
+static ULONG spawn_rng = 0xC0FFEEUL;
 
 /* Station lives at world[2]. Rotate it each frame so it looks alive. */
 static void tick_station(void)
@@ -387,6 +393,61 @@ static void setup_world(void)
 }
 
 static LONG ship_speed = 0;             /* signed: negative = reverse */
+
+/* Cheap LCG for spawn positions. */
+static ULONG srng(void)
+{
+    spawn_rng = spawn_rng * 1664525UL + 1013904223UL;
+    return spawn_rng;
+}
+static LONG srand_range(LONG lo, LONG hi)
+{
+    return lo + (LONG)(srng() % (ULONG)(hi - lo + 1));
+}
+
+/* Count Kraits currently alive (team==1 + active + hp > 0). */
+static int live_enemy_count(void)
+{
+    int n = 0, i;
+    for (i = 0; i < 8; i++)
+        if (world[i].active && world[i].team == 1 && world[i].hp > 0) n++;
+    return n;
+}
+
+/* Spawn a Krait in one of the inactive slots at a random position
+ * roughly around the player, far enough not to be point-blank. */
+static void spawn_krait(void)
+{
+    int i;
+    for (i = 0; i < 8; i++) {
+        if (!world[i].active) {
+            LONG r = srand_range(6000, 9000);
+            LONG ang = srand_range(0, 359);
+            world[i].active = 1;
+            world[i].model = &model_krait;
+            world[i].team = 1;
+            world[i].pen_base = 40;
+            world[i].hp = 3;
+            world[i].x = cam.x + ((e3d_sin(ang) * r) >> FP);
+            world[i].y = cam.y + srand_range(-500, 500);
+            world[i].z = cam.z + ((e3d_cos(ang) * r) >> FP);
+            world[i].yaw = ang;
+            return;
+        }
+    }
+}
+
+/* Full-game reset — called on boot AND on title-screen SPACE
+ * (which restarts from win/lose too). */
+static void reset_game(void)
+{
+    ship_speed = 0;
+    enemy_respawn_timer = 0;
+    input_flags = 0;
+    setup_world();
+    vt_combat_init(&combat);
+    vt_trade_init(&trade);
+}
 #define SHIP_MAX_SPEED   80
 #define SHIP_ACCEL        2
 #define ROTATE_RATE       3             /* degrees per tick */
@@ -454,9 +515,7 @@ int main(void)
 
     e3d_init(SCREEN_W, VIEW_H);
     vt_build_models();
-    setup_world();
-    vt_combat_init(&combat);
-    vt_trade_init(&trade);
+    reset_game();
 
     if (open_display()) {
         printf("open_display failed\n");
@@ -489,9 +548,36 @@ int main(void)
         LONG sd = station_dist();
 
         switch (game_mode) {
-        case GM_FLIGHT:
+        case GM_TITLE:
+            /* SPACE (fire) launches the mission. Debounce briefly
+             * so a keypress from a previous run doesn't skip. */
+            if ((input_flags & IN_FIRE) && mode_timer > 8) {
+                reset_game();
+                game_mode = GM_FLIGHT;
+                mode_timer = 0;
+                input_flags = 0;
+            }
+            break;
+        case GM_FLIGHT: {
+            LONG prev_score = combat.score;
             update_camera(input_flags);
             vt_combat_tick(&combat, &cam, world, 8, input_flags);
+            /* Each new kill (combat.score jumped by 100) pays a
+             * 50-credit bounty. Divide-and-count is fine because
+             * only one kill can happen per hit-test frame. */
+            LONG new_kills = (combat.score - prev_score) / 100;
+            if (new_kills > 0) trade.credits += new_kills * 50;
+            /* Enemy respawn: when no live enemies, run down a
+             * timer; on zero, spawn a new Krait somewhere near. */
+            if (live_enemy_count() == 0) {
+                if (enemy_respawn_timer > 0) enemy_respawn_timer--;
+                if (enemy_respawn_timer == 0) {
+                    spawn_krait();
+                    enemy_respawn_timer = ENEMY_RESPAWN_FRAMES;
+                }
+            } else {
+                enemy_respawn_timer = ENEMY_RESPAWN_FRAMES;
+            }
             /* Enter docking approach on TAB within range. */
             if ((input_flags & IN_DOCK) && sd < DOCK_APPROACH_RANGE) {
                 game_mode = GM_DOCKING;
@@ -502,7 +588,14 @@ int main(void)
                 game_mode = GM_GAME_OVER;
                 mode_timer = 0;
             }
+            /* Win: reach WIN_CREDITS_TARGET credits (must be
+             * cashed-in, so player has to dock + sell to win). */
+            if (trade.credits >= WIN_CREDITS_TARGET) {
+                game_mode = GM_WIN;
+                mode_timer = 0;
+            }
             break;
+        }
         case GM_DOCKING: {
             /* Cinematic: pull the camera toward the station
              * regardless of input. Ship yaws to face the station's
@@ -560,7 +653,13 @@ int main(void)
             break;
         }
         case GM_GAME_OVER:
-            /* Nothing to do — waits for the user to ESC. */
+        case GM_WIN:
+            /* SPACE returns to title (which then SPACE-starts). */
+            if ((input_flags & IN_FIRE) && mode_timer > 30) {
+                game_mode = GM_TITLE;
+                mode_timer = 0;
+                input_flags = 0;
+            }
             break;
         }
 
@@ -569,7 +668,36 @@ int main(void)
         mrp.BitMap = sbuf[cur_buf]->sb_BitMap;
         rp->BitMap = sbuf[cur_buf]->sb_BitMap;
 
-        if (game_mode == GM_DOCKED) {
+        if (game_mode == GM_TITLE) {
+            /* Title screen — solid backdrop + big banner + briefing
+             * + blinking start prompt. */
+            SetAPen(&mrp, 0);
+            RectFill(&mrp, 0, 0, SCREEN_W - 1, SCREEN_H - 1);
+            SetAPen(&mrp, 120);
+            SetDrMd(&mrp, JAM1);
+            Move(&mrp, SCREEN_W/2 - 68, 40);
+            Text(&mrp, (STRPTR)"V O I D   T R A D E R", 21);
+            SetAPen(&mrp, 121);
+            Move(&mrp, SCREEN_W/2 - 72, 56);
+            Text(&mrp, (STRPTR)"space combat + trading", 22);
+            SetAPen(&mrp, 123);
+            int y = 92;
+            Move(&mrp, 32, y); Text(&mrp, (STRPTR)"Pirates roam the void.", 22); y += 12;
+            Move(&mrp, 32, y); Text(&mrp, (STRPTR)"Trade cargo at the station,", 27); y += 12;
+            Move(&mrp, 32, y); Text(&mrp, (STRPTR)"kill pirates for bounty, and", 28); y += 12;
+            char goal[48];
+            sprintf(goal, "earn %ld credits to win.", (long)WIN_CREDITS_TARGET);
+            Move(&mrp, 32, y); Text(&mrp, (STRPTR)goal, strlen(goal)); y += 20;
+            SetAPen(&mrp, 120);
+            Move(&mrp, 32, y); Text(&mrp, (STRPTR)"WASD  fly    QE   roll", 22); y += 10;
+            Move(&mrp, 32, y); Text(&mrp, (STRPTR)"R/F   thrust SPACE fire", 23); y += 10;
+            Move(&mrp, 32, y); Text(&mrp, (STRPTR)"TAB   dock   U    undock", 24); y += 20;
+            if (((mode_timer >> 3) & 1) == 0) {
+                SetAPen(&mrp, 125);
+                Move(&mrp, SCREEN_W/2 - 76, SCREEN_H - 24);
+                Text(&mrp, (STRPTR)"PRESS SPACE TO LAUNCH", 21);
+            }
+        } else if (game_mode == GM_DOCKED) {
             vt_trade_render(&mrp, &trade);
         } else {
             e3d_render_frame(&mrp, &cam, world, 8);
@@ -601,6 +729,26 @@ int main(void)
                 SetDrMd(&mrp, JAM1);
                 Move(&mrp, SCREEN_W/2 - 40, VIEW_H/2);
                 Text(&mrp, (STRPTR)"GAME  OVER", 10);
+                if (((mode_timer >> 3) & 1) == 0) {
+                    SetAPen(&mrp, 120);
+                    Move(&mrp, SCREEN_W/2 - 68, VIEW_H/2 + 16);
+                    Text(&mrp, (STRPTR)"SPACE = MAIN MENU", 17);
+                }
+            }
+            if (game_mode == GM_WIN) {
+                SetAPen(&mrp, 125);
+                SetDrMd(&mrp, JAM1);
+                char buf[32];
+                Move(&mrp, SCREEN_W/2 - 60, VIEW_H/2 - 8);
+                Text(&mrp, (STRPTR)"MISSION COMPLETE", 16);
+                sprintf(buf, "%ld credits banked", (long)trade.credits);
+                SetAPen(&mrp, 120);
+                Move(&mrp, SCREEN_W/2 - 60, VIEW_H/2 + 6);
+                Text(&mrp, (STRPTR)buf, strlen(buf));
+                if (((mode_timer >> 3) & 1) == 0) {
+                    Move(&mrp, SCREEN_W/2 - 68, VIEW_H/2 + 22);
+                    Text(&mrp, (STRPTR)"SPACE = MAIN MENU", 17);
+                }
             }
         }
 
