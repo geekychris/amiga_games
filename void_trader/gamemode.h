@@ -13,12 +13,21 @@
  *   GAME_OVER  — final screen, waits for restart
  */
 enum GameMode {
-    GM_FLIGHT    = 0,
-    GM_DOCKING   = 1,
-    GM_DOCKED    = 2,
-    GM_UNDOCKING = 3,
-    GM_GAME_OVER = 4,
+    GM_TITLE     = 0,   /* pre-game briefing screen */
+    GM_FLIGHT    = 1,
+    GM_DOCKING   = 2,
+    GM_DOCKED    = 3,
+    GM_UNDOCKING = 4,
+    GM_GAME_OVER = 5,
+    GM_WIN       = 6,
 };
+
+/* Win the game by earning this many credits. */
+#define WIN_CREDITS_TARGET  5000
+
+/* Enemy respawn cooldown — after all enemies are dead this many
+ * frames elapse before a new Krait spawns in a random-ish spot. */
+#define ENEMY_RESPAWN_FRAMES 300
 
 /* Distance from station centre within which the docking prompt
  * appears and D triggers the approach. */
