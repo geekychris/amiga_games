@@ -23,7 +23,9 @@ struct ShipState {
     LONG speed;
     LONG target_speed;
 
-    /* Vertical velocity (fixed-point, for gentle lift). */
+    /* Vertical velocity in world units per tick (plain integer,
+     * not fixed-point — game.cpp derives it as (speed * sin(pitch))
+     * shifted from the trig table's TRIG_ONE units). */
     LONG vy;
 };
 

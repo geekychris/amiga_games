@@ -46,7 +46,12 @@ LONG PilotList::find_nearest(LONG x, LONG z, LONG max_radius,
                              LONG *out_dist) const
 {
     LONG best_i = -1;
-    LONG best_d2 = (LONG)max_radius * (LONG)max_radius;
+    /* Clamp max_radius so max_radius^2 fits in signed 32-bit LONG:
+     * sqrt(2^31 - 1) ≈ 46340. Renderer passes 99999 as "unlimited"
+     * which would overflow to a negative best_d2 and make every
+     * pilot appear farther than "-inf", i.e. never selected. */
+    if (max_radius > 46340) max_radius = 46340;
+    LONG best_d2 = max_radius * max_radius;
     for (LONG i = 0; i < MAX_PILOTS; i++) {
         if (pilots[i].state != PILOT_ACTIVE) continue;
         LONG dx = pilots[i].x - x;

@@ -62,12 +62,14 @@ int Sfx::init()
         { 400, 400 },   /* DAMAGE */
         { 800, 350 },   /* RESCUE */
     };
+    int allocated = 0;
     for (int i = 0; i < SFX_COUNT; i++) {
         sample_len[i]    = cfg[i].len;
         sample_period[i] = cfg[i].per;
         sample[i] = (BYTE *)AllocMem(cfg[i].len, MEMF_CHIP | MEMF_CLEAR);
         if (!sample[i]) continue;
         opened[i] = 1;
+        allocated++;
         switch (i) {
         case SFX_LASER:     gen_laser    (sample[i], cfg[i].len); break;
         case SFX_EXPLOSION: gen_explosion(sample[i], cfg[i].len); break;
@@ -75,7 +77,9 @@ int Sfx::init()
         case SFX_RESCUE:    gen_rescue   (sample[i], cfg[i].len); break;
         }
     }
-    return 0;
+    /* Signal unavailability if not a single sample landed in chip
+     * RAM — caller (main.cpp) logs the outcome and continues. */
+    return allocated > 0 ? 0 : -1;
 }
 
 void Sfx::shutdown()
