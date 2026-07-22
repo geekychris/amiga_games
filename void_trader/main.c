@@ -36,6 +36,7 @@
 #include "bridge_client.h"
 #include "engine3d.h"
 #include "models.h"
+#include "combat.h"
 
 struct IntuitionBase *IntuitionBase;
 struct GfxBase       *GfxBase;
@@ -71,7 +72,9 @@ ULONG __stack = 65536;
 #define IN_ROLL_R     0x0020
 #define IN_THRUST_FWD 0x0040
 #define IN_THRUST_REV 0x0080
-#define IN_FIRE       0x0100
+/* IN_FIRE lives in combat.h as VT_IN_FIRE = 0x0100 so combat.c
+ * can read it without pulling main.c's headers. Alias here. */
+#define IN_FIRE       VT_IN_FIRE
 
 static UWORD input_flags;
 
@@ -284,6 +287,7 @@ static void draw_cockpit(struct RastPort *rp, int fps, LONG speed,
 
 static Camera cam;
 static Entity world[8];
+static Combat combat;
 
 static void setup_world(void)
 {
@@ -300,13 +304,23 @@ static void setup_world(void)
     world[0].team = 0;
     world[0].pen_base = 8;
 
-    /* One enemy Krait. */
+    /* Two enemy Kraits — start on opposite sides so it's not
+     * trivially easy to face them both at once. */
     world[1].active = 1;
     world[1].model = &model_krait;
     world[1].x = 3500; world[1].y = -300; world[1].z = 6500;
     world[1].yaw = -20;
     world[1].team = 1;
     world[1].pen_base = 40;
+    world[1].hp = 3;
+
+    world[3].active = 1;
+    world[3].model = &model_krait;
+    world[3].x = -4500; world[3].y = 200; world[3].z = 7500;
+    world[3].yaw = 60;
+    world[3].team = 1;
+    world[3].pen_base = 40;
+    world[3].hp = 3;
 
     /* A station in the distance. */
     world[2].active = 1;
@@ -385,6 +399,7 @@ int main(void)
     e3d_init(SCREEN_W, VIEW_H);
     vt_build_models();
     setup_world();
+    vt_combat_init(&combat);
 
     if (open_display()) {
         printf("open_display failed\n");
@@ -411,13 +426,22 @@ int main(void)
         if (!running) break;
 
         update_camera(input_flags);
+        vt_combat_tick(&combat, &cam, world, 8, input_flags);
 
         /* Render into off-screen buffer, then flip. */
         struct RastPort *rp = &rp_buf[cur_buf];
         mrp.BitMap = sbuf[cur_buf]->sb_BitMap;
         rp->BitMap = sbuf[cur_buf]->sb_BitMap;
         e3d_render_frame(&mrp, &cam, world, 8);
-        draw_cockpit(&mrp, fps_shown, ship_speed, 1000);
+        vt_combat_render(&mrp, &combat, &cam);
+        draw_cockpit(&mrp, fps_shown, ship_speed, combat.player_energy);
+        /* GAME OVER banner on top of everything if we've died. */
+        if (combat.game_over) {
+            SetAPen(&mrp, 124);
+            SetDrMd(&mrp, JAM1);
+            Move(&mrp, SCREEN_W/2 - 40, VIEW_H/2);
+            Text(&mrp, (STRPTR)"GAME  OVER", 10);
+        }
 
         WaitBlit();
         if (ChangeScreenBuffer(screen, sbuf[cur_buf])) {

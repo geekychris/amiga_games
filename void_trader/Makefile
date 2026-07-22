@@ -3,7 +3,7 @@ CFLAGS   = -noixemul -O2 -m68020 -Wall -Wno-unused-function \
            -I../../amiga-bridge/include
 LDFLAGS  = -noixemul -m68020 -L../../amiga-bridge -lbridge -lamiga
 TARGET   = void_trader
-SRCS     = main.c engine3d.c models.c
+SRCS     = main.c engine3d.c models.c combat.c
 OBJS     = $(SRCS:.c=.o)
 
 all: $(TARGET)
@@ -14,9 +14,10 @@ $(TARGET): $(OBJS)
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-main.o:     main.c engine3d.h models.h
+main.o:     main.c engine3d.h models.h combat.h
 engine3d.o: engine3d.c engine3d.h
 models.o:   models.c engine3d.h models.h
+combat.o:   combat.c combat.h engine3d.h
 
 clean:
 	rm -f $(OBJS) $(TARGET)
