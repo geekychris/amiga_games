@@ -37,6 +37,7 @@
 #include "engine3d.h"
 #include "models.h"
 #include "combat.h"
+#include "scanner.h"
 
 struct IntuitionBase *IntuitionBase;
 struct GfxBase       *GfxBase;
@@ -243,6 +244,12 @@ static void close_display(void)
 /* Cockpit HUD                                                         */
 /* ------------------------------------------------------------------ */
 
+/* World state — hoisted so draw_cockpit can hand cam+entities
+ * to the scanner overlay. */
+static Camera cam;
+static Entity world[8];
+static Combat combat;
+
 static void draw_cockpit(struct RastPort *rp, int fps, LONG speed,
                          LONG energy)
 {
@@ -272,6 +279,11 @@ static void draw_cockpit(struct RastPort *rp, int fps, LONG speed,
     sprintf(buf, "FPS %ld", (long)fps);
     Move(rp, SCREEN_W - 56, VIEW_H + 12); Text(rp, (STRPTR)buf, strlen(buf));
 
+    /* Scanner ellipse in the middle of the dashboard —
+     * see scanner.c for the mapping. */
+    vt_scanner_draw(rp, SCREEN_W / 2, VIEW_H + 42, 60, 18,
+                    &cam, world, 8);
+
     /* Left/right cockpit pillars, top only */
     SetAPen(rp, 122);
     RectFill(rp,  0, 0,  8, VIEW_H - 1);
@@ -284,10 +296,6 @@ static void draw_cockpit(struct RastPort *rp, int fps, LONG speed,
 /* ------------------------------------------------------------------ */
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
-
-static Camera cam;
-static Entity world[8];
-static Combat combat;
 
 static void setup_world(void)
 {
