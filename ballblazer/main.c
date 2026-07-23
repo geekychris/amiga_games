@@ -120,9 +120,12 @@ static void close_display(void)
     if (D.scr)   { CloseScreen(D.scr); D.scr = NULL; }
 }
 
-/* ---- gameplay state (Phase 1: static, no controls) ---------------- */
+/* ---- gameplay state ------------------------------------------------ */
 static Rotofoil p1, p2;
 static Ball     ball;
+
+/* WASD input state (edge-latched: pressed while down, cleared on up). */
+static int in_fwd = 0, in_back = 0, in_left = 0, in_right = 0;
 
 static void init_game(void)
 {
@@ -131,6 +134,116 @@ static void init_game(void)
     p2.x =  PITCH_LENGTH * 3 / 4;  p2.z = 0;
     p2.vx = 0; p2.vz = 0;  p2.angle = 180; p2.has_ball = 0;
     ball.x = 0;  ball.z = 0;  ball.vx = 0; ball.vz = 0; ball.carrier = -1;
+}
+
+/* Integer atan2 in degrees (0..359), only accurate to a few degrees
+ * — plenty for auto-facing another point on the pitch. Uses the same
+ * sin table via a coarse binary-search over the unit circle. */
+static LONG atan2_deg(LONG dy, LONG dx)
+{
+    if (dx == 0 && dy == 0) return 0;
+    LONG best_a = 0, best_d = 0x7FFFFFFFL;
+    LONG a;
+    for (a = 0; a < 360; a += 3) {
+        LONG cx = math_cos(a), cy = math_sin(a);
+        /* Angle-of-vector: rotate a unit vector by -a and see if it
+         * ends up close to (+X, 0). Equivalent: dot with (cos a, sin a)
+         * should equal magnitude; cross should be ~0. Distance in
+         * cross^2 space. */
+        LONG cross = ((dx >> 8) * (cy >> 8) - (dy >> 8) * (cx >> 8));
+        LONG dot   = ((dx >> 8) * (cx >> 8) + (dy >> 8) * (cy >> 8));
+        if (dot < 0) continue;   /* keep vector in the +forward half */
+        LONG err = cross < 0 ? -cross : cross;
+        if (err < best_d) { best_d = err; best_a = a; }
+    }
+    return best_a;
+}
+
+/* Rotofoil physics — one Euler step per frame. */
+#define ACCEL       ((LONG)(ONE / 20))     /* WASD accel per frame */
+#define STRAFE      ((LONG)(ONE / 25))
+#define FRICTION_N  15                     /* keeps 15/16 of velocity */
+#define FRICTION_D  16
+#define V_CAP       (ONE * 2)              /* max 2 world units/frame */
+
+static void update_rotofoil(Rotofoil *r, int fwd, int back, int lft, int rgt,
+                            const Ball *b)
+{
+    /* Auto-face the ball. */
+    LONG dx = b->x - r->x;
+    LONG dz = b->z - r->z;
+    if (dx | dz) r->angle = atan2_deg(dz, dx);
+
+    /* Convert input into world-space acceleration. Camera forward
+     * is (cos a, sin a), right is (sin a, -cos a). */
+    LONG ca = math_cos(r->angle), sa = math_sin(r->angle);
+    LONG af = 0, ar = 0;
+    if (fwd)  af += ACCEL;
+    if (back) af -= ACCEL;
+    if (rgt)  ar += STRAFE;
+    if (lft)  ar -= STRAFE;
+    LONG ax = ((af >> 8) * (ca >> 8) + (ar >> 8) * (sa >> 8));
+    LONG az = ((af >> 8) * (sa >> 8) - (ar >> 8) * (ca >> 8));
+    r->vx += ax;
+    r->vz += az;
+
+    /* Friction. */
+    r->vx = (r->vx * FRICTION_N) / FRICTION_D;
+    r->vz = (r->vz * FRICTION_N) / FRICTION_D;
+
+    /* Velocity cap. */
+    LONG mag2 = ((r->vx >> 8) * (r->vx >> 8) + (r->vz >> 8) * (r->vz >> 8));
+    if (mag2 > (V_CAP >> 8) * (V_CAP >> 8)) {
+        /* rough clamp — scale down until under cap; two iters plenty */
+        r->vx = r->vx * 3 / 4;
+        r->vz = r->vz * 3 / 4;
+    }
+
+    r->x += r->vx;
+    r->z += r->vz;
+
+    /* Pitch bounds — clamp to inside the sidelines and beyond goals. */
+    if (r->x >  PITCH_LENGTH) { r->x =  PITCH_LENGTH; r->vx = 0; }
+    if (r->x < -PITCH_LENGTH) { r->x = -PITCH_LENGTH; r->vx = 0; }
+    if (r->z >  PITCH_WIDTH)  { r->z =  PITCH_WIDTH;  r->vz = 0; }
+    if (r->z < -PITCH_WIDTH)  { r->z = -PITCH_WIDTH;  r->vz = 0; }
+}
+
+/* Ball physics. If carried, sits just in front of carrier; else
+ * coasts with a light drag. */
+#define BALL_FRICTION_N  30
+#define BALL_FRICTION_D  32
+#define PICKUP_DIST      (3 * ONE)        /* touch radius */
+
+static void update_ball(void)
+{
+    if (ball.carrier < 0) {
+        /* Free ball — check for pickup by either rotofoil. */
+        LONG d1x = ball.x - p1.x, d1z = ball.z - p1.z;
+        LONG d2x = ball.x - p2.x, d2z = ball.z - p2.z;
+        LONG r2  = ((PICKUP_DIST >> 8) * (PICKUP_DIST >> 8));
+        LONG dd1 = ((d1x >> 8) * (d1x >> 8) + (d1z >> 8) * (d1z >> 8));
+        LONG dd2 = ((d2x >> 8) * (d2x >> 8) + (d2z >> 8) * (d2z >> 8));
+        if (dd1 < r2 && dd1 <= dd2) { ball.carrier = 0; p1.has_ball = 1; }
+        else if (dd2 < r2)          { ball.carrier = 1; p2.has_ball = 1; }
+        /* coast */
+        ball.x += ball.vx;
+        ball.z += ball.vz;
+        ball.vx = (ball.vx * BALL_FRICTION_N) / BALL_FRICTION_D;
+        ball.vz = (ball.vz * BALL_FRICTION_N) / BALL_FRICTION_D;
+    } else {
+        /* Carried — sit 2 world units in front of the carrier. */
+        Rotofoil *r = (ball.carrier == 0) ? &p1 : &p2;
+        LONG ca = math_cos(r->angle), sa = math_sin(r->angle);
+        ball.x = r->x + ((2L * ONE * ca) >> FP);
+        ball.z = r->z + ((2L * ONE * sa) >> FP);
+        ball.vx = 0; ball.vz = 0;
+    }
+    /* Sideline / goal-line clamp. */
+    if (ball.x >  PITCH_LENGTH) { ball.x =  PITCH_LENGTH; ball.vx = -ball.vx; }
+    if (ball.x < -PITCH_LENGTH) { ball.x = -PITCH_LENGTH; ball.vx = -ball.vx; }
+    if (ball.z >  PITCH_WIDTH)  { ball.z =  PITCH_WIDTH;  ball.vz = -ball.vz; }
+    if (ball.z < -PITCH_WIDTH)  { ball.z = -PITCH_WIDTH;  ball.vz = -ball.vz; }
 }
 
 /* ---- frame loop --------------------------------------------------- */
@@ -192,9 +305,27 @@ int main(void)
             UWORD code = msg->Code;
             ReplyMsg((struct Message *)msg);
             if (cls == IDCMP_RAWKEY) {
-                if (code == 0x45) running = 0;   /* ESC */
+                /* Raw key codes have bit 7 set on release. */
+                int down = !(code & 0x80);
+                int c    = code & 0x7F;
+                if (c == 0x45 && down) running = 0;   /* ESC */
+                else if (c == 0x11) in_fwd   = down;  /* W */
+                else if (c == 0x21) in_back  = down;  /* S */
+                else if (c == 0x20) in_left  = down;  /* A */
+                else if (c == 0x22) in_right = down;  /* D */
             }
         }
+
+        /* Simple CPU: chase the ball. Auto-face already points at it,
+         * so just push forward until close. */
+        LONG dx = ball.x - p2.x, dz = ball.z - p2.z;
+        LONG dd = ((dx >> 8)*(dx >> 8) + (dz >> 8)*(dz >> 8));
+        LONG close2 = ((PICKUP_DIST >> 8) * (PICKUP_DIST >> 8));
+        int cpu_fwd = (dd > close2);
+
+        update_rotofoil(&p1, in_fwd, in_back, in_left, in_right, &ball);
+        update_rotofoil(&p2, cpu_fwd, 0, 0, 0, &ball);
+        update_ball();
 
         render_frame();
         frame_count++;
