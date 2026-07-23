@@ -3,6 +3,7 @@
 #include <graphics/gfx.h>
 #include <graphics/rastport.h>
 #include <proto/exec.h>
+#include <proto/dos.h>       /* Delay() — pulled in transitively on 68k, not on OS4 */
 #include <proto/intuition.h>
 #include <proto/graphics.h>
 
@@ -11,8 +12,12 @@
 
 #include "bridge_client.h"
 
+#ifndef __PPC__
+/* On OS4, <proto/{intuition,graphics}.h> already extern these library
+ * bases as struct Library *. Classic 68k needed the app to own them. */
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
+#endif
 
 #define VERSION "2.0-bridge"
 
@@ -25,7 +30,7 @@ static char prev_msg[256] = "";
 /* Custom command handler */
 static void cmd_handler(ULONG id, const char *data)
 {
-    AB_I("Received command %lu: %s", id, data);
+    AB_I("Received command %lu: %s", (unsigned long)id, data);
 }
 
 int main(void)
@@ -82,6 +87,7 @@ int main(void)
     if (!win) {
         AB_E("Failed to open window");
         ab_cleanup();
+        CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
         return 1;
     }
@@ -105,7 +111,7 @@ int main(void)
 
         /* Log every 100 iterations */
         if ((loop_count % 100) == 0) {
-            AB_D("Loop iteration %ld", loop_count);
+            AB_D("Loop iteration %ld", (long)loop_count);
         }
 
         /* Heartbeat every 500 iterations */
