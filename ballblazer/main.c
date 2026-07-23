@@ -280,11 +280,13 @@ static void update_rotofoil(Rotofoil *r, int fwd, int back, int lft, int rgt,
 #define PICKUP_DIST      (3 * ONE)        /* touch radius */
 #define ROTO_RADIUS      (2 * ONE)        /* rotofoil collision radius */
 
-/* Resolve rotofoil-vs-rotofoil collision. Two rotofoils inside a
- * ROTO_RADIUS*2 separation get pushed apart to that separation, and
- * their velocities exchange the component along the collision normal
- * (elastic 1D bounce with equal mass). Without this the tackler and
- * carrier stick together and the ball ping-pongs every frame. */
+/* Resolve rotofoil-vs-rotofoil collision. Rotofoils inside 2×ROTO_RADIUS
+ * bump apart along the separation vector with an elastic 1D bounce.
+ * If one of them is the ball carrier and the tackle cooldown has
+ * elapsed, ownership transfers to the tackler at the moment of contact
+ * — this is the ONLY tackle path now (ball-proximity checks can't fire
+ * on head-on approach because the ball sits on the far side of the
+ * carrier, always outside the attacker's pickup radius). */
 static void resolve_collision(Rotofoil *a, Rotofoil *b)
 {
     LONG dx = b->x - a->x;
@@ -294,31 +296,37 @@ static void resolve_collision(Rotofoil *a, Rotofoil *b)
     LONG min2 = min * min;
     if (sep2 >= min2) return;
 
+    /* Ball transfer on contact. a = P1 (idx 0), b = P2 (idx 1). */
+    if (tackle_cooldown == 0 && ball.carrier >= 0) {
+        int steal_to = (ball.carrier == 0) ? 1 : 0;
+        if (ball.carrier == 0) { a->has_ball = 0; b->has_ball = 1; }
+        else                   { b->has_ball = 0; a->has_ball = 1; }
+        ball.carrier    = steal_to;
+        tackle_cooldown = TACKLE_COOLDOWN_F;
+        sound_play_ping();
+    }
+
     /* Integer distance ~sqrt(sep2), fall back to 1 to avoid /0. */
     LONG dist = 1;
     while ((dist + 1) * (dist + 1) <= sep2) dist++;
     if (dist < 1) dist = 1;
 
-    /* Unit vector components in Q8 fixed-point (shifted by 8). */
-    LONG nx = ((dx >> 8) * 256) / dist;   /* range ±256 */
+    /* Unit vector components in Q8. */
+    LONG nx = ((dx >> 8) * 256) / dist;
     LONG nz = ((dz >> 8) * 256) / dist;
-    /* Overlap in world-Q8 units. */
     LONG overlap_q8 = min - dist;
-    /* Push each rotofoil half the overlap away. Convert Q8 → FP by <<8. */
-    LONG push_x = (overlap_q8 * nx) >> 1;   /* still Q16 */
+    LONG push_x = (overlap_q8 * nx) >> 1;
     LONG push_z = (overlap_q8 * nz) >> 1;
     a->x -= push_x;
     a->z -= push_z;
     b->x += push_x;
     b->z += push_z;
 
-    /* Velocity exchange along the normal. rel_vn > 0 means separating,
-     * we only reflect if they're approaching (rel_vn < 0). */
+    /* Velocity exchange along collision normal; only if approaching. */
     LONG rel_vx = b->vx - a->vx;
     LONG rel_vz = b->vz - a->vz;
-    LONG rel_vn = ((rel_vx >> 8) * nx + (rel_vz >> 8) * nz);   /* Q16 */
+    LONG rel_vn = ((rel_vx >> 8) * nx + (rel_vz >> 8) * nz);
     if (rel_vn >= 0) return;
-    /* Reflect: swap normal-components. Impulse = -rel_vn along normal. */
     LONG impulse_x = (-rel_vn * nx) >> 8;
     LONG impulse_z = (-rel_vn * nz) >> 8;
     a->vx -= impulse_x >> 1;
@@ -355,22 +363,8 @@ static void update_ball(void)
         ball.z = carrier->z + (2L * sa);
         ball.vx = 0; ball.vz = 0;
 
-        /* Tackle: if the other rotofoil overlaps the ball's world
-         * position AND the cooldown has elapsed, the ball transfers.
-         * Cooldown stops the ball ping-ponging every frame while two
-         * rotofoils remain in contact. */
-        if (tackle_cooldown == 0) {
-            LONG tdx = ball.x - other->x, tdz = ball.z - other->z;
-            LONG tdd = ((tdx >> 8)*(tdx >> 8) + (tdz >> 8)*(tdz >> 8));
-            LONG tr2 = ((PICKUP_DIST >> 8) * (PICKUP_DIST >> 8));
-            if (tdd < tr2) {
-                carrier->has_ball = 0;
-                other->has_ball   = 1;
-                ball.carrier      = (ball.carrier == 0) ? 1 : 0;
-                sound_play_ping();
-                tackle_cooldown   = TACKLE_COOLDOWN_F;
-            }
-        }
+        /* Tackle handled by resolve_collision(); nothing to do here. */
+        (void)other;
     }
     /* Sidelines clamp — but goal-line crossings are goals, so DON'T
      * clamp X here. check_goal() runs right after and either fires
