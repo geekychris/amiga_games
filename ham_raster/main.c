@@ -52,6 +52,7 @@
 #include <string.h>
 
 #include "bridge_client.h"
+#include "sound.h"
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
@@ -881,6 +882,8 @@ int main(void)
     if (ab_init("aga3d") != 0) { printf("  Bridge: NOT FOUND\n"); bridge_ok = 0; }
     else { printf("  Bridge: CONNECTED\n"); bridge_ok = 1; }
     AB_I("aga3d v%s starting", VERSION);
+    BOOL sound_ok = sound_init();
+    if (!sound_ok) AB_W("audio.device unavailable — bounce will be silent");
     ab_register_var("frame_count", AB_TYPE_I32, &frame_count);
     ab_register_var("running", AB_TYPE_I32, &running);
 
@@ -959,6 +962,7 @@ int main(void)
         req_mode = -1;
 
         WORD bx = 0, by = 0;
+        static WORD prev_bx = 0, prev_dx = 0;
         if (g_bounce) {
             /* Classic Boing motion: sinusoidal horizontal drift with
              * a parabolic vertical bounce. abs(sin) gives the "hits
@@ -973,6 +977,17 @@ int main(void)
             by = (WORD)(hy - ((sv * hy) >> FP));               /* drop from top */
             /* Spin the ball while bouncing so the checker rolls. */
             az = (frame_count * 4) % 360;
+
+            /* Clang when horizontal motion reverses — the ball has
+             * reached its leftmost / rightmost extent, i.e. "hit the
+             * side". Detect by watching dx change sign. */
+            WORD dx = bx - prev_bx;
+            if (prev_dx != 0 && ((prev_dx > 0 && dx <= 0) || (prev_dx < 0 && dx >= 0)))
+                sound_play_boing();
+            prev_bx = bx;
+            if (dx != 0) prev_dx = dx;
+        } else {
+            prev_bx = 0; prev_dx = 0;
         }
         render_frame(ax, ay, az, bx, by);
         frame_count++;
@@ -981,6 +996,7 @@ int main(void)
 
     AB_I("aga3d shutting down (%ld frames)", (long)frame_count);
     close_display();
+    sound_cleanup();
     ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
