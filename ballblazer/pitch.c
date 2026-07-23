@@ -39,7 +39,10 @@ LONG math_cos(LONG deg) { return math_sin(deg + 90); }
 
 /* ---- projection ---------------------------------------------------- */
 #define FOCAL       180L        /* pixels, ~85° horizontal FOV */
-#define NEAR_CLIP   (2L * ONE)  /* world units */
+/* Near-clip below 1 world unit so the carried ball (2 units in front)
+ * always projects — a NEAR_CLIP of 2*ONE was rejecting the carried
+ * ball exactly at the clip plane, hiding it from the carrier's view. */
+#define NEAR_CLIP   (1L * ONE / 2)
 
 /* Project a world point (wx, wy=optional, wz) into pane coords.
  * Returns 0 if behind near plane; else fills *sx, *sy. */
@@ -368,18 +371,27 @@ void pitch_render(struct RastPort *rp, int pane_y0,
         }
     }
 
-    /* Ball as a shaded sphere. */
+    /* Ball as a shaded sphere. When the camera is carrying the ball
+     * (zc very small or even at NEAR_CLIP), still draw it dead-centre
+     * at maximum size so the player sees they've got possession. */
     if (ball) {
         LONG dx = ball->x - cam_x;
         LONG dz = ball->z - cam_z;
         LONG zc = ((dx >> 8) * (ca >> 8) + (dz >> 8) * (sa >> 8));
-        if (zc > NEAR_CLIP) {
+        if (zc > 0) {
             WORD bsx, bsy;
-            if (project(ball->x, 0, ball->z, cam_x, cam_z, ca, sa, pane_y0, &bsx, &bsy)) {
+            if (zc < NEAR_CLIP) {
+                /* Too close to project safely — clamp at pane centre
+                 * with a big fixed radius. That's the "I've got the
+                 * ball" visual. */
+                bsx = SCR_W / 2;
+                bsy = pane_y0 + HORIZON_Y;
+                draw_ball_sphere(rp, pane_y0, bsx, bsy, 32);
+            } else if (project(ball->x, 0, ball->z, cam_x, cam_z, ca, sa, pane_y0, &bsx, &bsy)) {
                 LONG r_px = (BALL_RADIUS * FOCAL) / (zc >> FP);
                 int  r    = (int)(r_px >> FP);
                 if (r < 3)  r = 3;
-                if (r > 30) r = 30;
+                if (r > 32) r = 32;
                 draw_ball_sphere(rp, pane_y0, bsx, bsy, r);
             }
         }
