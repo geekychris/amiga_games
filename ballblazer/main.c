@@ -123,17 +123,71 @@ static void close_display(void)
 /* ---- gameplay state ------------------------------------------------ */
 static Rotofoil p1, p2;
 static Ball     ball;
+static int p1_score = 0, p2_score = 0;
+static LONG match_frames_left;      /* countdown, 25fps assumption */
+#define MATCH_FRAMES (90L * 25)     /* 90 seconds */
+static int last_scorer = -1;        /* 0 = P1, 1 = P2, -1 = none yet */
 
 /* WASD input state (edge-latched: pressed while down, cleared on up). */
 static int in_fwd = 0, in_back = 0, in_left = 0, in_right = 0;
 
-static void init_game(void)
+static void kickoff(void)
 {
     p1.x = -PITCH_LENGTH * 3 / 4;  p1.z = 0;
     p1.vx = 0; p1.vz = 0;  p1.angle = 0;   p1.has_ball = 0;
     p2.x =  PITCH_LENGTH * 3 / 4;  p2.z = 0;
     p2.vx = 0; p2.vz = 0;  p2.angle = 180; p2.has_ball = 0;
     ball.x = 0;  ball.z = 0;  ball.vx = 0; ball.vz = 0; ball.carrier = -1;
+}
+
+static void init_game(void)
+{
+    p1_score = 0; p2_score = 0;
+    match_frames_left = MATCH_FRAMES;
+    last_scorer = -1;
+    kickoff();
+}
+
+/* Award points when the ball crosses a goal line. Distance from the
+ * scoring rotofoil's start position determines the bonus — the
+ * classic Ballblazer 1/2/3-point ladder based on how far you had to
+ * shoot from. Returns nonzero when a goal was scored. */
+static int check_goal(void)
+{
+    /* Only free-flying or ball-carrying counts; if ball is carried
+     * across the goal line, treat that as scoring too. */
+    Rotofoil *carrier = NULL;
+    if (ball.carrier == 0) carrier = &p1;
+    if (ball.carrier == 1) carrier = &p2;
+
+    /* P2's goal at +PITCH_LENGTH: P1 scores here. */
+    if (ball.x >= PITCH_LENGTH) {
+        int pts = 1;
+        if (carrier == &p1) {
+            LONG dist = PITCH_LENGTH - p1.x;   /* how far to opp goal */
+            pts = (dist > PITCH_LENGTH * 3 / 4) ? 3 :
+                  (dist > PITCH_LENGTH     / 2) ? 2 : 1;
+        }
+        p1_score += pts;
+        last_scorer = 0;
+        AB_I("P1 scores %ld (total %ld)", (long)pts, (long)p1_score);
+        kickoff();
+        return 1;
+    }
+    if (ball.x <= -PITCH_LENGTH) {
+        int pts = 1;
+        if (carrier == &p2) {
+            LONG dist = p2.x - (-PITCH_LENGTH);
+            pts = (dist > PITCH_LENGTH * 3 / 4) ? 3 :
+                  (dist > PITCH_LENGTH     / 2) ? 2 : 1;
+        }
+        p2_score += pts;
+        last_scorer = 1;
+        AB_I("P2 scores %ld (total %ld)", (long)pts, (long)p2_score);
+        kickoff();
+        return 1;
+    }
+    return 0;
 }
 
 /* Integer atan2 in degrees (0..359), only accurate to a few degrees
@@ -239,14 +293,49 @@ static void update_ball(void)
         ball.z = r->z + ((2L * ONE * sa) >> FP);
         ball.vx = 0; ball.vz = 0;
     }
-    /* Sideline / goal-line clamp. */
-    if (ball.x >  PITCH_LENGTH) { ball.x =  PITCH_LENGTH; ball.vx = -ball.vx; }
-    if (ball.x < -PITCH_LENGTH) { ball.x = -PITCH_LENGTH; ball.vx = -ball.vx; }
-    if (ball.z >  PITCH_WIDTH)  { ball.z =  PITCH_WIDTH;  ball.vz = -ball.vz; }
-    if (ball.z < -PITCH_WIDTH)  { ball.z = -PITCH_WIDTH;  ball.vz = -ball.vz; }
+    /* Sidelines clamp — but goal-line crossings are goals, so DON'T
+     * clamp X here. check_goal() runs right after and either fires
+     * a goal + kickoff or (never happens in practice) leaves the ball
+     * beyond the goal line. */
+    if (ball.z >  PITCH_WIDTH) { ball.z =  PITCH_WIDTH;  ball.vz = -ball.vz; }
+    if (ball.z < -PITCH_WIDTH) { ball.z = -PITCH_WIDTH;  ball.vz = -ball.vz; }
 }
 
 /* ---- frame loop --------------------------------------------------- */
+static void draw_hud(struct RastPort *rp)
+{
+    char buf[32];
+    LONG secs = (match_frames_left + 24) / 25;
+    if (secs < 0) secs = 0;
+
+    SetAPen(rp, PEN_HUD_FG);
+    SetBPen(rp, PEN_HUD_BG);
+    SetDrMd(rp, JAM2);
+
+    /* Top pane: P2 score top-left, timer top-centre. */
+    Move(rp, 4, 10);
+    sprintf(buf, "P2 CPU: %ld", (long)p2_score);
+    Text(rp, (STRPTR)buf, strlen(buf));
+
+    Move(rp, SCR_W / 2 - 20, 10);
+    sprintf(buf, "%02ld:%02ld", (long)(secs / 60), (long)(secs % 60));
+    Text(rp, (STRPTR)buf, strlen(buf));
+
+    /* Bottom pane: P1 score at same relative spot. */
+    Move(rp, 4, PANE_H + 10);
+    sprintf(buf, "P1 YOU: %ld", (long)p1_score);
+    Text(rp, (STRPTR)buf, strlen(buf));
+
+    /* Match-over banner. */
+    if (match_frames_left <= 0) {
+        const char *winner =
+            (p1_score >  p2_score) ? "YOU WIN!" :
+            (p2_score >  p1_score) ? "CPU WINS" : "DRAW";
+        Move(rp, SCR_W/2 - 30, PANE_H - 6);
+        Text(rp, (STRPTR)winner, strlen(winner));
+    }
+}
+
 static void render_frame(void)
 {
     struct BitMap *bm = D.sb[D.cur]->sb_BitMap;
@@ -258,9 +347,11 @@ static void render_frame(void)
     /* P2 (CPU) — top pane. */
     pitch_render(rp, PANE_P2_Y0, p2.x, p2.z, p2.angle, &ball);
 
-    /* Mid-screen HUD divider (2 px black). */
+    /* Mid-screen divider (2 px black). */
     SetAPen(rp, PEN_BLACK);
     RectFill(rp, 0, PANE_H - 1, SCR_W - 1, PANE_H);
+
+    draw_hud(rp);
 
     WaitBlit();
     if (ChangeScreenBuffer(D.scr, D.sb[D.cur])) {
@@ -284,6 +375,9 @@ int main(void)
     AB_I("ballblazer v%s starting", VERSION);
     ab_register_var("frame_count", AB_TYPE_I32, &frame_count);
     ab_register_var("running",     AB_TYPE_I32, &running);
+    ab_register_var("p1_score",    AB_TYPE_I32, &p1_score);
+    ab_register_var("p2_score",    AB_TYPE_I32, &p2_score);
+    ab_register_var("time_left",   AB_TYPE_I32, &match_frames_left);
 
     math_init();
     init_game();
@@ -316,16 +410,28 @@ int main(void)
             }
         }
 
-        /* Simple CPU: chase the ball. Auto-face already points at it,
-         * so just push forward until close. */
-        LONG dx = ball.x - p2.x, dz = ball.z - p2.z;
+        /* CPU strategy:
+         *   - No ball: chase the ball (auto-face → drive forward).
+         *   - Has ball: drive toward P1's goal (auto-face aims at ball
+         *     which is glued in front → we need to face -X). Override
+         *     the auto-face by aiming at a virtual target = P1's goal
+         *     side of the pitch, with a slight z bias to weave. */
+        Ball cpu_target = ball;
+        if (p2.has_ball) {
+            cpu_target.x = -PITCH_LENGTH;
+            cpu_target.z = 0;
+        }
+        LONG dx = cpu_target.x - p2.x, dz = cpu_target.z - p2.z;
         LONG dd = ((dx >> 8)*(dx >> 8) + (dz >> 8)*(dz >> 8));
         LONG close2 = ((PICKUP_DIST >> 8) * (PICKUP_DIST >> 8));
-        int cpu_fwd = (dd > close2);
+        int cpu_fwd = (dd > close2) || p2.has_ball;
 
         update_rotofoil(&p1, in_fwd, in_back, in_left, in_right, &ball);
-        update_rotofoil(&p2, cpu_fwd, 0, 0, 0, &ball);
+        update_rotofoil(&p2, cpu_fwd, 0, 0, 0, &cpu_target);
         update_ball();
+        check_goal();
+
+        if (match_frames_left > 0) match_frames_left--;
 
         render_frame();
         frame_count++;
