@@ -252,10 +252,70 @@ static void draw_ball_sphere(struct RastPort *rp, int pane_y0,
     }
 }
 
+/* ---- rotofoil sprite ---------------------------------------------- */
+/*
+ * Draw the opponent as a hovering "spinner": a filled triangle (body)
+ * with a horizontal base bar (hover skirt) at the ground point. Scales
+ * with 1/depth like the ball. Body pen distinguishes P1 (cyan)
+ * from P2 (amber). */
+static void draw_rotofoil(struct RastPort *rp, int pane_y0,
+                          int cx_ground, int cy_ground, int scale, UBYTE body_pen)
+{
+    if (scale < 6) scale = 6;   /* keep visible even at distance */
+    /* Triangle body ~3× tall as wide so it reads from far away. */
+    int apex_y = cy_ground - scale * 3;
+    int base_l = cx_ground - scale;
+    int base_r = cx_ground + scale;
+    if (apex_y < pane_y0) apex_y = pane_y0;
+    if (base_l < 0)         base_l = 0;
+    if (base_r > SCR_W - 1) base_r = SCR_W - 1;
+
+    int span_h = cy_ground - apex_y;
+    if (span_h < 1) return;
+
+    /* Dark outline first (one-pixel outer silhouette), then body fill
+     * so the darker edge remains visible where body doesn't overwrite. */
+    SetAPen(rp, PEN_ROTO_EDGE);
+    int dy;
+    for (dy = 0; dy <= span_h; dy++) {
+        int half_w = ((dy + 1) * scale) / span_h;
+        int y = apex_y + dy;
+        if (y < pane_y0 || y >= pane_y0 + PANE_H) continue;
+        int L = cx_ground - half_w - 1;
+        int R = cx_ground + half_w + 1;
+        if (L < 0)         L = 0;
+        if (R > SCR_W - 1) R = SCR_W - 1;
+        Move(rp, L, y); Draw(rp, R, y);
+    }
+    /* Body fill inside outline. */
+    SetAPen(rp, body_pen);
+    for (dy = 1; dy <= span_h; dy++) {
+        int half_w = (dy * scale) / span_h;
+        int y = apex_y + dy;
+        if (y < pane_y0 || y >= pane_y0 + PANE_H) continue;
+        int L = cx_ground - half_w;
+        int R = cx_ground + half_w;
+        if (L < 0)         L = 0;
+        if (R > SCR_W - 1) R = SCR_W - 1;
+        Move(rp, L, y); Draw(rp, R, y);
+    }
+    /* Hover skirt: two-pixel dark bar centred on ground point. */
+    SetAPen(rp, PEN_ROTO_EDGE);
+    if (cy_ground < pane_y0 + PANE_H) {
+        Move(rp, base_l - 1, cy_ground);
+        Draw(rp, base_r + 1, cy_ground);
+    }
+    if (cy_ground + 1 < pane_y0 + PANE_H) {
+        Move(rp, base_l + 1, cy_ground + 1);
+        Draw(rp, base_r - 1, cy_ground + 1);
+    }
+}
+
 /* ---- public entry point ------------------------------------------- */
 void pitch_render(struct RastPort *rp, int pane_y0,
                   LONG cam_x, LONG cam_z, LONG cam_angle,
-                  const Ball *ball)
+                  const Ball *ball,
+                  LONG other_x, LONG other_z, UBYTE other_pen)
 {
     LONG ca = math_cos(cam_angle);
     LONG sa = math_sin(cam_angle);
@@ -287,6 +347,24 @@ void pitch_render(struct RastPort *rp, int pane_y0,
             WORD sxt; int ok_top = project(-PITCH_LENGTH, HOVER_H * 4, z,
                                            cam_x, cam_z, ca, sa, pane_y0, &sxt, &sy_top);
             if (ok_top) { Move(rp, sx, sy_bot); Draw(rp, sxt, sy_top); }
+        }
+    }
+
+    /* Opponent rotofoil. Depth-cull first, then project onto ground
+     * point and scale the sprite by 1/depth. */
+    {
+        LONG dx = other_x - cam_x;
+        LONG dz = other_z - cam_z;
+        LONG zc = ((dx >> 8) * (ca >> 8) + (dz >> 8) * (sa >> 8));
+        if (zc > NEAR_CLIP) {
+            WORD osx, osy;
+            if (project(other_x, -HOVER_H, other_z, cam_x, cam_z, ca, sa, pane_y0, &osx, &osy)) {
+                LONG s_px = (2L * ONE * FOCAL) / (zc >> FP);
+                int  s    = (int)(s_px >> FP);
+                if (s < 4)  s = 4;
+                if (s > 40) s = 40;
+                draw_rotofoil(rp, pane_y0, osx, osy, s, other_pen);
+            }
         }
     }
 

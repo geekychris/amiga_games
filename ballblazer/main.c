@@ -68,6 +68,9 @@ static void set_palette(struct ViewPort *vp)
     put_rgb(vp, PEN_BALL_DARK, 90,  10,  10);   /* ball terminator */
     put_rgb(vp, PEN_BALL,     220,  40,  30);   /* ball mid red */
     put_rgb(vp, PEN_BALL_HI,  255, 200, 160);   /* ball specular hint */
+    put_rgb(vp, PEN_ROTO_P1,   40, 200, 255);   /* P1 rotofoil body cyan */
+    put_rgb(vp, PEN_ROTO_P2,  255, 180,  40);   /* P2 rotofoil body amber */
+    put_rgb(vp, PEN_ROTO_EDGE, 20,  20,  40);   /* rotofoil outline */
     put_rgb(vp, PEN_HUD_BG,    10,  10,  25);
     put_rgb(vp, PEN_HUD_FG,   220, 220, 240);
     put_rgb(vp, PEN_WHITE,    255, 255, 255);
@@ -292,11 +295,25 @@ static void update_ball(void)
         ball.vz = (ball.vz * BALL_FRICTION_N) / BALL_FRICTION_D;
     } else {
         /* Carried — sit 2 world units in front of the carrier. */
-        Rotofoil *r = (ball.carrier == 0) ? &p1 : &p2;
-        LONG ca = math_cos(r->angle), sa = math_sin(r->angle);
-        ball.x = r->x + ((2L * ONE * ca) >> FP);
-        ball.z = r->z + ((2L * ONE * sa) >> FP);
+        Rotofoil *carrier = (ball.carrier == 0) ? &p1 : &p2;
+        Rotofoil *other   = (ball.carrier == 0) ? &p2 : &p1;
+        LONG ca = math_cos(carrier->angle), sa = math_sin(carrier->angle);
+        ball.x = carrier->x + ((2L * ONE * ca) >> FP);
+        ball.z = carrier->z + ((2L * ONE * sa) >> FP);
         ball.vx = 0; ball.vz = 0;
+
+        /* Tackle: if the other rotofoil overlaps the ball's world
+         * position, the ball transfers to them. Rewards defenders
+         * that ram the carrier from the side. */
+        LONG tdx = ball.x - other->x, tdz = ball.z - other->z;
+        LONG tdd = ((tdx >> 8)*(tdx >> 8) + (tdz >> 8)*(tdz >> 8));
+        LONG tr2 = ((PICKUP_DIST >> 8) * (PICKUP_DIST >> 8));
+        if (tdd < tr2) {
+            carrier->has_ball = 0;
+            other->has_ball   = 1;
+            ball.carrier      = (ball.carrier == 0) ? 1 : 0;
+            sound_play_ping();
+        }
     }
     /* Sidelines clamp — but goal-line crossings are goals, so DON'T
      * clamp X here. check_goal() runs right after and either fires
@@ -347,10 +364,12 @@ static void render_frame(void)
     struct RastPort *rp = &D.mrp;
     rp->BitMap = bm;
 
-    /* P1 (human) — bottom pane. */
-    pitch_render(rp, PANE_P1_Y0, p1.x, p1.z, p1.angle, &ball);
-    /* P2 (CPU) — top pane. */
-    pitch_render(rp, PANE_P2_Y0, p2.x, p2.z, p2.angle, &ball);
+    /* P1 (human) pane sees the P2 rotofoil. */
+    pitch_render(rp, PANE_P1_Y0, p1.x, p1.z, p1.angle, &ball,
+                 p2.x, p2.z, PEN_ROTO_P2);
+    /* P2 (CPU) pane sees the P1 rotofoil. */
+    pitch_render(rp, PANE_P2_Y0, p2.x, p2.z, p2.angle, &ball,
+                 p1.x, p1.z, PEN_ROTO_P1);
 
     /* Mid-screen divider (2 px black). */
     SetAPen(rp, PEN_BLACK);

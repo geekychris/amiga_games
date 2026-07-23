@@ -53,9 +53,12 @@
 #define PEN_BALL_DARK  8     /* ball shadow edge */
 #define PEN_BALL       9     /* mid red */
 #define PEN_BALL_HI   10     /* highlight */
-#define PEN_HUD_BG    11
-#define PEN_HUD_FG    12
-#define PEN_WHITE     13
+#define PEN_ROTO_P1   11     /* player 1 rotofoil body */
+#define PEN_ROTO_P2   12     /* player 2 rotofoil body */
+#define PEN_ROTO_EDGE 13     /* rotofoil dark outline */
+#define PEN_HUD_BG    14
+#define PEN_HUD_FG    15
+#define PEN_WHITE     16
 
 /* ---- rotofoil state ----------------------------------------------- */
 typedef struct {
@@ -81,7 +84,8 @@ typedef struct {
 struct RastPort;
 void pitch_render(struct RastPort *rp, int pane_y0,
                   LONG cam_x, LONG cam_z, LONG cam_angle,
-                  const Ball *ball);
+                  const Ball *ball,
+                  LONG other_x, LONG other_z, UBYTE other_pen);
 
 /* Integer sine / cosine from a 360-entry lookup — same shape as the
  * one in ham_raster. */
