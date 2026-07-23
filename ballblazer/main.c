@@ -134,7 +134,7 @@ static LONG match_frames_left;      /* countdown, 25fps assumption */
 #define MATCH_FRAMES (90L * 25)     /* 90 seconds */
 static int last_scorer = -1;        /* 0 = P1, 1 = P2, -1 = none yet */
 static int tackle_cooldown = 0;     /* frames until next tackle allowed */
-#define TACKLE_COOLDOWN_F   20      /* ~0.4s at 50Hz vblank */
+#define TACKLE_COOLDOWN_F   60      /* ~0.7s at 88fps observed */
 
 /* WASD input state (edge-latched: pressed while down, cleared on up). */
 static int in_fwd = 0, in_back = 0, in_left = 0, in_right = 0;
@@ -296,14 +296,29 @@ static void resolve_collision(Rotofoil *a, Rotofoil *b)
     LONG min2 = min * min;
     if (sep2 >= min2) return;
 
-    /* Ball transfer on contact. a = P1 (idx 0), b = P2 (idx 1). */
+    /* Ball transfer on contact. a = P1 (idx 0), b = P2 (idx 1).
+     * On successful tackle the new carrier also gets an impulse kick
+     * in their forward direction — without it, both rotofoils stay
+     * locked in the collision zone forever with the ball ping-ponging
+     * every cooldown expiry. */
     if (tackle_cooldown == 0 && ball.carrier >= 0) {
         int steal_to = (ball.carrier == 0) ? 1 : 0;
-        if (ball.carrier == 0) { a->has_ball = 0; b->has_ball = 1; }
-        else                   { b->has_ball = 0; a->has_ball = 1; }
+        Rotofoil *new_carrier = (steal_to == 0) ? a : b;
+        Rotofoil *old_carrier = (steal_to == 0) ? b : a;
+        old_carrier->has_ball = 0;
+        new_carrier->has_ball = 1;
         ball.carrier    = steal_to;
         tackle_cooldown = TACKLE_COOLDOWN_F;
         sound_play_ping();
+        AB_I("tackle: ball -> %s", steal_to == 0 ? "P1" : "P2");
+        /* Kick the new carrier forward, and give the old carrier a
+         * matching backwards kick so they briefly disengage. */
+        LONG kca = math_cos(new_carrier->angle);
+        LONG ksa = math_sin(new_carrier->angle);
+        new_carrier->vx += kca;      /* +1 world unit / frame in facing dir */
+        new_carrier->vz += ksa;
+        old_carrier->vx -= kca / 2;
+        old_carrier->vz -= ksa / 2;
     }
 
     /* Integer distance ~sqrt(sep2), fall back to 1 to avoid /0. */
@@ -385,18 +400,21 @@ static void draw_hud(struct RastPort *rp)
     SetBPen(rp, PEN_HUD_BG);
     SetDrMd(rp, JAM2);
 
-    /* Top pane: P2 score top-left, timer top-centre. */
+    /* Top pane: P2 score top-left, timer top-centre. Suffix "*" marks
+     * whoever currently carries the ball. */
     Move(rp, 4, 10);
-    sprintf(buf, "P2 CPU: %ld", (long)p2_score);
+    sprintf(buf, "P2 CPU: %ld %s", (long)p2_score,
+            (ball.carrier == 1) ? "*BALL*" : "");
     Text(rp, (STRPTR)buf, strlen(buf));
 
     Move(rp, SCR_W / 2 - 20, 10);
     sprintf(buf, "%02ld:%02ld", (long)(secs / 60), (long)(secs % 60));
     Text(rp, (STRPTR)buf, strlen(buf));
 
-    /* Bottom pane: P1 score at same relative spot. */
+    /* Bottom pane: P1 score and ball marker. */
     Move(rp, 4, PANE_H + 10);
-    sprintf(buf, "P1 YOU: %ld", (long)p1_score);
+    sprintf(buf, "P1 YOU: %ld %s", (long)p1_score,
+            (ball.carrier == 0) ? "*BALL*" : "");
     Text(rp, (STRPTR)buf, strlen(buf));
 
     /* Match-over banner. */
@@ -453,6 +471,12 @@ int main(void)
     ab_register_var("p1_score",    AB_TYPE_I32, &p1_score);
     ab_register_var("p2_score",    AB_TYPE_I32, &p2_score);
     ab_register_var("time_left",   AB_TYPE_I32, &match_frames_left);
+    ab_register_var("p1_x",        AB_TYPE_I32, &p1.x);
+    ab_register_var("p1_z",        AB_TYPE_I32, &p1.z);
+    ab_register_var("p2_x",        AB_TYPE_I32, &p2.x);
+    ab_register_var("p2_z",        AB_TYPE_I32, &p2.z);
+    ab_register_var("carrier",     AB_TYPE_I32, &ball.carrier);
+    ab_register_var("tackle_cd",   AB_TYPE_I32, &tackle_cooldown);
 
     math_init();
     init_game();
