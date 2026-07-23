@@ -476,7 +476,8 @@ static int open_display(int idx)
 /* ---- per-frame render globals --------------------------------------- */
 static WORD px[12], py[12];
 static LONG vz[12];
-static int  vshade[12];         /* per-vertex shade for Gouraud */
+static int  vshade[12];         /* per-vertex pen for palette-Gouraud */
+static UBYTE vred[12], vgrn[12], vblu[12];  /* 6-bit RGB per vertex, for HAM Gouraud */
 static int  fvis[MAXFACES];
 static int  fshade[MAXFACES];
 static int  forder[MAXFACES];
@@ -486,6 +487,7 @@ static int  forder[MAXFACES];
 static const Rasterizer *g_raster_list[] = {
     &rasterizer_areafill,
     &rasterizer_gouraud,
+    &rasterizer_ham_gouraud,
 };
 #define NUM_RASTERIZERS (sizeof(g_raster_list) / sizeof(g_raster_list[0]))
 static int g_raster_idx = 0;
@@ -541,6 +543,41 @@ static void render_frame(LONG ax, LONG ay, LONG az)
         if (light_dot < 0)               light_dot = 0;
         if (light_dot > OBJ_COUNT - 1)   light_dot = OBJ_COUNT - 1;
         vshade[i] = OBJ_BASE + light_dot;
+
+        /* Same intensity mapped through the temperature ramp to a
+         * 6-bit RGB triple. Duplicates the palette formula in
+         * rasterizer.c — kept inline here rather than sharing
+         * because main.c owns the SetRGB32 call too. */
+        {
+            int t = (light_dot * 255) / (OBJ_COUNT - 1);
+            int rr, gg, bb;
+            if (t < 64) {
+                rr =  20 + (t * 80) / 63;
+                gg =   5 + (t * 15) / 63;
+                bb =  40 + (t * 90) / 63;
+            } else if (t < 128) {
+                int u = t - 64;
+                rr = 100 + (u * 140) / 63;
+                gg =  20 + (u *  40) / 63;
+                bb = 130 - (u *  90) / 63;
+            } else if (t < 192) {
+                int u = t - 128;
+                rr = 240;
+                gg =  60 + (u * 180) / 63;
+                bb =  40 - (u *  30) / 63;
+            } else {
+                int u = t - 192;
+                rr = 240 + (u *  15) / 63;
+                gg = 240 + (u *  15) / 63;
+                bb =  10 + (u * 240) / 63;
+            }
+            if (rr < 0) rr = 0; if (rr > 255) rr = 255;
+            if (gg < 0) gg = 0; if (gg > 255) gg = 255;
+            if (bb < 0) bb = 0; if (bb > 255) bb = 255;
+            vred[i] = (UBYTE)(rr >> 2);
+            vgrn[i] = (UBYTE)(gg >> 2);
+            vblu[i] = (UBYTE)(bb >> 2);
+        }
         /* hard clamp: a layer-less RastPort does NOT clip, so out-of-bounds
          * AreaFill/TmpRas writes would corrupt chip RAM.  FOV keeps us in
          * bounds; this is the safety net. */
@@ -587,9 +624,9 @@ static void render_frame(LONG ax, LONG ay, LONG az)
     for (f = 0; f < n; f++) {
         int ff = forder[f];
         int a = face[ff][0], b = face[ff][1], c = face[ff][2];
-        RTri va = { px[a], py[a], (UBYTE)vshade[a] };
-        RTri vb = { px[b], py[b], (UBYTE)vshade[b] };
-        RTri vc = { px[c], py[c], (UBYTE)vshade[c] };
+        RTri va = { px[a], py[a], (UBYTE)vshade[a], vred[a], vgrn[a], vblu[a] };
+        RTri vb = { px[b], py[b], (UBYTE)vshade[b], vred[b], vgrn[b], vblu[b] };
+        RTri vc = { px[c], py[c], (UBYTE)vshade[c], vred[c], vgrn[c], vblu[c] };
         /* Flat backends only look at va.pen, so seed it with the
          * face's average shade so AreaFill still shades correctly. */
         va.pen = (UBYTE)fshade[ff];

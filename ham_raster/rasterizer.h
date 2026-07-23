@@ -19,7 +19,8 @@ struct RastPort;
 
 typedef struct {
     WORD  x, y;
-    UBYTE pen;      /* base palette pen at this vertex */
+    UBYTE pen;      /* palette index for flat backends       */
+    UBYTE r, g, b;  /* 6-bit (0..63) RGB for HAM backend      */
 } RTri;
 
 typedef struct {
@@ -29,7 +30,8 @@ typedef struct {
 } Rasterizer;
 
 /* Backends. Extern so main.c can build the list. */
-extern const Rasterizer rasterizer_areafill; /* graphics.library AreaFill, flat pen[0] */
-extern const Rasterizer rasterizer_gouraud;  /* manual scanline w/ interpolated pen */
+extern const Rasterizer rasterizer_areafill;    /* graphics.library AreaFill, flat pen */
+extern const Rasterizer rasterizer_gouraud;     /* scanline w/ interpolated palette pen */
+extern const Rasterizer rasterizer_ham_gouraud; /* scanline w/ per-pixel HAM modify codes */
 
 #endif
