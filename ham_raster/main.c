@@ -976,7 +976,7 @@ int main(void)
             WORD hy = (WORD)(((LONG)H * 25) / 100);
             const WORD g   = 1;                    /* gravity, px/frame^2 */
             if (!init_done) {
-                px_pos = -hx;  py_pos = 0;
+                px_pos = -hx;  py_pos = -hy;   /* born at top-left */
                 vx = 3;        vy = 0;
                 init_done = 1;
             }
@@ -984,11 +984,17 @@ int main(void)
             px_pos += vx;
             vy     += g;
             py_pos += vy;
-            /* wall bounces */
-            if (px_pos >  hx) { px_pos =  hx; vx = -vx; sound_play_boing(); }
-            if (px_pos < -hx) { px_pos = -hx; vx = -vx; sound_play_boing(); }
-            /* floor bounce — top of the drop zone is 0, floor at +hy */
-            if (py_pos >= hy) { py_pos = hy; vy = -vy; }
+            /* Wall/floor/ceiling bounces — reflect the overshoot
+             * instead of clamping. Clamping to the wall throws away
+             * sub-pixel energy on every hit; on vy that accumulates
+             * and the vertical bounce dies out to zero. Reflection
+             * keeps momentum frame-to-frame exact, and reflecting
+             * BOTH floor (+hy) and ceiling (-hy) bounds energy so
+             * the ball can't run away either. */
+            if (px_pos >  hx) { px_pos =  2*hx - px_pos; vx = -vx; sound_play_boing(); }
+            if (px_pos < -hx) { px_pos = -2*hx - px_pos; vx = -vx; sound_play_boing(); }
+            if (py_pos >  hy) { py_pos =  2*hy - py_pos; vy = -vy; }
+            if (py_pos < -hy) { py_pos = -2*hy - py_pos; vy = -vy; }
             bx = px_pos;
             by = py_pos;
             /* spin proportional to horizontal velocity direction */
