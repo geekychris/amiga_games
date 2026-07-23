@@ -120,77 +120,88 @@ static void band(struct RastPort *rp, int y0, int y1, UBYTE pen)
 
 /* ---- chequered floor ---------------------------------------------- */
 /*
- * Per-row raycast: for each screen row below horizon, the perspective
- * pin-hole model gives a single world-Z depth (for a camera facing
- * +X or -X, with head-height HOVER_H above ground). Along that row,
- * screen columns map linearly to world-Z positions, so cells project
- * as equally-spaced coloured runs. Cell parity = (cellx + cellz) & 1.
+ * Direct-to-bitplane per-row checker fill. The prior implementation
+ * used graphics.library Move+Draw per cell band (10-30 calls per
+ * scanline × 85 rows × 2 panes = ~4000 calls/frame) which pays the
+ * gfx.library setup cost on every call. That single change dropped
+ * the frame rate to single digits.
  *
- * Restriction: because we only care about the two ballblazer camera
- * angles (0 and 180), we can hard-code the axis assumption instead
- * of doing full 2D rotation per pixel. Costs one branch per pane
- * for the sign of forward.
+ * Here we compute one 40-byte mask per row (bit = 1 means checker
+ * cell A) and blast it into 5 bitplanes directly. Pen A=3=0b00011
+ * so planes 0/1 = mask, plane 2 = ~mask; pen B=4=0b00100 fills the
+ * inverse cells. Planes 3/4 are already zeroed for these two pens.
+ *
+ * Cost per frame: ~85 rows × 5 plane byte-writes × 40 bytes × 2
+ * panes = ~34 KB memory writes. Trivial on 68020.
+ *
+ * Camera restriction: only the two Ballblazer angles (0 / 180) so
+ * we can hard-code the fwd_sign instead of running a full 2D rotate
+ * per pixel.
  */
 static void draw_checker_floor(struct RastPort *rp, int pane_y0,
                                LONG cam_x, LONG cam_z, LONG cam_angle)
 {
+    struct BitMap *bm = rp->BitMap;
+    if (!bm) return;
+    LONG bpr = bm->BytesPerRow;
+    UBYTE *plane0 = (UBYTE *)bm->Planes[0];
+    UBYTE *plane1 = (UBYTE *)bm->Planes[1];
+    UBYTE *plane2 = (UBYTE *)bm->Planes[2];
+    UBYTE *plane3 = (SCR_DEPTH > 3) ? (UBYTE *)bm->Planes[3] : NULL;
+    UBYTE *plane4 = (SCR_DEPTH > 4) ? (UBYTE *)bm->Planes[4] : NULL;
+
     int fwd_sign = (cam_angle == 0) ? +1 : -1;
-    int y;
-    LONG grid_i = GRID_STEP >> FP;   /* 5 world units, plain int */
-    LONG hover_i = HOVER_H  >> FP;   /* 2 */
+    LONG grid_i  = GRID_STEP >> FP;   /* 5 */
+    LONG hover_i = HOVER_H  >> FP;    /* 2 */
     LONG cam_x_i = cam_x    >> FP;
     LONG cam_z_i = cam_z    >> FP;
 
+    /* Row-scratch mask: 40 bytes = 320 pixels. */
+    UBYTE mask[40];
+
+    int y;
     for (y = pane_y0 + HORIZON_Y + 1; y < pane_y0 + PANE_H; y++) {
         int dy = y - (pane_y0 + HORIZON_Y);
-        /* zdist (world units) = HOVER_H * F / dy   — perspective */
         LONG zdist = (hover_i * FOCAL) / dy;
         if (zdist < 1) zdist = 1;
-        /* world_x under camera at this row */
         LONG worldx = cam_x_i + fwd_sign * zdist;
-        LONG cellx  = worldx / grid_i;
-        int row_parity = ((cellx % 2) + 2) % 2;
+        LONG cellx  = (worldx >= 0) ? (worldx / grid_i)
+                                    : -((-worldx + grid_i - 1) / grid_i);
+        int row_parity = ((int)(cellx & 1));
 
-        /* Cell width in pixels along this row */
-        LONG cell_w = (grid_i * FOCAL) / zdist;
-        if (cell_w < 1) cell_w = 1;
-
-        /* worldz at the pane centre (pane_cx column) */
-        LONG worldz_centre = cam_z_i;  /* independent of fwd_sign at centre */
-        /* pixel where the nearest cell boundary to the LEFT of pane_cx sits */
-        LONG cellz_centre = worldz_centre / grid_i;
-        LONG boundary_z   = cellz_centre * grid_i;
-        LONG offset_wz    = worldz_centre - boundary_z;
-        LONG offset_px    = (offset_wz * FOCAL) / zdist;
-        /* leftmost boundary is offset_px pixels LEFT of pane_cx */
-        LONG start_px = (SCR_W / 2) - offset_px;
-        /* Walk left/right filling alternating bands. */
-        int band_start = (int)start_px;
-        LONG cellz     = cellz_centre;   /* cell to the RIGHT of boundary */
-        /* First: extend leftward from start_px */
-        int px = band_start;
-        int wall = 0;
-        while (px > 0 && wall++ < 40) {
-            int px2 = px - (int)cell_w;
-            if (px2 < 0) px2 = 0;
-            int parity = ((((cellz - 1) % 2) + 2) % 2 + row_parity) & 1;
-            SetAPen(rp, parity ? PEN_GRID_B : PEN_GRID_A);
-            Move(rp, px2, y); Draw(rp, px - 1, y);
-            px = px2;
-            cellz--;
+        /* Build mask: bit set = pixel is in an A cell.
+         * worldz(px) = cam_z_i - fwd_sign * (px - pane_cx) * zdist / FOCAL */
+        int px;
+        UBYTE cur = 0;
+        for (px = 0; px < SCR_W; px++) {
+            LONG dx = px - SCR_W / 2;
+            LONG worldz_num = (LONG)dx * zdist;
+            LONG worldz = cam_z_i - fwd_sign * (worldz_num / FOCAL);
+            LONG cellz = (worldz >= 0) ? (worldz / grid_i)
+                                       : -((-worldz + grid_i - 1) / grid_i);
+            int is_a = (((int)((cellz + cellx) & 1)) == 0);   /* even = A */
+            (void)row_parity;
+            /* pack MSB-first across the byte */
+            int bit = 7 - (px & 7);
+            if (bit == 7) cur = 0;
+            if (is_a) cur |= (1 << bit);
+            if (bit == 0) mask[px >> 3] = cur;
         }
-        /* Rightward */
-        px    = band_start;
-        cellz = cellz_centre;
-        wall  = 0;
-        while (px < SCR_W && wall++ < 40) {
-            int px2 = px + (int)cell_w;
-            if (px2 > SCR_W - 1) px2 = SCR_W - 1;
-            int parity = ((((cellz) % 2) + 2) % 2 + row_parity) & 1;
-            SetAPen(rp, parity ? PEN_GRID_B : PEN_GRID_A);
-            Move(rp, px, y); Draw(rp, px2, y);
-            px = px2 + 1;
-            cellz++;
+
+        /* Blast to 5 bitplanes at this Y. */
+        UBYTE *r0 = plane0 + y * bpr;
+        UBYTE *r1 = plane1 + y * bpr;
+        UBYTE *r2 = plane2 + y * bpr;
+        UBYTE *r3 = plane3 ? plane3 + y * bpr : NULL;
+        UBYTE *r4 = plane4 ? plane4 + y * bpr : NULL;
+        int b;
+        for (b = 0; b < 40; b++) {
+            UBYTE m = mask[b];
+            r0[b] = m;
+            r1[b] = m;
+            r2[b] = (UBYTE)~m;
+            if (r3) r3[b] = 0;
+            if (r4) r4[b] = 0;
         }
     }
 }

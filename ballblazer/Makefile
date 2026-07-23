@@ -3,7 +3,7 @@ CFLAGS = -noixemul -O2 -m68020 -Wall -Wno-unused-function -I../../amiga-bridge/i
 LDFLAGS = -noixemul -L../../amiga-bridge -lbridge -lamiga
 TARGET = ballblazer
 
-SRCS = main.c pitch.c
+SRCS = main.c pitch.c sound.c
 OBJS = $(SRCS:.c=.o)
 
 all: $(TARGET)
@@ -14,8 +14,9 @@ $(TARGET): $(OBJS)
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-main.o:  main.c ballblazer.h
+main.o:  main.c ballblazer.h sound.h
 pitch.o: pitch.c ballblazer.h
+sound.o: sound.c sound.h
 
 clean:
 	rm -f *.o $(TARGET)

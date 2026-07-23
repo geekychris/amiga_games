@@ -27,6 +27,7 @@
 
 #include "bridge_client.h"
 #include "ballblazer.h"
+#include "sound.h"
 
 #define VERSION "0.1"
 
@@ -173,6 +174,7 @@ static int check_goal(void)
         p1_score += pts;
         last_scorer = 0;
         AB_I("P1 scores %ld (total %ld)", (long)pts, (long)p1_score);
+        sound_play_clang();
         kickoff();
         return 1;
     }
@@ -186,6 +188,7 @@ static int check_goal(void)
         p2_score += pts;
         last_scorer = 1;
         AB_I("P2 scores %ld (total %ld)", (long)pts, (long)p2_score);
+        sound_play_clang();
         kickoff();
         return 1;
     }
@@ -280,8 +283,8 @@ static void update_ball(void)
         LONG r2  = ((PICKUP_DIST >> 8) * (PICKUP_DIST >> 8));
         LONG dd1 = ((d1x >> 8) * (d1x >> 8) + (d1z >> 8) * (d1z >> 8));
         LONG dd2 = ((d2x >> 8) * (d2x >> 8) + (d2z >> 8) * (d2z >> 8));
-        if (dd1 < r2 && dd1 <= dd2) { ball.carrier = 0; p1.has_ball = 1; }
-        else if (dd2 < r2)          { ball.carrier = 1; p2.has_ball = 1; }
+        if (dd1 < r2 && dd1 <= dd2) { ball.carrier = 0; p1.has_ball = 1; sound_play_ping(); }
+        else if (dd2 < r2)          { ball.carrier = 1; p2.has_ball = 1; sound_play_ping(); }
         /* coast */
         ball.x += ball.vx;
         ball.z += ball.vz;
@@ -383,6 +386,8 @@ int main(void)
 
     math_init();
     init_game();
+    BOOL sound_ok = sound_init();
+    if (!sound_ok) AB_W("audio.device unavailable — goals will be silent");
 
     if (open_display()) {
         ab_cleanup();
@@ -446,6 +451,7 @@ int main(void)
 
     AB_I("ballblazer shutting down (%ld frames)", (long)frame_count);
     close_display();
+    sound_cleanup();
     ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
