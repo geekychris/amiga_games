@@ -389,8 +389,22 @@ static void build_boing(void)
         face_ramp[num_faces] = ((BOING_LAT + lon) & 1) ? RAMP_RED : RAMP_WHITE;
         num_faces++;
     }
-    (void)f;
     compute_normals();
+    /* Each middle-ring quad became two triangles (poles stayed as
+     * single triangles). Average the two triangles' normals so the
+     * shared diagonal edge lights identically on both sides —
+     * otherwise every "square" shows a visible V-crease as the two
+     * fshade[] values disagree. Poles are single triangles; skip. */
+    int quad_start = BOING_LON;   /* skip top-cap fans */
+    int quad_end   = num_faces - BOING_LON;  /* skip bottom-cap fans */
+    for (f = quad_start; f < quad_end; f += 2) {
+        LONG ax = (fnorm[f][0] + fnorm[f+1][0]) / 2;
+        LONG ay = (fnorm[f][1] + fnorm[f+1][1]) / 2;
+        LONG az = (fnorm[f][2] + fnorm[f+1][2]) / 2;
+        fnorm[f  ][0] = fnorm[f+1][0] = ax;
+        fnorm[f  ][1] = fnorm[f+1][1] = ay;
+        fnorm[f  ][2] = fnorm[f+1][2] = az;
+    }
 }
 
 static const ShapeDef g_shapes[] = {
@@ -712,7 +726,12 @@ static const Rasterizer *g_raster_list[] = {
 #define NUM_RASTERIZERS (sizeof(g_raster_list) / sizeof(g_raster_list[0]))
 static int g_raster_idx = 0;
 
-static void render_frame(LONG ax, LONG ay, LONG az)
+/* Boing bounce state — toggled by 'B'. When on, main() drives the
+ * screen-space (bounce_x, bounce_y) offset per frame and passes it
+ * to render_frame(). */
+static int g_bounce = 0;
+
+static void render_frame(LONG ax, LONG ay, LONG az, WORD bounce_x, WORD bounce_y)
 {
     struct BitMap *bm = D.sb[D.cur]->sb_BitMap;
     struct RastPort *rp = &D.mrp;
@@ -753,8 +772,8 @@ static void render_frame(LONG ax, LONG ay, LONG az)
         LONG zc = z2 + DIST;
         LONG sxp, syp;
         if (zc < 1) zc = 1;
-        sxp = CXv + (x3 * FOVv) / zc;
-        syp = CYv - (y3 * FOVv) / zc;
+        sxp = CXv + (x3 * FOVv) / zc + bounce_x;
+        syp = CYv - (y3 * FOVv) / zc + bounce_y;
         /* Per-vertex INTENSITY only (0..RAMP_SHADES-1). Ramp base
          * is added at draw time based on each face's material. */
         int inten = (int)((-z2 * (RAMP_SHADES - 1)) / 1902);
@@ -835,7 +854,7 @@ static void render_frame(LONG ax, LONG ay, LONG az)
         Text(rp, (STRPTR)sn, strlen(sn));
     }
     Move(rp, 4, 36);
-    Text(rp, (STRPTR)"TAB=raster  S=shape", 19);
+    Text(rp, (STRPTR)"TAB=raster S=shape B=bounce", 27);
 
     /* flip (blitter idle before showing the buffer) */
     WaitBlit();
@@ -901,6 +920,10 @@ int main(void)
                          g_shapes[current_shape].name,
                          (long)num_verts, (long)num_faces);
                 }
+                else if (code == 0x35) {                            /* B: toggle bounce */
+                    g_bounce = !g_bounce;
+                    AB_I("bounce = %ld", (long)g_bounce);
+                }
             } else if (cls == IDCMP_MOUSEMOVE) {
                 if (mx < 0) mx = 0; else if (mx >= (WORD)W) mx = W - 1;
                 if (my < 0) my = 0; else if (my >= (WORD)H) my = H - 1;
@@ -935,7 +958,23 @@ int main(void)
         }
         req_mode = -1;
 
-        render_frame(ax, ay, az);
+        WORD bx = 0, by = 0;
+        if (g_bounce) {
+            /* Classic Boing motion: sinusoidal horizontal drift with
+             * a parabolic vertical bounce. abs(sin) gives the "hits
+             * floor" cusps at frequency 2×; horizontal at half that
+             * so each landing alternates side. */
+            LONG hx = ((LONG)W * 30) / 100;      /* 30% of screen width */
+            LONG hy = ((LONG)H * 25) / 100;      /* 25% of screen height */
+            LONG sh = SIN((frame_count * 2) % 360);            /* -ONE..ONE */
+            LONG sv = SIN((frame_count * 4) % 360);
+            if (sv < 0) sv = -sv;                              /* abs → bounce */
+            bx = (WORD)((sh * hx) >> FP);
+            by = (WORD)(hy - ((sv * hy) >> FP));               /* drop from top */
+            /* Spin the ball while bouncing so the checker rolls. */
+            az = (frame_count * 4) % 360;
+        }
+        render_frame(ax, ay, az, bx, by);
         frame_count++;
         if (bridge_ok) ab_poll();
     }
