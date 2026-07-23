@@ -5,7 +5,8 @@ ARCH ?= m68k
 
 ifeq ($(ARCH),ppc)
   CC = ppc-amigaos-gcc
-  CFLAGS  = -mcrt=newlib -O2 -mcpu=440 -Wall -I../../amiga-bridge/include -D__PPC__
+  CFLAGS  = -mcrt=newlib -O2 -mcpu=440 -Wall -I../../amiga-bridge/include \
+            -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
   LDFLAGS = -mcrt=newlib -L../../amiga-bridge -lbridge -lauto
 else
   CC = m68k-amigaos-gcc
