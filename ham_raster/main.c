@@ -129,20 +129,42 @@ static void build_sintab(void)
 #define SIN(a) ((LONG)sintab[((a) % 360 + 360) % 360])
 #define COS(a) ((LONG)sintab[(((a) + 90) % 360 + 360) % 360])
 
-/* ---- icosahedron geometry ------------------------------------------- */
-static LONG vbase[12][3] = {
-    {    0,  1000,  1618 }, {    0,  1000, -1618 },
-    {    0, -1000,  1618 }, {    0, -1000, -1618 },
-    { 1000,  1618,     0 }, {-1000,  1618,     0 },
-    { 1000, -1618,     0 }, {-1000, -1618,     0 },
-    { 1618,     0,  1000 }, { 1618,     0, -1000 },
-    {-1618,     0,  1000 }, {-1618,     0, -1000 }
-};
+/* ---- pluggable geometry -------------------------------------------- */
+/*
+ * MAX_VERTS / MAXFACES cover the biggest shape we build (boing
+ * sphere with 5 rings × 12 meridians + 2 poles = 62 verts, 120
+ * faces). Icosahedron only uses 12/20, cube uses 8/12.
+ *
+ * face_ramp[i] is the palette ramp BASE for face i:
+ *   RAMP_RED   0    boing red squares
+ *   RAMP_WHITE 16   boing white squares
+ *   RAMP_TEMP  32   temperature (default for icosahedron / cube)
+ * The shading intensity is added on top: pen = face_ramp[i] + shade.
+ */
+#define MAX_VERTS 96
+#define MAXFACES  160
+/* Ramp bases live at 1..48, leaving pen 0 for the backdrop (which
+ * HAM8 also uses for the display border). */
+#define RAMP_RED    1
+#define RAMP_WHITE 17
+#define RAMP_TEMP  33
+#define RAMP_SHADES 16
 
-#define MAXFACES 20
+static LONG  vbase[MAX_VERTS][3];
 static int   face[MAXFACES][3];
 static LONG  fnorm[MAXFACES][3];
+static UBYTE face_ramp[MAXFACES];
+static int   num_verts = 0;
 static int   num_faces = 0;
+
+/* Shape descriptor. Each build_* function populates the globals
+ * above and returns a name for the HUD. */
+typedef void (*ShapeBuilder)(void);
+typedef struct {
+    const char *name;
+    ShapeBuilder build;
+} ShapeDef;
+static int current_shape = 0;   /* index into g_shapes[] */
 
 static LONG idist2(LONG *a, LONG *b)
 {
@@ -162,17 +184,62 @@ static LONG isqrt(LONG v)
     return r;
 }
 
-static void build_faces(void)
+/*
+ * Compute face normals from the current vbase[] + face[] state.
+ * Assumes each triangle's winding already faces outward (builders
+ * must handle that). Called by build_shape after populating.
+ */
+static void compute_normals(void)
+{
+    int f;
+    for (f = 0; f < num_faces; f++) {
+        LONG *a = vbase[face[f][0]];
+        LONG *b = vbase[face[f][1]];
+        LONG *c = vbase[face[f][2]];
+        LONG ax = b[0]-a[0], ay = b[1]-a[1], az = b[2]-a[2];
+        LONG bx = c[0]-a[0], by = c[1]-a[1], bz = c[2]-a[2];
+        LONG nx = (ay*bz - az*by) / 1000;
+        LONG ny = (az*bx - ax*bz) / 1000;
+        LONG nz = (ax*by - ay*bx) / 1000;
+        LONG len = isqrt(nx*nx + ny*ny + nz*nz);
+        if (len < 1) len = 1;
+        fnorm[f][0] = (nx * ONE) / len;
+        fnorm[f][1] = (ny * ONE) / len;
+        fnorm[f][2] = (nz * ONE) / len;
+    }
+}
+
+/* ---- Shape builders ----------------------------------------------- */
+
+/* Icosahedron — kept from the original aga3d. Retains its
+ * temperature-ramp shading. */
+static const LONG ICOSA_V[12][3] = {
+    {    0,  1000,  1618 }, {    0,  1000, -1618 },
+    {    0, -1000,  1618 }, {    0, -1000, -1618 },
+    { 1000,  1618,     0 }, {-1000,  1618,     0 },
+    { 1000, -1618,     0 }, {-1000, -1618,     0 },
+    { 1618,     0,  1000 }, { 1618,     0, -1000 },
+    {-1618,     0,  1000 }, {-1618,     0, -1000 }
+};
+
+static void build_icosahedron(void)
 {
     const LONG EDGE2 = 4000000;
     const LONG TOL   = EDGE2 + EDGE2/8;
     int i, j, k;
 
+    num_verts = 12;
+    for (i = 0; i < 12; i++) {
+        vbase[i][0] = ICOSA_V[i][0];
+        vbase[i][1] = ICOSA_V[i][1];
+        vbase[i][2] = ICOSA_V[i][2];
+    }
+    num_faces = 0;
     for (i = 0; i < 12; i++)
         for (j = i+1; j < 12; j++) {
             if (idist2(vbase[i], vbase[j]) > TOL) continue;
             for (k = j+1; k < 12; k++) {
-                LONG nx, ny, nz, len;
+                LONG nx, ny, nz;
                 LONG ax, ay, az, bx, by, bz, cx, cy, cz;
                 if (idist2(vbase[j], vbase[k]) > TOL) continue;
                 if (idist2(vbase[i], vbase[k]) > TOL) continue;
@@ -195,20 +262,149 @@ static void build_faces(void)
                 if (nx*cx + ny*cy + nz*cz < 0) {
                     face[num_faces][1] = k;
                     face[num_faces][2] = j;
-                    nx = -nx; ny = -ny; nz = -nz;
                 } else {
                     face[num_faces][1] = j;
                     face[num_faces][2] = k;
                 }
-
-                len = isqrt(nx*nx + ny*ny + nz*nz);
-                if (len < 1) len = 1;
-                fnorm[num_faces][0] = (nx * ONE) / len;
-                fnorm[num_faces][1] = (ny * ONE) / len;
-                fnorm[num_faces][2] = (nz * ONE) / len;
+                face_ramp[num_faces] = RAMP_TEMP;
                 num_faces++;
             }
         }
+    compute_normals();
+}
+
+/* Axis-aligned cube — 8 verts, 12 triangles (6 quad faces split).
+ * Uses the temperature ramp; alternating faces show off shading. */
+static void build_cube(void)
+{
+    static const LONG CV[8][3] = {
+        {-1400,-1400,-1400}, { 1400,-1400,-1400},
+        { 1400, 1400,-1400}, {-1400, 1400,-1400},
+        {-1400,-1400, 1400}, { 1400,-1400, 1400},
+        { 1400, 1400, 1400}, {-1400, 1400, 1400}
+    };
+    /* Faces wound counter-clockwise when viewed from outside so
+     * the cross product yields outward normals. */
+    static const int CF[12][3] = {
+        {0,3,2},{0,2,1},           /* -Z (back) */
+        {5,6,7},{5,7,4},           /* +Z (front) */
+        {4,7,3},{4,3,0},           /* -X (left) */
+        {1,2,6},{1,6,5},           /* +X (right) */
+        {3,7,6},{3,6,2},           /* +Y (top) */
+        {4,0,1},{4,1,5},           /* -Y (bottom) */
+    };
+    int i;
+    num_verts = 8;
+    for (i = 0; i < 8; i++) {
+        vbase[i][0] = CV[i][0]; vbase[i][1] = CV[i][1]; vbase[i][2] = CV[i][2];
+    }
+    num_faces = 12;
+    for (i = 0; i < 12; i++) {
+        face[i][0] = CF[i][0]; face[i][1] = CF[i][1]; face[i][2] = CF[i][2];
+        face_ramp[i] = RAMP_TEMP;
+    }
+    compute_normals();
+}
+
+/*
+ * Boing ball — classic Amiga red/white checkered sphere. Built by
+ * latitude/longitude tessellation:
+ *   N_LAT = 6 rings between the two poles (7 quad rows total)
+ *   N_LON = 12 meridians
+ * Each quad splits into two triangles; the pole caps are triangle
+ * fans. Faces get RAMP_RED or RAMP_WHITE based on (lat+lon)&1.
+ * Radius 1400 to match the cube visually.
+ */
+#define BOING_LAT 6
+#define BOING_LON 12
+#define BOING_R   1400
+
+static void build_boing(void)
+{
+    int lat, lon, f;
+    num_verts = 0;
+    num_faces = 0;
+
+    /* Pole vertices first. */
+    int north = num_verts++;
+    vbase[north][0] = 0; vbase[north][1] =  BOING_R; vbase[north][2] = 0;
+    int south = num_verts++;
+    vbase[south][0] = 0; vbase[south][1] = -BOING_R; vbase[south][2] = 0;
+
+    /* Ring vertices: lat = 1..BOING_LAT-1, each with N_LON verts.
+     * Latitude 0 = north pole, BOING_LAT = south pole. */
+    int ring_start[BOING_LAT];
+    for (lat = 1; lat < BOING_LAT; lat++) {
+        int theta_deg = (lat * 180) / BOING_LAT;  /* 0..180, 0=top */
+        LONG s_th = SIN(theta_deg);   /* fixed-point ONE-scaled */
+        LONG c_th = COS(theta_deg);
+        ring_start[lat] = num_verts;
+        for (lon = 0; lon < BOING_LON; lon++) {
+            int phi_deg = (lon * 360) / BOING_LON;
+            LONG s_ph = SIN(phi_deg);
+            LONG c_ph = COS(phi_deg);
+            /* r = R * sin(theta); y = R * cos(theta). */
+            LONG r  = (BOING_R * s_th) >> FP;
+            LONG x  = (r * s_ph) >> FP;
+            LONG z  = (r * c_ph) >> FP;
+            LONG y  = (BOING_R * c_th) >> FP;
+            vbase[num_verts][0] = x;
+            vbase[num_verts][1] = y;
+            vbase[num_verts][2] = z;
+            num_verts++;
+        }
+    }
+
+    /* Top cap — triangles from north pole to ring 1. */
+    for (lon = 0; lon < BOING_LON; lon++) {
+        int a = ring_start[1] + lon;
+        int b = ring_start[1] + ((lon + 1) % BOING_LON);
+        face[num_faces][0] = north;
+        face[num_faces][1] = a;
+        face[num_faces][2] = b;
+        face_ramp[num_faces] = (lon & 1) ? RAMP_RED : RAMP_WHITE;
+        num_faces++;
+    }
+    /* Middle rings — each quad = two triangles, checker per quad. */
+    for (lat = 1; lat < BOING_LAT - 1; lat++) {
+        for (lon = 0; lon < BOING_LON; lon++) {
+            int a  = ring_start[lat]     + lon;
+            int b  = ring_start[lat]     + ((lon + 1) % BOING_LON);
+            int c  = ring_start[lat + 1] + ((lon + 1) % BOING_LON);
+            int d  = ring_start[lat + 1] + lon;
+            UBYTE ramp = ((lat + lon) & 1) ? RAMP_RED : RAMP_WHITE;
+            face[num_faces][0] = a; face[num_faces][1] = c; face[num_faces][2] = b;
+            face_ramp[num_faces++] = ramp;
+            face[num_faces][0] = a; face[num_faces][1] = d; face[num_faces][2] = c;
+            face_ramp[num_faces++] = ramp;
+        }
+    }
+    /* Bottom cap. */
+    for (lon = 0; lon < BOING_LON; lon++) {
+        int a = ring_start[BOING_LAT - 1] + lon;
+        int b = ring_start[BOING_LAT - 1] + ((lon + 1) % BOING_LON);
+        face[num_faces][0] = south;
+        face[num_faces][1] = b;
+        face[num_faces][2] = a;
+        face_ramp[num_faces] = ((BOING_LAT + lon) & 1) ? RAMP_RED : RAMP_WHITE;
+        num_faces++;
+    }
+    (void)f;
+    compute_normals();
+}
+
+static const ShapeDef g_shapes[] = {
+    { "Icosahedron", build_icosahedron },
+    { "Cube",        build_cube        },
+    { "Boing Ball",  build_boing       },
+};
+#define NUM_SHAPES (sizeof(g_shapes) / sizeof(g_shapes[0]))
+
+static void build_shape(int idx)
+{
+    if (idx < 0 || idx >= (int)NUM_SHAPES) return;
+    current_shape = idx;
+    g_shapes[idx].build();
 }
 
 /* ---- starfield ------------------------------------------------------- */
@@ -236,60 +432,85 @@ static void build_stars(void)
 /* ---- palette --------------------------------------------------------- */
 static int clamp255(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
 
+/* 6-bit RGB lookup per palette pen, populated by set_palette. Lets
+ * the draw loop synthesize per-face-vertex colour by adding vertex
+ * intensity to the face's ramp base and reading the RGB directly. */
+static UBYTE pal_r6[64], pal_g6[64], pal_b6[64];
+
+/* Set pen to RGB (0..255 each) and record the 6-bit RGB in the
+ * pal_*6 lookup tables so the draw loop can synthesize per-face-vertex
+ * colour without touching the ViewPort. */
+static void put_pen(struct ViewPort *vp, int pen, int r, int g, int b)
+{
+    r = clamp255(r); g = clamp255(g); b = clamp255(b);
+    SetRGB32(vp, pen, (ULONG)r << 24, (ULONG)g << 24, (ULONG)b << 24);
+    if (pen >= 0 && pen < 64) {
+        pal_r6[pen] = (UBYTE)(r >> 2);
+        pal_g6[pen] = (UBYTE)(g >> 2);
+        pal_b6[pen] = (UBYTE)(b >> 2);
+    }
+}
+
 static void set_palette(struct ViewPort *vp)
 {
     int i;
     /* Backdrop — deep space blue. */
-    SetRGB32(vp, BACKDROP_PEN,
-             (ULONG)6 << 24, (ULONG)3 << 24, (ULONG)18 << 24);
+    put_pen(vp, BACKDROP_PEN, 6, 3, 18);
     /*
-     * Object shading ramp — 48 shades on a "cool → hot" temperature
-     * gradient. Unlit faces sit at index 0 (deep indigo), lit faces
-     * climb through purple → magenta → red → orange → yellow → white.
-     * The full ramp spans a much wider colour space than aga3d's
-     * single-hue lighten-only ramp because HAM8 doesn't constrain
-     * us to pens 0..255 as our ONLY colours — the extra breathing
-     * room in the palette layout is what we're using here.
+     * Object palette is three 16-shade ramps, so faces can pick
+     * one of three "materials" (a face colour base) and add a
+     * lighting-derived shade offset within that material.
+     *
+     *   Pens 0..15   RAMP_RED   dark cherry → bright red → pink
+     *   Pens 16..31  RAMP_WHITE dark grey  → pure white
+     *   Pens 32..47  RAMP_TEMP  indigo → purple → red → yellow → white
+     *
+     * All three ramps end near-white so a fully-lit face reads as
+     * highlight regardless of material. This is what lets the
+     * Boing ball's red/white checker keep its identity under
+     * varying lighting without a bespoke shader.
      */
-    for (i = 0; i < OBJ_COUNT; i++) {
-        int t = (i * 255) / (OBJ_COUNT - 1);   /* 0..255 */
-        int r, g, b;
+    for (i = 0; i < RAMP_SHADES; i++) {
+        int t = (i * 255) / (RAMP_SHADES - 1);   /* 0..255 */
+        /* Red ramp — dark cherry → saturated pure red (classic Boing). */
+        int rr = 60 + (t * 195) / 255;
+        int rg = (t * 40)  / 255;
+        int rb = (t * 40)  / 255;
+        put_pen(vp, RAMP_RED + i, rr, rg, rb);
+        /* White ramp — dark grey → pure white (no colour tint). */
+        int w = 30 + (t * 225) / 255;
+        put_pen(vp, RAMP_WHITE + i, w, w, w);
+        /* Temperature ramp — same formula as before but over 16 shades */
+        int tr, tg, tb;
         if (t < 64) {
-            /* Indigo → purple: R and B climb, G asleep */
-            r =  20 + (t * 80) / 63;
-            g =   5 + (t * 15) / 63;
-            b =  40 + (t * 90) / 63;
+            tr =  20 + (t * 80) / 63;
+            tg =   5 + (t * 15) / 63;
+            tb =  40 + (t * 90) / 63;
         } else if (t < 128) {
             int u = t - 64;
-            /* Purple → red: R keeps climbing, B falls */
-            r = 100 + (u * 140) / 63;
-            g =  20 + (u * 40)  / 63;
-            b = 130 - (u * 90)  / 63;
+            tr = 100 + (u * 140) / 63;
+            tg =  20 + (u *  40) / 63;
+            tb = 130 - (u *  90) / 63;
         } else if (t < 192) {
             int u = t - 128;
-            /* Red → orange → yellow: G climbs */
-            r = 240;
-            g =  60 + (u * 180) / 63;
-            b =  40 - (u * 30)  / 63;
+            tr = 240;
+            tg =  60 + (u * 180) / 63;
+            tb =  40 - (u *  30) / 63;
         } else {
             int u = t - 192;
-            /* Yellow → white: B climbs, R/G already near max */
-            r = 240 + (u * 15)  / 63;
-            g = 240 + (u * 15)  / 63;
-            b =  10 + (u * 240) / 63;
+            tr = 240 + (u *  15) / 63;
+            tg = 240 + (u *  15) / 63;
+            tb =  10 + (u * 240) / 63;
         }
-        SetRGB32(vp, OBJ_BASE + i,
-                 (ULONG)clamp255(r) << 24,
-                 (ULONG)clamp255(g) << 24,
-                 (ULONG)clamp255(b) << 24);
+        put_pen(vp, RAMP_TEMP + i, tr, tg, tb);
     }
     /* menu pens */
-    SetRGB32(vp, MENU_BG_PEN, (ULONG)200 << 24, (ULONG)205 << 24, (ULONG)220 << 24);
-    SetRGB32(vp, MENU_TX_PEN, (ULONG)10  << 24, (ULONG)10  << 24, (ULONG)25  << 24);
+    put_pen(vp, MENU_BG_PEN, 200, 205, 220);
+    put_pen(vp, MENU_TX_PEN,  10,  10,  25);
     /* stars */
     for (i = 0; i < STAR_COUNT; i++) {
         int v = 150 + i * 18;
-        SetRGB32(vp, STAR_BASE + i, (ULONG)v << 24, (ULONG)v << 24, (ULONG)clamp255(v+20) << 24);
+        put_pen(vp, STAR_BASE + i, v, v, v + 20);
     }
 }
 
@@ -474,12 +695,11 @@ static int open_display(int idx)
 }
 
 /* ---- per-frame render globals --------------------------------------- */
-static WORD px[12], py[12];
-static LONG vz[12];
-static int  vshade[12];         /* per-vertex pen for palette-Gouraud */
-static UBYTE vred[12], vgrn[12], vblu[12];  /* 6-bit RGB per vertex, for HAM Gouraud */
+static WORD px[MAX_VERTS], py[MAX_VERTS];
+static LONG vz[MAX_VERTS];
+static int  vshade[MAX_VERTS];         /* per-vertex INTENSITY 0..RAMP_SHADES-1 */
 static int  fvis[MAXFACES];
-static int  fshade[MAXFACES];
+static int  fshade[MAXFACES];          /* per-face intensity for AreaFill */
 static int  forder[MAXFACES];
 
 /* Rasterizer selection — main loop cycles this on TAB. */
@@ -518,12 +738,11 @@ static void render_frame(LONG ax, LONG ay, LONG az)
     twinkle_palette(D.vp, frame_count);
 
     /* transform vertices. Also compute a per-vertex shade for
-     * Gouraud — the icosahedron's vertex positions sit on a unit
-     * sphere so vbase[i] doubles as the surface normal at that
-     * vertex. Rotate + dot-with-light-dir gives a smooth shade
-     * that varies from vertex to vertex, so the Gouraud raster
-     * can interpolate colour across each face. */
-    for (i = 0; i < 12; i++) {
+     * Gouraud — for shapes whose vertex positions sit on the surface
+     * outward from origin (all three current shapes do), vbase[i]
+     * doubles as an approximate normal at that vertex. Rotated Z
+     * component then feeds a lighting intensity. */
+    for (i = 0; i < num_verts; i++) {
         LONG x = vbase[i][0], y = vbase[i][1], z = vbase[i][2];
         LONG y1 = (y * cx - z * sx) >> FP;
         LONG z1 = (y * sx + z * cx) >> FP;
@@ -536,48 +755,12 @@ static void render_frame(LONG ax, LONG ay, LONG az)
         if (zc < 1) zc = 1;
         sxp = CXv + (x3 * FOVv) / zc;
         syp = CYv - (y3 * FOVv) / zc;
-        /* Per-vertex shade: -z3 direction is "toward camera"; use
-         * negative rotated Z as the intensity proxy. Scale into
-         * the OBJ_COUNT-pen palette range. */
-        int light_dot = (int)((-z2 * (OBJ_COUNT - 1)) / 1902);
-        if (light_dot < 0)               light_dot = 0;
-        if (light_dot > OBJ_COUNT - 1)   light_dot = OBJ_COUNT - 1;
-        vshade[i] = OBJ_BASE + light_dot;
-
-        /* Same intensity mapped through the temperature ramp to a
-         * 6-bit RGB triple. Duplicates the palette formula in
-         * rasterizer.c — kept inline here rather than sharing
-         * because main.c owns the SetRGB32 call too. */
-        {
-            int t = (light_dot * 255) / (OBJ_COUNT - 1);
-            int rr, gg, bb;
-            if (t < 64) {
-                rr =  20 + (t * 80) / 63;
-                gg =   5 + (t * 15) / 63;
-                bb =  40 + (t * 90) / 63;
-            } else if (t < 128) {
-                int u = t - 64;
-                rr = 100 + (u * 140) / 63;
-                gg =  20 + (u *  40) / 63;
-                bb = 130 - (u *  90) / 63;
-            } else if (t < 192) {
-                int u = t - 128;
-                rr = 240;
-                gg =  60 + (u * 180) / 63;
-                bb =  40 - (u *  30) / 63;
-            } else {
-                int u = t - 192;
-                rr = 240 + (u *  15) / 63;
-                gg = 240 + (u *  15) / 63;
-                bb =  10 + (u * 240) / 63;
-            }
-            if (rr < 0) rr = 0; if (rr > 255) rr = 255;
-            if (gg < 0) gg = 0; if (gg > 255) gg = 255;
-            if (bb < 0) bb = 0; if (bb > 255) bb = 255;
-            vred[i] = (UBYTE)(rr >> 2);
-            vgrn[i] = (UBYTE)(gg >> 2);
-            vblu[i] = (UBYTE)(bb >> 2);
-        }
+        /* Per-vertex INTENSITY only (0..RAMP_SHADES-1). Ramp base
+         * is added at draw time based on each face's material. */
+        int inten = (int)((-z2 * (RAMP_SHADES - 1)) / 1902);
+        if (inten < 0)                  inten = 0;
+        if (inten > RAMP_SHADES - 1)    inten = RAMP_SHADES - 1;
+        vshade[i] = inten;   /* NB: now intensity, not a pen index */
         /* hard clamp: a layer-less RastPort does NOT clip, so out-of-bounds
          * AreaFill/TmpRas writes would corrupt chip RAM.  FOV keeps us in
          * bounds; this is the safety net. */
@@ -588,7 +771,8 @@ static void render_frame(LONG ax, LONG ay, LONG az)
         vz[i] = z2;
     }
 
-    /* shade + backface cull */
+    /* shade + backface cull. fshade[] is now INTENSITY (0..RAMP_SHADES-1);
+     * the ramp base is added at draw time from face_ramp[]. */
     n = 0;
     for (f = 0; f < num_faces; f++) {
         LONG nx = fnorm[f][0], ny = fnorm[f][1], nz = fnorm[f][2];
@@ -597,10 +781,10 @@ static void render_frame(LONG ax, LONG ay, LONG az)
         int light;
         if (rnz >= 0) { fvis[f] = 0; continue; }
         fvis[f] = 1;
-        light = (int)(((-rnz) * (OBJ_COUNT - 1)) >> FP);
+        light = (int)(((-rnz) * (RAMP_SHADES - 1)) >> FP);
         if (light < 0) light = 0;
-        if (light > OBJ_COUNT - 1) light = OBJ_COUNT - 1;
-        fshade[f] = OBJ_BASE + light;
+        if (light > RAMP_SHADES - 1) light = RAMP_SHADES - 1;
+        fshade[f] = light;
         forder[n++] = f;
     }
 
@@ -618,18 +802,24 @@ static void render_frame(LONG ax, LONG ay, LONG az)
         forder[g + 1] = key;
     }
 
-    /* draw faces — pluggable rasterizer. AreaFill flat uses only
-     * pen[0]; Gouraud interpolates all three across the triangle. */
+    /* draw faces — pluggable rasterizer. Each face picks its ramp base
+     * (RAMP_RED / RAMP_WHITE / RAMP_TEMP) and adds the per-vertex
+     * intensity to form a per-face-vertex pen. RGB lookups come from
+     * the pal_*6 tables populated by set_palette. */
     const Rasterizer *R = g_raster_list[g_raster_idx];
     for (f = 0; f < n; f++) {
         int ff = forder[f];
         int a = face[ff][0], b = face[ff][1], c = face[ff][2];
-        RTri va = { px[a], py[a], (UBYTE)vshade[a], vred[a], vgrn[a], vblu[a] };
-        RTri vb = { px[b], py[b], (UBYTE)vshade[b], vred[b], vgrn[b], vblu[b] };
-        RTri vc = { px[c], py[c], (UBYTE)vshade[c], vred[c], vgrn[c], vblu[c] };
+        UBYTE base = face_ramp[ff];
+        UBYTE pa = (UBYTE)(base + vshade[a]);
+        UBYTE pb = (UBYTE)(base + vshade[b]);
+        UBYTE pc = (UBYTE)(base + vshade[c]);
+        RTri va = { px[a], py[a], pa, pal_r6[pa], pal_g6[pa], pal_b6[pa] };
+        RTri vb = { px[b], py[b], pb, pal_r6[pb], pal_g6[pb], pal_b6[pb] };
+        RTri vc = { px[c], py[c], pc, pal_r6[pc], pal_g6[pc], pal_b6[pc] };
         /* Flat backends only look at va.pen, so seed it with the
-         * face's average shade so AreaFill still shades correctly. */
-        va.pen = (UBYTE)fshade[ff];
+         * face's own intensity + ramp for a solid shade. */
+        va.pen = (UBYTE)(base + fshade[ff]);
         R->draw(rp, &va, &vb, &vc);
     }
 
@@ -640,7 +830,12 @@ static void render_frame(LONG ax, LONG ay, LONG az)
     Move(rp, 4, 12);
     Text(rp, (STRPTR)R->name, strlen(R->name));
     Move(rp, 4, 24);
-    Text(rp, (STRPTR)"TAB=cycle raster", 16);
+    {
+        const char *sn = g_shapes[current_shape].name;
+        Text(rp, (STRPTR)sn, strlen(sn));
+    }
+    Move(rp, 4, 36);
+    Text(rp, (STRPTR)"TAB=raster  S=shape", 19);
 
     /* flip (blitter idle before showing the buffer) */
     WaitBlit();
@@ -671,9 +866,11 @@ int main(void)
     ab_register_var("running", AB_TYPE_I32, &running);
 
     build_sintab();
-    build_faces();
+    build_shape(0);
     build_menus();
-    AB_I("geometry: %ld faces", (long)num_faces);
+    AB_I("geometry: %s — %ld verts, %ld faces",
+         g_shapes[current_shape].name,
+         (long)num_verts, (long)num_faces);
 
     if (open_display(cur_mode)) {
         ab_cleanup();
@@ -698,6 +895,12 @@ int main(void)
                 else if (code == 0x40) req_mode = (cur_mode + 1) % NUM_MODES; /* SPACE: cycle res */
                 else if (code == 0x42)                              /* TAB: cycle rasterizer */
                     g_raster_idx = (g_raster_idx + 1) % NUM_RASTERIZERS;
+                else if (code == 0x21) {                            /* S: cycle shape */
+                    build_shape((current_shape + 1) % NUM_SHAPES);
+                    AB_I("shape -> %s (%ld verts, %ld faces)",
+                         g_shapes[current_shape].name,
+                         (long)num_verts, (long)num_faces);
+                }
             } else if (cls == IDCMP_MOUSEMOVE) {
                 if (mx < 0) mx = 0; else if (mx >= (WORD)W) mx = W - 1;
                 if (my < 0) my = 0; else if (my >= (WORD)H) my = H - 1;
