@@ -118,6 +118,129 @@ static void band(struct RastPort *rp, int y0, int y1, UBYTE pen)
     RectFill(rp, 0, y0, SCR_W - 1, y1);
 }
 
+/* ---- chequered floor ---------------------------------------------- */
+/*
+ * Per-row raycast: for each screen row below horizon, the perspective
+ * pin-hole model gives a single world-Z depth (for a camera facing
+ * +X or -X, with head-height HOVER_H above ground). Along that row,
+ * screen columns map linearly to world-Z positions, so cells project
+ * as equally-spaced coloured runs. Cell parity = (cellx + cellz) & 1.
+ *
+ * Restriction: because we only care about the two ballblazer camera
+ * angles (0 and 180), we can hard-code the axis assumption instead
+ * of doing full 2D rotation per pixel. Costs one branch per pane
+ * for the sign of forward.
+ */
+static void draw_checker_floor(struct RastPort *rp, int pane_y0,
+                               LONG cam_x, LONG cam_z, LONG cam_angle)
+{
+    int fwd_sign = (cam_angle == 0) ? +1 : -1;
+    int y;
+    LONG grid_i = GRID_STEP >> FP;   /* 5 world units, plain int */
+    LONG hover_i = HOVER_H  >> FP;   /* 2 */
+    LONG cam_x_i = cam_x    >> FP;
+    LONG cam_z_i = cam_z    >> FP;
+
+    for (y = pane_y0 + HORIZON_Y + 1; y < pane_y0 + PANE_H; y++) {
+        int dy = y - (pane_y0 + HORIZON_Y);
+        /* zdist (world units) = HOVER_H * F / dy   — perspective */
+        LONG zdist = (hover_i * FOCAL) / dy;
+        if (zdist < 1) zdist = 1;
+        /* world_x under camera at this row */
+        LONG worldx = cam_x_i + fwd_sign * zdist;
+        LONG cellx  = worldx / grid_i;
+        int row_parity = ((cellx % 2) + 2) % 2;
+
+        /* Cell width in pixels along this row */
+        LONG cell_w = (grid_i * FOCAL) / zdist;
+        if (cell_w < 1) cell_w = 1;
+
+        /* worldz at the pane centre (pane_cx column) */
+        LONG worldz_centre = cam_z_i;  /* independent of fwd_sign at centre */
+        /* pixel where the nearest cell boundary to the LEFT of pane_cx sits */
+        LONG cellz_centre = worldz_centre / grid_i;
+        LONG boundary_z   = cellz_centre * grid_i;
+        LONG offset_wz    = worldz_centre - boundary_z;
+        LONG offset_px    = (offset_wz * FOCAL) / zdist;
+        /* leftmost boundary is offset_px pixels LEFT of pane_cx */
+        LONG start_px = (SCR_W / 2) - offset_px;
+        /* Walk left/right filling alternating bands. */
+        int band_start = (int)start_px;
+        LONG cellz     = cellz_centre;   /* cell to the RIGHT of boundary */
+        /* First: extend leftward from start_px */
+        int px = band_start;
+        int wall = 0;
+        while (px > 0 && wall++ < 40) {
+            int px2 = px - (int)cell_w;
+            if (px2 < 0) px2 = 0;
+            int parity = ((((cellz - 1) % 2) + 2) % 2 + row_parity) & 1;
+            SetAPen(rp, parity ? PEN_GRID_B : PEN_GRID_A);
+            Move(rp, px2, y); Draw(rp, px - 1, y);
+            px = px2;
+            cellz--;
+        }
+        /* Rightward */
+        px    = band_start;
+        cellz = cellz_centre;
+        wall  = 0;
+        while (px < SCR_W && wall++ < 40) {
+            int px2 = px + (int)cell_w;
+            if (px2 > SCR_W - 1) px2 = SCR_W - 1;
+            int parity = ((((cellz) % 2) + 2) % 2 + row_parity) & 1;
+            SetAPen(rp, parity ? PEN_GRID_B : PEN_GRID_A);
+            Move(rp, px, y); Draw(rp, px2, y);
+            px = px2 + 1;
+            cellz++;
+        }
+    }
+}
+
+/* ---- shaded ball --------------------------------------------------- */
+static void draw_ball_sphere(struct RastPort *rp, int pane_y0,
+                             int cx, int cy, int r)
+{
+    if (r < 1) r = 1;
+    /* Three-tone shading: dark outer, mid, bright inner-offset. */
+    int hi_dx = -r / 3, hi_dy = -r / 3;   /* highlight upper-left */
+    int r2   = r * r;
+    int mr   = (r * 5) / 6;                /* mid radius */
+    int mr2  = mr * mr;
+    int hr   = r / 3;                      /* highlight radius */
+    int hr2  = hr * hr;
+    int dy;
+    for (dy = -r; dy <= r; dy++) {
+        int y = cy + dy;
+        if (y < pane_y0 || y >= pane_y0 + PANE_H) continue;
+        int hw_out = r2 - dy * dy; if (hw_out <= 0) continue;
+        int hw_mid = mr2 - dy * dy;
+        int w_out = 0; while ((w_out+1)*(w_out+1) <= hw_out) w_out++;
+        int w_mid = 0; if (hw_mid > 0) while ((w_mid+1)*(w_mid+1) <= hw_mid) w_mid++;
+        /* Outer ring: PEN_BALL_DARK */
+        SetAPen(rp, PEN_BALL_DARK);
+        int xL = cx - w_out, xR = cx + w_out;
+        if (xL < 0)         xL = 0;
+        if (xR > SCR_W - 1) xR = SCR_W - 1;
+        Move(rp, xL, y); Draw(rp, xR, y);
+        /* Mid: PEN_BALL */
+        if (w_mid > 0) {
+            SetAPen(rp, PEN_BALL);
+            int mL = cx - w_mid, mR = cx + w_mid;
+            if (mL < 0) mL = 0; if (mR > SCR_W - 1) mR = SCR_W - 1;
+            Move(rp, mL, y); Draw(rp, mR, y);
+        }
+        /* Highlight: PEN_BALL_HI, offset up-left */
+        int hdy = dy - hi_dy;
+        int hw_hi = hr2 - hdy * hdy;
+        if (hw_hi > 0) {
+            int w_hi = 0; while ((w_hi+1)*(w_hi+1) <= hw_hi) w_hi++;
+            SetAPen(rp, PEN_BALL_HI);
+            int hL = cx + hi_dx - w_hi, hR = cx + hi_dx + w_hi;
+            if (hL < 0) hL = 0; if (hR > SCR_W - 1) hR = SCR_W - 1;
+            Move(rp, hL, y); Draw(rp, hR, y);
+        }
+    }
+}
+
 /* ---- public entry point ------------------------------------------- */
 void pitch_render(struct RastPort *rp, int pane_y0,
                   LONG cam_x, LONG cam_z, LONG cam_angle,
@@ -126,35 +249,20 @@ void pitch_render(struct RastPort *rp, int pane_y0,
     LONG ca = math_cos(cam_angle);
     LONG sa = math_sin(cam_angle);
 
-    /* Sky + ground fill. Sky above horizon, single-hue ground below. */
+    /* Sky above horizon. */
     UBYTE sky_pen = (pane_y0 == PANE_P1_Y0) ? PEN_SKY_BOT : PEN_SKY_TOP;
     band(rp, pane_y0, pane_y0 + HORIZON_Y - 1, sky_pen);
-    band(rp, pane_y0 + HORIZON_Y, pane_y0 + PANE_H - 1, PEN_GRID_A);
 
-    /* Horizon divider — one-pixel high stripe of PEN_BLACK. */
+    /* Chequered ground. */
+    draw_checker_floor(rp, pane_y0, cam_x, cam_z, cam_angle);
+
+    /* Horizon divider — one-pixel high black. */
     SetAPen(rp, PEN_BLACK);
     Move(rp, 0, pane_y0 + HORIZON_Y);
     Draw(rp, SCR_W - 1, pane_y0 + HORIZON_Y);
 
-    /* Grid lines. Draw all lines within the pitch box; projection
-     * naturally handles distance falloff. */
-    SetAPen(rp, PEN_GRID_LINE);
-
-    /* Lines of constant X (goal-to-goal direction), running along Z. */
-    LONG x;
-    for (x = -PITCH_LENGTH; x <= PITCH_LENGTH; x += GRID_STEP) {
-        world_line(rp, x, -PITCH_WIDTH, x, PITCH_WIDTH,
-                   cam_x, cam_z, ca, sa, pane_y0);
-    }
-    /* Lines of constant Z (sideline direction), running along X. */
+    /* Goal beams: two posts at each end of the pitch. */
     LONG z;
-    for (z = -PITCH_WIDTH; z <= PITCH_WIDTH; z += GRID_STEP) {
-        world_line(rp, -PITCH_LENGTH, z, PITCH_LENGTH, z,
-                   cam_x, cam_z, ca, sa, pane_y0);
-    }
-
-    /* Goal beams: vertical stripes at the two pitch ends, drawn as
-     * pairs of world-space "posts" projected + line-drawn. */
     for (z = -PITCH_WIDTH; z <= PITCH_WIDTH; z += PITCH_WIDTH) {
         WORD sx, sy_bot, sy_top;
         SetAPen(rp, PEN_GOAL_P2);
@@ -171,8 +279,7 @@ void pitch_render(struct RastPort *rp, int pane_y0,
         }
     }
 
-    /* Ball: project centre, draw a small filled disc whose radius
-     * scales with 1/depth so it perspective-shrinks naturally. */
+    /* Ball as a shaded sphere. */
     if (ball) {
         LONG dx = ball->x - cam_x;
         LONG dz = ball->z - cam_z;
@@ -182,22 +289,9 @@ void pitch_render(struct RastPort *rp, int pane_y0,
             if (project(ball->x, 0, ball->z, cam_x, cam_z, ca, sa, pane_y0, &bsx, &bsy)) {
                 LONG r_px = (BALL_RADIUS * FOCAL) / (zc >> FP);
                 int  r    = (int)(r_px >> FP);
-                if (r < 2)  r = 2;
-                if (r > 20) r = 20;
-                SetAPen(rp, PEN_BALL);
-                int dy;
-                for (dy = -r; dy <= r; dy++) {
-                    int hw = (int)( ((long)r * r - (long)dy * dy) );
-                    if (hw <= 0) continue;
-                    /* integer sqrt via small loop — r is small */
-                    int w = 0; while ((w+1)*(w+1) <= hw) w++;
-                    int y = bsy + dy;
-                    if (y < pane_y0 || y >= pane_y0 + PANE_H) continue;
-                    int x0 = bsx - w, x1 = bsx + w;
-                    if (x0 < 0) x0 = 0;
-                    if (x1 > SCR_W - 1) x1 = SCR_W - 1;
-                    Move(rp, x0, y); Draw(rp, x1, y);
-                }
+                if (r < 3)  r = 3;
+                if (r > 30) r = 30;
+                draw_ball_sphere(rp, pane_y0, bsx, bsy, r);
             }
         }
     }

@@ -50,10 +50,12 @@
 #define PEN_GRID_LINE  5     /* grid line colour */
 #define PEN_GOAL_P1    6     /* P1's goal beam */
 #define PEN_GOAL_P2    7     /* P2's goal beam */
-#define PEN_BALL       8     /* red ball */
-#define PEN_HUD_BG     9
-#define PEN_HUD_FG    10
-#define PEN_WHITE     11
+#define PEN_BALL_DARK  8     /* ball shadow edge */
+#define PEN_BALL       9     /* mid red */
+#define PEN_BALL_HI   10     /* highlight */
+#define PEN_HUD_BG    11
+#define PEN_HUD_FG    12
+#define PEN_WHITE     13
 
 /* ---- rotofoil state ----------------------------------------------- */
 typedef struct {
