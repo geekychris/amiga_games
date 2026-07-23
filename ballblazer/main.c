@@ -59,12 +59,14 @@ static void set_palette(struct ViewPort *vp)
     put_rgb(vp, PEN_BLACK,      0,   0,   0);
     put_rgb(vp, PEN_SKY_TOP,   30,  20,  90);   /* P2 pane sky: deep blue */
     put_rgb(vp, PEN_SKY_BOT,  110,  60, 130);   /* P1 pane sky: magenta */
-    put_rgb(vp, PEN_GRID_A,    30,  90,  40);   /* ground green */
-    put_rgb(vp, PEN_GRID_B,    20,  70,  30);   /* ground green darker */
-    put_rgb(vp, PEN_GRID_LINE,180, 200, 220);   /* grid line pale cyan */
+    put_rgb(vp, PEN_GRID_A,    20,  20,  50);   /* checker cell A: dark blue-black */
+    put_rgb(vp, PEN_GRID_B,   180, 180, 200);   /* checker cell B: pale grey */
+    put_rgb(vp, PEN_GRID_LINE, 50,  50,  90);   /* grid seam colour */
     put_rgb(vp, PEN_GOAL_P1,   40, 200, 255);   /* P1 goal cyan */
     put_rgb(vp, PEN_GOAL_P2,  255, 180,  40);   /* P2 goal amber */
-    put_rgb(vp, PEN_BALL,     240,  40,  40);   /* classic red ball */
+    put_rgb(vp, PEN_BALL_DARK, 90,  10,  10);   /* ball terminator */
+    put_rgb(vp, PEN_BALL,     220,  40,  30);   /* ball mid red */
+    put_rgb(vp, PEN_BALL_HI,  255, 200, 160);   /* ball specular hint */
     put_rgb(vp, PEN_HUD_BG,    10,  10,  25);
     put_rgb(vp, PEN_HUD_FG,   220, 220, 240);
     put_rgb(vp, PEN_WHITE,    255, 255, 255);
@@ -223,14 +225,14 @@ static LONG atan2_deg(LONG dy, LONG dx)
 static void update_rotofoil(Rotofoil *r, int fwd, int back, int lft, int rgt,
                             const Ball *b)
 {
-    /* Auto-face the ball. */
-    LONG dx = b->x - r->x;
-    LONG dz = b->z - r->z;
-    if (dx | dz) r->angle = atan2_deg(dz, dx);
-
-    /* Convert input into world-space acceleration. Camera forward
-     * is (cos a, sin a), right is (sin a, -cos a). */
-    LONG ca = math_cos(r->angle), sa = math_sin(r->angle);
+    /* In the original Ballblazer each rotofoil ALWAYS faces its
+     * opponent's goal — P1's angle is fixed at 0 (+X), P2's at 180
+     * (-X). No rotation. WASD is direct world-axis movement:
+     *   forward = toward opponent's goal (sign of camera forward)
+     *   strafe  = sideways along Z, sign matches on-screen direction. */
+    (void)b;
+    LONG ca = math_cos(r->angle);       /* +1 for P1, -1 for P2 */
+    LONG sa = math_sin(r->angle);       /* 0 for both */
     LONG af = 0, ar = 0;
     if (fwd)  af += ACCEL;
     if (back) af -= ACCEL;
@@ -410,24 +412,28 @@ int main(void)
             }
         }
 
-        /* CPU strategy:
-         *   - No ball: chase the ball (auto-face → drive forward).
-         *   - Has ball: drive toward P1's goal (auto-face aims at ball
-         *     which is glued in front → we need to face -X). Override
-         *     the auto-face by aiming at a virtual target = P1's goal
-         *     side of the pitch, with a slight z bias to weave. */
-        Ball cpu_target = ball;
-        if (p2.has_ball) {
-            cpu_target.x = -PITCH_LENGTH;
-            cpu_target.z = 0;
-        }
-        LONG dx = cpu_target.x - p2.x, dz = cpu_target.z - p2.z;
-        LONG dd = ((dx >> 8)*(dx >> 8) + (dz >> 8)*(dz >> 8));
-        LONG close2 = ((PICKUP_DIST >> 8) * (PICKUP_DIST >> 8));
-        int cpu_fwd = (dd > close2) || p2.has_ball;
+        /* CPU strategy with fixed facing:
+         *   - Target: ball position (chase) or P1 goal (when carrying).
+         *   - P2 faces -X (angle 180) so its "forward" = -X (toward P1).
+         *   - Pick fwd/back based on X-delta to target, strafe based on
+         *     Z-delta. Small deadband so it doesn't jitter. */
+        LONG tgt_x, tgt_z;
+        if (p2.has_ball) { tgt_x = -PITCH_LENGTH; tgt_z = 0; }
+        else             { tgt_x = ball.x;        tgt_z = ball.z; }
+        LONG dx_t = tgt_x - p2.x;
+        LONG dz_t = tgt_z - p2.z;
+        int cpu_fwd = 0, cpu_back = 0, cpu_lft = 0, cpu_rgt = 0;
+        /* P2 faces -X: "forward" = -X, so we want to go forward when
+         * target is more negative in X than us (dx_t < -threshold). */
+        if (dx_t < -ONE) cpu_fwd  = 1;
+        if (dx_t >  ONE) cpu_back = 1;
+        /* Strafe: P2's screen-right corresponds to +Z (since angle=180,
+         * right vector = (sin 180, -cos 180) = (0, +1)). Move toward tgt_z. */
+        if (dz_t >  ONE) cpu_rgt = 1;
+        if (dz_t < -ONE) cpu_lft = 1;
 
         update_rotofoil(&p1, in_fwd, in_back, in_left, in_right, &ball);
-        update_rotofoil(&p2, cpu_fwd, 0, 0, 0, &cpu_target);
+        update_rotofoil(&p2, cpu_fwd, cpu_back, cpu_lft, cpu_rgt, &ball);
         update_ball();
         check_goal();
 
