@@ -298,8 +298,11 @@ static void update_ball(void)
         Rotofoil *carrier = (ball.carrier == 0) ? &p1 : &p2;
         Rotofoil *other   = (ball.carrier == 0) ? &p2 : &p1;
         LONG ca = math_cos(carrier->angle), sa = math_sin(carrier->angle);
-        ball.x = carrier->x + ((2L * ONE * ca) >> FP);
-        ball.z = carrier->z + ((2L * ONE * sa) >> FP);
+        /* ca/sa are already ONE-scaled, so 2 world units in front of
+         * the carrier is just (2*ca, 2*sa). Do NOT pre-multiply by ONE
+         * — that overflows a 32-bit LONG (2 * 65536 * 65536 = 2^33). */
+        ball.x = carrier->x + (2L * ca);
+        ball.z = carrier->z + (2L * sa);
         ball.vx = 0; ball.vz = 0;
 
         /* Tackle: if the other rotofoil overlaps the ball's world
