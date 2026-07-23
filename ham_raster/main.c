@@ -962,32 +962,39 @@ int main(void)
         req_mode = -1;
 
         WORD bx = 0, by = 0;
-        static WORD prev_bx = 0, prev_dx = 0;
+        /* Physical bounce: track (px, py, vx, vy) in pixels/frame.
+         * Horizontal walls reverse vx and clang (discrete event ⇒
+         * one clang per hit). Vertical gravity + floor bounce with
+         * a touch of damping so the motion stays interesting. Ball
+         * spin is driven by horizontal velocity so the checker
+         * rolls with the direction of travel. */
+        static WORD  px_pos = 0,  py_pos = 0;
+        static WORD  vx     = 3,  vy     = 0;
+        static int   init_done = 0;
         if (g_bounce) {
-            /* Classic Boing motion: sinusoidal horizontal drift with
-             * a parabolic vertical bounce. abs(sin) gives the "hits
-             * floor" cusps at frequency 2×; horizontal at half that
-             * so each landing alternates side. */
-            LONG hx = ((LONG)W * 30) / 100;      /* 30% of screen width */
-            LONG hy = ((LONG)H * 25) / 100;      /* 25% of screen height */
-            LONG sh = SIN((frame_count * 2) % 360);            /* -ONE..ONE */
-            LONG sv = SIN((frame_count * 4) % 360);
-            if (sv < 0) sv = -sv;                              /* abs → bounce */
-            bx = (WORD)((sh * hx) >> FP);
-            by = (WORD)(hy - ((sv * hy) >> FP));               /* drop from top */
-            /* Spin the ball while bouncing so the checker rolls. */
-            az = (frame_count * 4) % 360;
-
-            /* Clang when horizontal motion reverses — the ball has
-             * reached its leftmost / rightmost extent, i.e. "hit the
-             * side". Detect by watching dx change sign. */
-            WORD dx = bx - prev_bx;
-            if (prev_dx != 0 && ((prev_dx > 0 && dx <= 0) || (prev_dx < 0 && dx >= 0)))
-                sound_play_boing();
-            prev_bx = bx;
-            if (dx != 0) prev_dx = dx;
+            WORD hx = (WORD)(((LONG)W * 30) / 100);
+            WORD hy = (WORD)(((LONG)H * 25) / 100);
+            const WORD g   = 1;                    /* gravity, px/frame^2 */
+            if (!init_done) {
+                px_pos = -hx;  py_pos = 0;
+                vx = 3;        vy = 0;
+                init_done = 1;
+            }
+            /* integrate */
+            px_pos += vx;
+            vy     += g;
+            py_pos += vy;
+            /* wall bounces */
+            if (px_pos >  hx) { px_pos =  hx; vx = -vx; sound_play_boing(); }
+            if (px_pos < -hx) { px_pos = -hx; vx = -vx; sound_play_boing(); }
+            /* floor bounce — top of the drop zone is 0, floor at +hy */
+            if (py_pos >= hy) { py_pos = hy; vy = -vy; }
+            bx = px_pos;
+            by = py_pos;
+            /* spin proportional to horizontal velocity direction */
+            az = (az + vx * 3 + 360) % 360;
         } else {
-            prev_bx = 0; prev_dx = 0;
+            init_done = 0;
         }
         render_frame(ax, ay, az, bx, by);
         frame_count++;
