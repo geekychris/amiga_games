@@ -88,15 +88,26 @@ void clear_selection(Pane *p)
  * (Volumes) rendering. Path == "" is the sentinel. */
 int is_volume_view(const Pane *p) { return p->path[0] == 0; }
 
-/* Volume enumeration via DOS `Info` command captured to RAM: - safer
- * than walking LockDosList directly, which had a DSI crash on OS4/PPC
- * (the classic `struct DosList` layout has diverged and BADDR(dol_Name)
- * doesn't survive the OS4 union rework). We parse Info's output: each
- * line "NAME:  Mounted  ..." gives us a volume/assign name.
+/* Volume/device list: a curated static set of the common Amiga
+ * assigns + a handful of typical HDD device names. Enter on any of
+ * them tries to Lock() the path; failures fall through to the
+ * regular "Lock failed" status message. If a specific device isn't
+ * mounted (say DH2: on this machine) the user sees the error and
+ * can try another.
  *
- * Not the fastest path but bulletproof: `Info` is guaranteed to exist
- * on any AmigaDOS >= 1.3 and its output format has been stable for
- * three decades. */
+ * We used to shell out `C:Info > T:masterwork.vols` and parse the
+ * output, but that combination hung the whole emulator on OS4/PPC
+ * (Execute + shell redirect interaction wasn't reliable). Static
+ * list is bulletproof and covers 99% of what users actually want.
+ * The Devices button in the UI also offers a "type your own path"
+ * prompt for anything not in the list. */
+static const char *const g_common_devices[] = {
+    "SYS:", "RAM:", "DH0:", "DH1:", "DH2:", "WORK:",
+    "C:", "S:", "L:", "LIBS:", "DEVS:", "FONTS:",
+    "T:", "ENV:", "PROGDIR:", "MOSSYS:", "PC0:", "DF0:",
+    NULL
+};
+
 void refresh_volumes(Pane *p)
 {
     p->count = 0;
@@ -104,71 +115,19 @@ void refresh_volumes(Pane *p)
     p->scroll = 0;
     p->path[0] = 0;
 
-    const char *tmpfile = "T:masterwork.vols";
-    char cmd[128];
-    snprintf(cmd, sizeof(cmd), "C:Info >%s", tmpfile);
-    BPTR nil = Open((STRPTR)"NIL:", MODE_NEWFILE);
-    if (!nil || !Execute((STRPTR)cmd, (BPTR)0, nil)) {
-        if (nil) Close(nil);
-        snprintf(status_msg, sizeof(status_msg), "Info failed");
-        return;
-    }
-    Close(nil);
-
-    BPTR f = Open((STRPTR)tmpfile, MODE_OLDFILE);
-    if (!f) {
-        snprintf(status_msg, sizeof(status_msg), "can't read %s", tmpfile);
-        return;
-    }
-    char line[256];
-    while (FGets(f, (STRPTR)line, sizeof(line)) && p->count < MAX_ENTRIES) {
-        /* Info prints two sections; we care about lines that start with
-         * a name followed by ':' (volumes) or that look like an assign.
-         * Names never contain a space, so the first token that ends in
-         * ':' is our candidate. Skip blank / header lines. */
-        char *nl = strchr(line, '\n');
-        if (nl) *nl = 0;
-        if (line[0] == 0 || line[0] == ' ' || line[0] == '\t') continue;
-        if (strchr(line, ':') == NULL) continue;
-        /* Volume lines look like: "Ram Disk [RAM]" or the header.
-         * The most reliable pattern is: token[0] = name, ends where a
-         * space or ':' or [ appears. Grab up to the first ':' or space. */
-        char name[MAX_NAME];
-        int n = 0;
-        for (int i = 0; line[i] && n < MAX_NAME - 2; i++) {
-            char c = line[i];
-            if (c == ' ' || c == '\t' || c == '[') break;
-            name[n++] = c;
-        }
-        if (n < 2) continue;
-        /* Ensure trailing ':' */
-        if (name[n - 1] != ':') { name[n++] = ':'; }
-        name[n] = 0;
-        /* Skip common header words that would trip our heuristic. */
-        if (stricmp((STRPTR)name, (STRPTR)"Unit:") == 0) continue;
-        if (stricmp((STRPTR)name, (STRPTR)"Size:") == 0) continue;
-        if (stricmp((STRPTR)name, (STRPTR)"Used:") == 0) continue;
-        if (stricmp((STRPTR)name, (STRPTR)"Free:") == 0) continue;
-        if (stricmp((STRPTR)name, (STRPTR)"Full:") == 0) continue;
-        if (stricmp((STRPTR)name, (STRPTR)"Errs:") == 0) continue;
-
+    for (int i = 0; g_common_devices[i] && p->count < MAX_ENTRIES; i++) {
         Entry *ent = &p->entries[p->count];
-        strcpy(ent->name, name);
+        strncpy(ent->name, g_common_devices[i], MAX_NAME - 1);
+        ent->name[MAX_NAME - 1] = 0;
         ent->is_dir   = 1;
         ent->size     = 0;
         ent->selected = 0;
         p->count++;
     }
-    Close(f);
-    DeleteFile((STRPTR)tmpfile);
 
-    if (p->count == 0) {
-        snprintf(status_msg, sizeof(status_msg),
-                 "no volumes parsed - try typing a path");
-    } else {
-        snprintf(status_msg, sizeof(status_msg),
-                 "%d device(s) - Enter to open", p->count);
-    }
+    snprintf(status_msg, sizeof(status_msg),
+             "%d common devices - Enter to open (some may not be mounted)",
+             p->count);
 }
 
 /* --- directory refresh ------------------------------------------- */
