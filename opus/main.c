@@ -55,10 +55,17 @@ struct GfxBase       *GfxBase       = NULL;
 /* Layout */
 #define WIN_W          640
 #define WIN_H          400
-#define ROW_H          10
-#define HEADER_H       24
-#define STATUS_H       14
 #define PANE_MARGIN    6
+
+/* Row / header / status heights are derived from the RastPort font
+ * at startup — hardcoding 10 pixels worked on Workbench topaz/8 but
+ * OS4's default screen font is 12+ pixels tall, so text overlapped.
+ * These get set in main() once we have a RastPort. Sensible fallbacks
+ * cover the case where the font tag is null. */
+static int g_row_h    = 10;   /* per-entry row height */
+static int g_baseline = 8;    /* Text() draws with y at baseline */
+static int g_header_h = 24;   /* space for path bar + separator */
+static int g_status_h = 14;   /* bottom hint / feedback bar */
 
 #define MAX_ENTRIES    256
 #define MAX_PATH       260
@@ -230,14 +237,16 @@ static void draw_pane(int idx, int x0, int y0, int w, int h)
         Draw(rp, x0 + 1, y0 + 1);
     }
 
-    /* Path header */
-    draw_string(x0 + 4, y0 + 12, p->path, PEN_FG, PEN_BG);
+    /* Path header — baseline sits at margin + font baseline. */
+    draw_string(x0 + 4, y0 + 2 + g_baseline, p->path, PEN_FG, PEN_BG);
     SetAPen(rp, PEN_BORDER);
-    Move(rp, x0 + 2, y0 + 16);
-    Draw(rp, x0 + w - 3, y0 + 16);
+    int sep_y = y0 + g_header_h - 4;
+    Move(rp, x0 + 2, sep_y);
+    Draw(rp, x0 + w - 3, sep_y);
 
     /* Entries — clip to visible rows */
-    int rows_visible = (h - HEADER_H - 4) / ROW_H;
+    int rows_visible = (h - g_header_h - 4) / g_row_h;
+    if (rows_visible < 1) rows_visible = 1;
 
     /* Keep cursor visible (scroll if needed) */
     if (p->cursor < p->scroll) p->scroll = p->cursor;
@@ -246,15 +255,17 @@ static void draw_pane(int idx, int x0, int y0, int w, int h)
 
     for (int i = 0; i < rows_visible && i + p->scroll < p->count; i++) {
         int idx_e = i + p->scroll;
-        int y = y0 + HEADER_H + i * ROW_H;
+        int row_top    = y0 + g_header_h + i * g_row_h;
+        int text_base  = row_top + g_baseline;
         UBYTE fg = PEN_FG, bg = PEN_BG;
         int is_cursor = (idx_e == p->cursor && is_active);
         if (is_cursor) { fg = PEN_HL_FG; bg = PEN_HL_BG; }
 
-        /* Highlight the entire row on cursor */
+        /* Highlight the entire row on cursor — RectFill spans the row
+         * cell exactly so highlights don't clip into neighbouring rows. */
         if (is_cursor) {
             SetAPen(rp, PEN_HL_BG);
-            RectFill(rp, x0 + 2, y - 8, x0 + w - 3, y + 1);
+            RectFill(rp, x0 + 2, row_top, x0 + w - 3, row_top + g_row_h - 1);
         }
 
         char line[160];
@@ -264,32 +275,47 @@ static void draw_pane(int idx, int x0, int y0, int w, int h)
             snprintf(line, sizeof(line), "       %-32.32s %8ld",
                      p->entries[idx_e].name, (long)p->entries[idx_e].size);
         }
-        /* Truncate to fit width */
-        int max_chars = (w - 12) / 8;
+        /* Truncate to fit width — use actual character width. */
+        int char_w = rp->TxWidth > 0 ? rp->TxWidth : 8;
+        int max_chars = (w - 12) / char_w;
         if ((int)strlen(line) > max_chars) line[max_chars] = 0;
-        draw_string(x0 + 6, y, line, fg, bg);
+        draw_string(x0 + 6, text_base, line, fg, bg);
     }
 }
 
 static void draw_status(int x0, int y0, int w)
 {
     SetAPen(rp, PEN_BG);
-    RectFill(rp, x0, y0, x0 + w - 1, y0 + STATUS_H - 1);
+    RectFill(rp, x0, y0, x0 + w - 1, y0 + g_status_h - 1);
     SetAPen(rp, PEN_BORDER);
     Move(rp, x0, y0);
     Draw(rp, x0 + w - 1, y0);
-    draw_string(x0 + 4, y0 + 10, status_msg, PEN_FG, PEN_BG);
+    draw_string(x0 + 4, y0 + 2 + g_baseline, status_msg, PEN_FG, PEN_BG);
+}
+
+/* Layout constants derived from window dims — used by both draw and
+ * mouse-hit code so a click always maps to the same on-screen row we
+ * drew. */
+typedef struct {
+    int x0, y0, w, h;
+} PaneRect;
+
+static void pane_rect(int idx, PaneRect *r)
+{
+    int pane_w = (WIN_W - PANE_MARGIN * 3) / 2;
+    int pane_h = WIN_H - g_status_h - PANE_MARGIN * 2;
+    r->x0 = (idx == 0) ? PANE_MARGIN : PANE_MARGIN * 2 + pane_w;
+    r->y0 = PANE_MARGIN;
+    r->w  = pane_w;
+    r->h  = pane_h;
 }
 
 static void redraw_all(void)
 {
-    int pane_w = (WIN_W - PANE_MARGIN * 3) / 2;
-    int pane_h = WIN_H - STATUS_H - PANE_MARGIN * 2;
-    int pane_y = PANE_MARGIN;
-
-    draw_pane(0, PANE_MARGIN, pane_y, pane_w, pane_h);
-    draw_pane(1, PANE_MARGIN * 2 + pane_w, pane_y, pane_w, pane_h);
-    draw_status(0, WIN_H - STATUS_H, WIN_W);
+    PaneRect r;
+    pane_rect(0, &r); draw_pane(0, r.x0, r.y0, r.w, r.h);
+    pane_rect(1, &r); draw_pane(1, r.x0, r.y0, r.w, r.h);
+    draw_status(0, WIN_H - g_status_h, WIN_W);
 }
 
 /* ---- actions ----------------------------------------------------- */
@@ -402,6 +428,76 @@ static void delete_selected(void)
     }
 }
 
+/* ---- mouse hit-testing ------------------------------------------ */
+
+/* Given window pixel (mx,my), figure out which pane it's inside and
+ * which entry index (or -1 if the click is in the header/border/gap).
+ * Uses the same layout math as draw_pane so a click always lines up
+ * with the row you see. */
+static int hit_test(int mx, int my, int *out_pane, int *out_entry)
+{
+    for (int i = 0; i < 2; i++) {
+        PaneRect r;
+        pane_rect(i, &r);
+        if (mx < r.x0 || mx >= r.x0 + r.w) continue;
+        if (my < r.y0 || my >= r.y0 + r.h) continue;
+        *out_pane = i;
+        /* Only the row area counts as an entry hit — header/separator
+         * click switches the pane without moving the cursor. */
+        int rows_top = r.y0 + g_header_h;
+        if (my < rows_top) {
+            *out_entry = -1;
+        } else {
+            int row = (my - rows_top) / g_row_h;
+            int idx = row + panes[i].scroll;
+            if (idx >= 0 && idx < panes[i].count) *out_entry = idx;
+            else                                   *out_entry = -1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+/* Double-click detection: two clicks on the same pane/entry within
+ * ~500 ms count as a double-click. Uses DateStamp for portability;
+ * no timer.device dependency. */
+static void datestamp_now(struct DateStamp *ds) { DateStamp(ds); }
+
+/* Approximate milliseconds between two DateStamps. Rolls over at
+ * midnight, but that's fine for the tiny gap between clicks. */
+static LONG ds_delta_ms(const struct DateStamp *a, const struct DateStamp *b)
+{
+    LONG dm = (b->ds_Minute - a->ds_Minute) * 60000L;
+    /* ds_Tick is at TICKS_PER_SECOND (50 on PAL/OS4). Convert. */
+    LONG dt = (b->ds_Tick - a->ds_Tick) * 20L;
+    return dm + dt;
+}
+
+static int              last_click_pane   = -1;
+static int              last_click_entry  = -1;
+static struct DateStamp last_click_ts     = {0, 0, 0};
+
+static void handle_click(int mx, int my)
+{
+    int pane = 0, entry = -1;
+    if (!hit_test(mx, my, &pane, &entry)) return;
+    active_pane = pane;
+    if (entry < 0) return;   /* header/border switch-only click */
+    panes[pane].cursor = entry;
+
+    struct DateStamp now;
+    datestamp_now(&now);
+    int is_double =
+        (pane == last_click_pane &&
+         entry == last_click_entry &&
+         ds_delta_ms(&last_click_ts, &now) < 500);
+    last_click_pane  = pane;
+    last_click_entry = entry;
+    last_click_ts    = now;
+
+    if (is_double) enter_selected();
+}
+
 /* ---- input dispatch --------------------------------------------- */
 
 static void handle_key(UWORD raw)
@@ -491,7 +587,8 @@ int main(void)
         WA_DepthGadget,  TRUE,
         WA_SizeGadget,   FALSE,
         WA_Activate,     TRUE,
-        WA_IDCMP,        IDCMP_CLOSEWINDOW | IDCMP_RAWKEY,
+        WA_IDCMP,        IDCMP_CLOSEWINDOW | IDCMP_RAWKEY
+                       | IDCMP_MOUSEBUTTONS,
         TAG_DONE);
 
     if (!win) {
@@ -502,6 +599,19 @@ int main(void)
         return 1;
     }
     rp = win->RPort;
+
+    /* Grab the actual font metrics from the RastPort so row heights match
+     * whatever font the user has set (Workbench topaz/8 is ~10px, OS4's
+     * default is 12-14, custom fonts vary). Row = char height + 2px
+     * leading; baseline sits at row_top + tf_Baseline. */
+    if (rp->Font) {
+        int fh = rp->Font->tf_YSize;
+        int bl = rp->Font->tf_Baseline;
+        if (fh > 0) g_row_h    = fh + 2;
+        if (bl > 0) g_baseline = bl;
+        g_header_h = g_row_h + 8;   /* path text + separator + margin */
+        g_status_h = g_row_h + 4;
+    }
 
     refresh_pane(&panes[0]);
     refresh_pane(&panes[1]);
@@ -514,13 +624,19 @@ int main(void)
         WaitPort(win->UserPort);
         struct IntuiMessage *msg;
         while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort))) {
-            ULONG cls = msg->Class;
+            ULONG cls  = msg->Class;
             UWORD code = msg->Code;
+            WORD  mx   = msg->MouseX;
+            WORD  my   = msg->MouseY;
             ReplyMsg((struct Message *)msg);
             if (cls == IDCMP_CLOSEWINDOW) {
                 running = 0;
             } else if (cls == IDCMP_RAWKEY) {
                 handle_key(code);
+            } else if (cls == IDCMP_MOUSEBUTTONS) {
+                /* Only act on left-button PRESS (SELECTDOWN); ignore
+                 * release + right button. */
+                if (code == SELECTDOWN) handle_click(mx, my);
             }
         }
         redraw_all();
