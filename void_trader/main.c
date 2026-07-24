@@ -43,8 +43,12 @@
 #include "modplay.h"
 #include "sfx.h"
 
+#ifndef __PPC__
+/* On OS4, <proto/{intuition,graphics}.h> already extern these library
+ * bases (as struct Library *). Classic 68k needed the app to own them. */
 struct IntuitionBase *IntuitionBase;
 struct GfxBase       *GfxBase;
+#endif
 
 /* Bigger stack — engine3d.c has a couple of medium-sized arrays
  * and view_matrix does ~50 stack LONGs. Give ourselves headroom. */
