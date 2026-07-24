@@ -1,5 +1,5 @@
 /*
- * Masterwork — main entry: window + event loop + shared state.
+ * Masterwork - main entry: window + event loop + shared state.
  *
  * Panes rendering, file operations, dialogs, and the button bar live
  * in their own files; this one just wires it all together and owns
@@ -86,6 +86,15 @@ static void enter_selected(void)
     if (p->cursor >= p->count) return;
     Entry *e = &p->entries[p->cursor];
 
+    /* Volume-list mode: entry names already carry the ':' - just adopt
+     * as the new path and refresh normally. */
+    if (is_volume_view(p) && e->is_dir) {
+        strncpy(p->path, e->name, MAX_PATH - 1);
+        p->path[MAX_PATH - 1] = 0;
+        refresh_pane(p);
+        return;
+    }
+
     if (!e->is_dir) {
         /* Non-dir Enter → try to View it (same as the button). */
         op_view();
@@ -105,8 +114,13 @@ static void enter_selected(void)
 static void ascend(void)
 {
     Pane *p = &panes[active_pane];
+    if (is_volume_view(p)) {
+        snprintf(status_msg, sizeof(status_msg), "already at volume list");
+        return;
+    }
     if (is_at_root(p->path)) {
-        snprintf(status_msg, sizeof(status_msg), "already at root");
+        /* Past root → drop to the volume picker. */
+        refresh_volumes(p);
         return;
     }
     ascend_path(p->path);
@@ -140,7 +154,7 @@ static void handle_key(UWORD raw)
         case 0x40: /* Space     */ toggle_selection(); break;
         case 0x45: /* ESC       */ running = 0; break;
 
-        /* Letter shortcuts also work — buttons.c dispatches via bar. */
+        /* Letter shortcuts also work - buttons.c dispatches via bar. */
         case 0x33: /* C */ op_copy(1);   break;
         case 0x36: /* M */ op_move(1);   break;
         case 0x22: /* D */ op_delete(1); break;
@@ -216,13 +230,20 @@ int main(void)
         WA_Top,         20,
         WA_Width,       WIN_W,
         WA_Height,      WIN_H,
-        WA_Title,       (ULONG)"Masterwork — file manager",
+        /* Plain ASCII hyphen - topaz doesn't render UTF-8 em-dash,
+         * shows as garbage. Same for other non-ASCII in title bars. */
+        WA_Title,       (ULONG)"Masterwork - file manager",
         WA_CloseGadget, TRUE,
         WA_DragBar,     TRUE,
         WA_DepthGadget, TRUE,
         WA_SizeGadget,  FALSE,
         WA_Activate,    TRUE,
-        WA_IDCMP,       IDCMP_CLOSEWINDOW | IDCMP_RAWKEY | IDCMP_MOUSEBUTTONS,
+        /* REFRESHWINDOW: fired by Intuition when part of our window
+         * was hidden then re-exposed (drag, other window covered it,
+         * screen depth-arrange). We reply with BeginRefresh + full
+         * redraw + EndRefresh so no ghost/blank patches remain. */
+        WA_IDCMP,       IDCMP_CLOSEWINDOW | IDCMP_RAWKEY
+                      | IDCMP_MOUSEBUTTONS | IDCMP_REFRESHWINDOW,
         TAG_DONE);
 
     if (!win) {
@@ -265,6 +286,16 @@ int main(void)
             else if (cls == IDCMP_RAWKEY)         handle_key(code);
             else if (cls == IDCMP_MOUSEBUTTONS &&
                      code == SELECTDOWN)          handle_click(mx, my);
+            else if (cls == IDCMP_REFRESHWINDOW) {
+                /* Intuition-mandated refresh sandwich - BeginRefresh
+                 * takes the damage lock, we paint, EndRefresh releases
+                 * it. Missing this leaves parts of the window blank
+                 * whenever another window covers ours (or the user
+                 * dragged past a border). */
+                BeginRefresh(win);
+                redraw_all();
+                EndRefresh(win, TRUE);
+            }
         }
         redraw_all();
         if (bridge_ok) ab_poll();

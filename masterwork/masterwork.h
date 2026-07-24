@@ -89,6 +89,11 @@ void pane_rect(int idx, PaneRect *r);
 
 /* --- panes.c --- */
 void refresh_pane(Pane *p);
+/* Populate a pane with all currently-mounted DOS volumes + assigns
+ * (Enter jumps into the picked one). Signalled by path[0] == 0. */
+void refresh_volumes(Pane *p);
+/* True when the pane is in volume-list mode (path == ""). */
+int  is_volume_view(const Pane *p);
 void draw_pane(int idx, int x0, int y0, int w, int h);
 int  hit_test_pane(int mx, int my, int *out_pane, int *out_entry);
 void ascend_path(char *path);

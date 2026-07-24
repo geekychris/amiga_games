@@ -1,12 +1,12 @@
 /*
- * fileops.c — file operations.
+ * fileops.c - file operations.
  *
  * Most ops shell out to the AmigaDOS Copy / Delete / Rename / MakeDir /
  * More binaries via Execute("C:X arg arg"). Two reasons:
  *   - Copy ALL and Delete ALL FORCE handle recursion + special-case
  *     protection bits for free; reimplementing them here would double
  *     the source size without adding anything.
- *   - Shell commands are the "official" AmigaDOS semantics — nobody
+ *   - Shell commands are the "official" AmigaDOS semantics - nobody
  *     will be surprised by how our copy behaves because it IS the
  *     Copy they've been using in the Shell for 30 years.
  *
@@ -273,7 +273,7 @@ int op_view(void)
     Entry *e = &p->entries[p->cursor];
     if (e->is_dir) {
         snprintf(status_msg, sizeof(status_msg),
-                 "can't view a directory — use Enter to descend");
+                 "can't view a directory - use Enter to descend");
         return 1;
     }
 
@@ -281,7 +281,7 @@ int op_view(void)
     quote_path(q, sizeof(q), p->path, e->name);
     char cmd[MAX_PATH + 32];
     snprintf(cmd, sizeof(cmd), "C:More %s", q);
-    /* Async — More opens its own window; we don't want to block. */
+    /* Async - More opens its own window; we don't want to block. */
     if (bridge_ok) AB_I("view: %s", cmd);
     BPTR nil = Open((STRPTR)"NIL:", MODE_NEWFILE);
     if (nil) {
