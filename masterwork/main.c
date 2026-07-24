@@ -30,6 +30,8 @@ struct GfxBase       *GfxBase       = NULL;
 
 /* --- shared state (extern'd in masterwork.h) --------------------- */
 
+int  g_win_w    = WIN_W_INIT;
+int  g_win_h    = WIN_H_INIT;
 int  g_row_h    = 10;
 int  g_baseline = 8;
 int  g_header_h = 24;
@@ -73,9 +75,21 @@ void redraw_all(void)
     PaneRect r;
     pane_rect(0, &r); draw_pane(0, r.x0, r.y0, r.w, r.h);
     pane_rect(1, &r); draw_pane(1, r.x0, r.y0, r.w, r.h);
-    int status_y = WIN_H - g_status_h - g_buttons_h;
-    draw_status(0, status_y, WIN_W);
+    int status_y = g_win_h - g_status_h - g_buttons_h;
+    draw_status(0, status_y, g_win_w);
     draw_buttons();
+}
+
+/* Re-cache the drawable-area size from the window's current geometry.
+ * Fires on IDCMP_NEWSIZE and once at startup. Everything downstream
+ * derives from g_win_w/g_win_h so the layout re-flows for free. */
+static void recompute_layout(void)
+{
+    if (!win) return;
+    g_win_w = win->Width  - win->BorderLeft - win->BorderRight;
+    g_win_h = win->Height - win->BorderTop  - win->BorderBottom;
+    if (g_win_w < WIN_W_MIN) g_win_w = WIN_W_MIN;
+    if (g_win_h < WIN_H_MIN) g_win_h = WIN_H_MIN;
 }
 
 /* --- input dispatch ---------------------------------------------- */
@@ -185,6 +199,16 @@ static void handle_click(int mx, int my)
     int btn = hit_test_button(mx, my);
     if (btn >= 0) { run_button(btn); return; }
 
+    /* Scrollbar strip: any click there is a page-up/down/jump — never
+     * a row select. Focus the pane too so keyboard follows the mouse. */
+    int sb_dir;
+    int sb_pane = hit_test_scrollbar(mx, my, &sb_dir);
+    if (sb_pane >= 0) {
+        active_pane = sb_pane;
+        scrollbar_scroll(sb_pane, sb_dir, my);
+        return;
+    }
+
     int pane, entry;
     if (!hit_test_pane(mx, my, &pane, &entry)) return;
     active_pane = pane;
@@ -254,22 +278,29 @@ int main(void)
     win = OpenWindowTags(NULL,
         WA_Left,        4,
         WA_Top,         12,      /* top of Workbench, dock at bottom */
-        WA_Width,       WIN_W,
-        WA_Height,      WIN_H,
+        WA_Width,       WIN_W_INIT,
+        WA_Height,      WIN_H_INIT,
+        WA_MinWidth,    WIN_W_MIN,
+        WA_MinHeight,   WIN_H_MIN,
+        WA_MaxWidth,    ~0UL,   /* no upper bound - drag as big as Workbench */
+        WA_MaxHeight,   ~0UL,
         /* Plain ASCII hyphen - topaz doesn't render UTF-8 em-dash,
          * shows as garbage. Same for other non-ASCII in title bars. */
         WA_Title,       (ULONG)"Masterwork - file manager",
         WA_CloseGadget, TRUE,
         WA_DragBar,     TRUE,
         WA_DepthGadget, TRUE,
-        WA_SizeGadget,  FALSE,
+        WA_SizeGadget,  TRUE,
         WA_Activate,    TRUE,
-        /* REFRESHWINDOW: fired by Intuition when part of our window
+        /* NEWSIZE: fired when user drags the size gadget. We
+         * recompute layout globals and full-redraw.
+         * REFRESHWINDOW: fired by Intuition when part of our window
          * was hidden then re-exposed (drag, other window covered it,
          * screen depth-arrange). We reply with BeginRefresh + full
          * redraw + EndRefresh so no ghost/blank patches remain. */
         WA_IDCMP,       IDCMP_CLOSEWINDOW | IDCMP_RAWKEY
-                      | IDCMP_MOUSEBUTTONS | IDCMP_REFRESHWINDOW,
+                      | IDCMP_MOUSEBUTTONS | IDCMP_REFRESHWINDOW
+                      | IDCMP_NEWSIZE,
         TAG_DONE);
 
     if (!win) {
@@ -282,6 +313,7 @@ int main(void)
     }
     mark("08 OpenWindow OK");
     rp = win->RPort;
+    recompute_layout();
     mark("09 got RPort");
 
     if (rp->Font) {
@@ -319,6 +351,16 @@ int main(void)
             else if (cls == IDCMP_RAWKEY)         handle_key(code);
             else if (cls == IDCMP_MOUSEBUTTONS &&
                      code == SELECTDOWN)          handle_click(mx, my);
+            else if (cls == IDCMP_NEWSIZE) {
+                /* User dragged the size gadget - re-cache the drawable
+                 * area and blank the whole client rect before redraw so
+                 * shrinks don't leave stale pixels outside the new
+                 * layout. Grow paths get the same free clear. */
+                recompute_layout();
+                SetAPen(rp, PEN_BG);
+                RectFill(rp, 0, 0, g_win_w - 1, g_win_h - 1);
+                redraw_all();
+            }
             else if (cls == IDCMP_REFRESHWINDOW) {
                 /* Intuition-mandated refresh sandwich - BeginRefresh
                  * takes the damage lock, we paint, EndRefresh releases

@@ -114,14 +114,14 @@ static void draw_button(Button *b, int is_hover)
 
 void draw_buttons(void)
 {
-    int top = WIN_H - buttons_height();
+    int top = g_win_h - buttons_height();
     int bar_h = buttons_height();
-    int cell_w = (WIN_W - PANE_MARGIN * (BUTTON_COLS + 1)) / BUTTON_COLS;
+    int cell_w = (g_win_w - PANE_MARGIN * (BUTTON_COLS + 1)) / BUTTON_COLS;
     int cell_h = (bar_h - 4) / BUTTON_ROWS - 2;
 
     /* Clear the bar background so we don't leave old text ghosts. */
     SetAPen(rp, PEN_BG);
-    RectFill(rp, 0, top, WIN_W - 1, WIN_H - 1);
+    RectFill(rp, 0, top, g_win_w - 1, g_win_h - 1);
 
     for (int i = 0; i < BUTTON_COUNT; i++) {
         int col = i % BUTTON_COLS;

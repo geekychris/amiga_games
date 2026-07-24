@@ -30,8 +30,8 @@
 
 void pane_rect(int idx, PaneRect *r)
 {
-    int pane_w = (WIN_W - PANE_MARGIN * 3) / 2;
-    int pane_h = WIN_H - g_status_h - g_buttons_h - PANE_MARGIN * 2;
+    int pane_w = (g_win_w - PANE_MARGIN * 3) / 2;
+    int pane_h = g_win_h - g_status_h - g_buttons_h - PANE_MARGIN * 2;
     r->x0 = (idx == 0) ? PANE_MARGIN : PANE_MARGIN * 2 + pane_w;
     r->y0 = PANE_MARGIN;
     r->w  = pane_w;
@@ -204,6 +204,46 @@ static void draw_string(int x, int y, const char *s, UBYTE fg, UBYTE bg)
     Text(rp, (STRPTR)s, (LONG)strlen(s));
 }
 
+/* Compute rows_visible + scrollbar track rect for a pane rect.
+ * Shared between drawing and hit-testing so a mouse click on the
+ * bar lands exactly where the thumb is drawn. */
+static int pane_rows_visible(int h)
+{
+    int rv = (h - g_header_h - 4) / g_row_h;
+    return (rv < 1) ? 1 : rv;
+}
+
+/* Track spans the entry area, insetting the top and bottom by a pixel
+ * so the border shows through. `out_*` are optional (pass NULL to skip). */
+static void scrollbar_track(int x0, int y0, int w, int h,
+                            int *tx, int *ty, int *tw, int *th)
+{
+    if (tx) *tx = x0 + w - SCROLLBAR_W - 2;
+    if (ty) *ty = y0 + g_header_h;
+    if (tw) *tw = SCROLLBAR_W;
+    if (th) *th = h - g_header_h - 4;
+}
+
+/* Thumb rect within track (based on scroll/count). Returns 0 when
+ * count fits fully (thumb fills the track, so there's nothing to
+ * scroll — callers can suppress drawing). */
+static int scrollbar_thumb(const Pane *p, int rows_visible,
+                           int ty, int th,
+                           int *thumb_y, int *thumb_h)
+{
+    int total = p->count > 0 ? p->count : 1;
+    if (rows_visible >= total) { *thumb_y = ty; *thumb_h = th; return 0; }
+    int hh = (th * rows_visible) / total;
+    if (hh < 8) hh = 8;
+    if (hh > th) hh = th;
+    int range_scroll = total - rows_visible;
+    int range_track  = th - hh;
+    int yy = (range_scroll > 0) ? ty + (p->scroll * range_track) / range_scroll : ty;
+    *thumb_y = yy;
+    *thumb_h = hh;
+    return 1;
+}
+
 void draw_pane(int idx, int x0, int y0, int w, int h)
 {
     Pane *p = &panes[idx];
@@ -237,9 +277,10 @@ void draw_pane(int idx, int x0, int y0, int w, int h)
     Move(rp, x0 + 2, sep_y);
     Draw(rp, x0 + w - 3, sep_y);
 
-    /* Entries */
-    int rows_visible = (h - g_header_h - 4) / g_row_h;
-    if (rows_visible < 1) rows_visible = 1;
+    /* Row column is inset by the scrollbar strip on the right so the
+     * text never runs under the thumb. */
+    int text_w = w - SCROLLBAR_W - 4;
+    int rows_visible = pane_rows_visible(h);
 
     if (p->cursor < p->scroll) p->scroll = p->cursor;
     if (p->cursor >= p->scroll + rows_visible)
@@ -255,7 +296,7 @@ void draw_pane(int idx, int x0, int y0, int w, int h)
 
         if (is_cursor) {
             SetAPen(rp, PEN_HL_BG);
-            RectFill(rp, x0 + 2, row_top, x0 + w - 3, row_top + g_row_h - 1);
+            RectFill(rp, x0 + 2, row_top, x0 + text_w - 1, row_top + g_row_h - 1);
             fg = PEN_HL_FG; bg = PEN_HL_BG;
         }
 
@@ -269,9 +310,26 @@ void draw_pane(int idx, int x0, int y0, int w, int h)
                      mark, p->entries[idx_e].name,
                      (long)p->entries[idx_e].size);
         }
-        int max_chars = (w - 12) / g_char_w;
+        int max_chars = (text_w - 6) / g_char_w;
+        if (max_chars < 1) max_chars = 1;
         if ((int)strlen(line) > max_chars) line[max_chars] = 0;
         draw_string(x0 + 6, base, line, fg, bg);
+    }
+
+    /* Scrollbar: draw the track always (so users can see there's a
+     * scroll region), draw the thumb only if content overflows. */
+    int tx, ty, tw, th;
+    scrollbar_track(x0, y0, w, h, &tx, &ty, &tw, &th);
+    SetAPen(rp, PEN_BG);
+    RectFill(rp, tx, ty, tx + tw - 1, ty + th - 1);
+    SetAPen(rp, PEN_BORDER);
+    Move(rp, tx, ty); Draw(rp, tx + tw - 1, ty);
+    Draw(rp, tx + tw - 1, ty + th - 1);
+    Draw(rp, tx, ty + th - 1); Draw(rp, tx, ty);
+    int thumb_y, thumb_h;
+    if (scrollbar_thumb(p, rows_visible, ty, th, &thumb_y, &thumb_h)) {
+        SetAPen(rp, is_active ? PEN_ACTIVE : PEN_HL_BG);
+        RectFill(rp, tx + 1, thumb_y, tx + tw - 2, thumb_y + thumb_h - 1);
     }
 }
 
@@ -284,7 +342,10 @@ int hit_test_pane(int mx, int my, int *out_pane, int *out_entry)
         if (my < r.y0 || my >= r.y0 + r.h) continue;
         *out_pane = i;
         int rows_top = r.y0 + g_header_h;
-        if (my < rows_top) {
+        int text_w   = r.w - SCROLLBAR_W - 4;
+        /* Anything to the right of the text column is scrollbar
+         * territory — don't confuse it with a row click. */
+        if (my < rows_top || mx > r.x0 + text_w) {
             *out_entry = -1;
         } else {
             int row = (my - rows_top) / g_row_h;
@@ -295,4 +356,59 @@ int hit_test_pane(int mx, int my, int *out_pane, int *out_entry)
         return 1;
     }
     return 0;
+}
+
+/* Scrollbar hit: if (mx,my) landed on a pane's scrollbar strip,
+ * returns the pane index and sets *dir to -1/+1 for page-up/page-down
+ * clicks (above/below the thumb), or 0 for a click on the thumb
+ * itself (caller can treat as jump-to). Returns -1 for miss. */
+int hit_test_scrollbar(int mx, int my, int *dir)
+{
+    for (int i = 0; i < 2; i++) {
+        PaneRect r;
+        pane_rect(i, &r);
+        int tx, ty, tw, th;
+        scrollbar_track(r.x0, r.y0, r.w, r.h, &tx, &ty, &tw, &th);
+        if (mx < tx || mx >= tx + tw) continue;
+        if (my < ty || my >= ty + th) continue;
+
+        int rows_visible = pane_rows_visible(r.h);
+        int thumb_y, thumb_h;
+        scrollbar_thumb(&panes[i], rows_visible, ty, th, &thumb_y, &thumb_h);
+        if      (my <  thumb_y)              *dir = -1;
+        else if (my >= thumb_y + thumb_h)    *dir = +1;
+        else                                 *dir = 0;
+        return i;
+    }
+    return -1;
+}
+
+/* Page or thumb-jump inside a pane's scroll range. dir is -1/+1
+ * from hit_test_scrollbar; my is used for direct-jump when dir==0. */
+void scrollbar_scroll(int pane_idx, int dir, int my)
+{
+    Pane *p = &panes[pane_idx];
+    PaneRect r;
+    pane_rect(pane_idx, &r);
+    int rows_visible = pane_rows_visible(r.h);
+    int max_scroll = p->count - rows_visible;
+    if (max_scroll < 0) max_scroll = 0;
+
+    if (dir != 0) {
+        p->scroll += dir * (rows_visible > 1 ? (rows_visible - 1) : 1);
+    } else {
+        /* Thumb jump: map click Y to scroll pos. */
+        int tx, ty, tw, th;
+        scrollbar_track(r.x0, r.y0, r.w, r.h, &tx, &ty, &tw, &th);
+        int rel = my - ty;
+        if (rel < 0) rel = 0;
+        if (rel >= th) rel = th - 1;
+        p->scroll = (max_scroll * rel) / (th > 0 ? th : 1);
+    }
+
+    if (p->scroll < 0)          p->scroll = 0;
+    if (p->scroll > max_scroll) p->scroll = max_scroll;
+    if (p->cursor < p->scroll)  p->cursor = p->scroll;
+    if (p->cursor >= p->scroll + rows_visible)
+        p->cursor = p->scroll + rows_visible - 1;
 }
