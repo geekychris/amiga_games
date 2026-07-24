@@ -160,22 +160,31 @@ static int load_notes_file(void)
 
 /* --- tasks ------------------------------------------------------- */
 
+/* Two formats supported on read:
+ *   'T' (v1): id|state|prio|due|recur|tags|title
+ *   'U' (v2): id|state|prio|due|recur|effort|sched|start|tags|title|notes
+ * All writes emit 'U'. Missing v2 fields default to 0/empty. */
 int storage_save_tasks(void)
 {
     BPTR f = Open((STRPTR)TASKS_PATH, MODE_NEWFILE);
     if (!f) return -1;
-    const char *hdr = "# organizer tasks v1\n";
+    const char *hdr = "# organizer tasks v2\n";
     Write(f, (STRPTR)hdr, (LONG)strlen(hdr));
-    char line[MAX_TITLE_LEN + MAX_TAGS_LEN + 128];
+    char line[MAX_TITLE_LEN + MAX_TAGS_LEN + MAX_NOTES_LEN + 128];
     for (int i = 0; i < g_tasks_count; i++) {
         Task *t = &g_tasks[i];
-        char title[MAX_TITLE_LEN], tags[MAX_TAGS_LEN];
+        char title[MAX_TITLE_LEN], tags[MAX_TAGS_LEN], notes[MAX_NOTES_LEN];
         strncpy(title, t->title, sizeof(title)); title[sizeof(title)-1] = 0;
         strncpy(tags,  t->tags,  sizeof(tags));  tags [sizeof(tags)-1]  = 0;
+        strncpy(notes, t->notes, sizeof(notes)); notes[sizeof(notes)-1] = 0;
         sanitize_field(title);
         sanitize_field(tags);
-        snprintf(line, sizeof(line), "T|%d|%d|%d|%ld|%d|%s|%s\n",
-                 t->id, t->state, t->priority, t->due, t->recur, tags, title);
+        sanitize_field(notes);
+        snprintf(line, sizeof(line),
+                 "U|%d|%d|%d|%ld|%d|%d|%ld|%d|%s|%s|%s\n",
+                 t->id, t->state, t->priority, t->due, t->recur,
+                 t->effort_min, t->scheduled_date, t->scheduled_start,
+                 tags, title, notes);
         Write(f, (STRPTR)line, (LONG)strlen(line));
     }
     Close(f);
@@ -187,22 +196,45 @@ static int load_tasks_file(void)
     g_tasks_count = 0;
     BPTR f = Open((STRPTR)TASKS_PATH, MODE_OLDFILE);
     if (!f) return 0;
-    char line[MAX_TITLE_LEN + MAX_TAGS_LEN + 128];
+    char line[MAX_TITLE_LEN + MAX_TAGS_LEN + MAX_NOTES_LEN + 128];
     while (FGets(f, (STRPTR)line, sizeof(line))) {
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
-        if (line[0] != 'T') continue;
+        if (line[0] != 'T' && line[0] != 'U') continue;
         if (g_tasks_count >= MAX_TASKS) break;
-        char *fields[10];
-        int nf = split_pipes(line, fields, 10);
-        if (nf < 8) continue;
-        Task *t = &g_tasks[g_tasks_count++];
-        t->id       = atoi(fields[1]);
-        t->state    = atoi(fields[2]);
-        t->priority = atoi(fields[3]);
-        t->due      = atol(fields[4]);
-        t->recur    = atoi(fields[5]);
-        strncpy(t->tags,  fields[6], sizeof(t->tags));  t->tags [sizeof(t->tags)-1]  = 0;
-        strncpy(t->title, fields[7], sizeof(t->title)); t->title[sizeof(t->title)-1] = 0;
+        char *fields[16];
+        int nf = split_pipes(line, fields, 16);
+        Task *t = &g_tasks[g_tasks_count];
+        memset(t, 0, sizeof(*t));
+        t->scheduled_start = -1;   /* -1 = unscheduled (default) */
+        if (line[0] == 'T') {
+            /* v1: id|state|prio|due|recur|tags|title */
+            if (nf < 8) continue;
+            t->id       = atoi(fields[1]);
+            t->state    = atoi(fields[2]);
+            t->priority = atoi(fields[3]);
+            t->due      = atol(fields[4]);
+            t->recur    = atoi(fields[5]);
+            strncpy(t->tags,  fields[6], sizeof(t->tags));  t->tags [sizeof(t->tags)-1]  = 0;
+            strncpy(t->title, fields[7], sizeof(t->title)); t->title[sizeof(t->title)-1] = 0;
+        } else {
+            /* v2: id|state|prio|due|recur|effort|sched|start|tags|title|notes */
+            if (nf < 11) continue;
+            t->id             = atoi(fields[1]);
+            t->state          = atoi(fields[2]);
+            t->priority       = atoi(fields[3]);
+            t->due            = atol(fields[4]);
+            t->recur          = atoi(fields[5]);
+            t->effort_min     = atoi(fields[6]);
+            t->scheduled_date = atol(fields[7]);
+            t->scheduled_start= atoi(fields[8]);
+            strncpy(t->tags,  fields[9],  sizeof(t->tags));  t->tags [sizeof(t->tags)-1]  = 0;
+            strncpy(t->title, fields[10], sizeof(t->title)); t->title[sizeof(t->title)-1] = 0;
+            if (nf > 11) {
+                strncpy(t->notes, fields[11], sizeof(t->notes));
+                t->notes[sizeof(t->notes)-1] = 0;
+            }
+        }
+        g_tasks_count++;
     }
     Close(f);
     return g_tasks_count;
@@ -210,22 +242,35 @@ static int load_tasks_file(void)
 
 /* --- events ------------------------------------------------------ */
 
+/* Two formats supported on read:
+ *   'E' (v1): id|date|time|recur|tags|title
+ *   'F' (v2): id|date|start|end|recur|tags|title|attendees|url|notes
+ * All writes emit 'F'. Missing v2 fields default to empty. */
 int storage_save_events(void)
 {
     BPTR f = Open((STRPTR)EVENTS_PATH, MODE_NEWFILE);
     if (!f) return -1;
-    const char *hdr = "# organizer events v1\n";
+    const char *hdr = "# organizer events v2\n";
     Write(f, (STRPTR)hdr, (LONG)strlen(hdr));
-    char line[MAX_TITLE_LEN + MAX_TAGS_LEN + 128];
+    char line[MAX_TITLE_LEN + MAX_TAGS_LEN + MAX_ATTENDEES_LEN + MAX_URL_LEN + MAX_NOTES_LEN + 128];
     for (int i = 0; i < g_events_count; i++) {
         Event *e = &g_events[i];
         char title[MAX_TITLE_LEN], tags[MAX_TAGS_LEN];
-        strncpy(title, e->title, sizeof(title)); title[sizeof(title)-1] = 0;
-        strncpy(tags,  e->tags,  sizeof(tags));  tags [sizeof(tags)-1]  = 0;
+        char att[MAX_ATTENDEES_LEN], url[MAX_URL_LEN], notes[MAX_NOTES_LEN];
+        strncpy(title, e->title,     sizeof(title)); title[sizeof(title)-1] = 0;
+        strncpy(tags,  e->tags,      sizeof(tags));  tags [sizeof(tags)-1]  = 0;
+        strncpy(att,   e->attendees, sizeof(att));   att  [sizeof(att)-1]   = 0;
+        strncpy(url,   e->url,       sizeof(url));   url  [sizeof(url)-1]   = 0;
+        strncpy(notes, e->notes,     sizeof(notes)); notes[sizeof(notes)-1] = 0;
         sanitize_field(title);
         sanitize_field(tags);
-        snprintf(line, sizeof(line), "E|%d|%ld|%d|%d|%s|%s\n",
-                 e->id, e->date, e->time, e->recur, tags, title);
+        sanitize_field(att);
+        sanitize_field(url);
+        sanitize_field(notes);
+        snprintf(line, sizeof(line),
+                 "F|%d|%ld|%d|%d|%d|%s|%s|%s|%s|%s\n",
+                 e->id, e->date, e->start_time, e->end_time, e->recur,
+                 tags, title, att, url, notes);
         Write(f, (STRPTR)line, (LONG)strlen(line));
     }
     Close(f);
@@ -237,21 +282,43 @@ static int load_events_file(void)
     g_events_count = 0;
     BPTR f = Open((STRPTR)EVENTS_PATH, MODE_OLDFILE);
     if (!f) return 0;
-    char line[MAX_TITLE_LEN + MAX_TAGS_LEN + 128];
+    char line[MAX_TITLE_LEN + MAX_TAGS_LEN + MAX_ATTENDEES_LEN + MAX_URL_LEN + MAX_NOTES_LEN + 128];
     while (FGets(f, (STRPTR)line, sizeof(line))) {
         if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
-        if (line[0] != 'E') continue;
+        if (line[0] != 'E' && line[0] != 'F') continue;
         if (g_events_count >= MAX_EVENTS) break;
-        char *fields[8];
-        int nf = split_pipes(line, fields, 8);
-        if (nf < 7) continue;
-        Event *e = &g_events[g_events_count++];
-        e->id     = atoi(fields[1]);
-        e->date   = atol(fields[2]);
-        e->time   = atoi(fields[3]);
-        e->recur  = atoi(fields[4]);
-        strncpy(e->tags,  fields[5], sizeof(e->tags));  e->tags [sizeof(e->tags)-1]  = 0;
-        strncpy(e->title, fields[6], sizeof(e->title)); e->title[sizeof(e->title)-1] = 0;
+        char *fields[16];
+        int nf = split_pipes(line, fields, 16);
+        Event *e = &g_events[g_events_count];
+        memset(e, 0, sizeof(*e));
+        if (line[0] == 'E') {
+            /* v1: id|date|time|recur|tags|title */
+            if (nf < 7) continue;
+            e->id         = atoi(fields[1]);
+            e->date       = atol(fields[2]);
+            e->start_time = atoi(fields[3]);
+            e->end_time   = -1;
+            e->recur      = atoi(fields[4]);
+            strncpy(e->tags,  fields[5], sizeof(e->tags));  e->tags [sizeof(e->tags)-1]  = 0;
+            strncpy(e->title, fields[6], sizeof(e->title)); e->title[sizeof(e->title)-1] = 0;
+        } else {
+            /* v2: id|date|start|end|recur|tags|title|attendees|url|notes */
+            if (nf < 8) continue;
+            e->id         = atoi(fields[1]);
+            e->date       = atol(fields[2]);
+            e->start_time = atoi(fields[3]);
+            e->end_time   = atoi(fields[4]);
+            e->recur      = atoi(fields[5]);
+            strncpy(e->tags,  fields[6], sizeof(e->tags));  e->tags [sizeof(e->tags)-1]  = 0;
+            strncpy(e->title, fields[7], sizeof(e->title)); e->title[sizeof(e->title)-1] = 0;
+            if (nf >  8) { strncpy(e->attendees, fields[8], sizeof(e->attendees));
+                           e->attendees[sizeof(e->attendees)-1] = 0; }
+            if (nf >  9) { strncpy(e->url, fields[9], sizeof(e->url));
+                           e->url[sizeof(e->url)-1] = 0; }
+            if (nf > 10) { strncpy(e->notes, fields[10], sizeof(e->notes));
+                           e->notes[sizeof(e->notes)-1] = 0; }
+        }
+        g_events_count++;
     }
     Close(f);
     return g_events_count;

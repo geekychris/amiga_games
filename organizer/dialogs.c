@@ -21,9 +21,15 @@
 int prompt_string(const char *title, const char *deflt, char *out, size_t outsz)
 {
     if (!out || outsz == 0) return -1;
+    /* NOTE: NO `WAIT` flag. `WAIT` keeps the CON: window on-screen
+     * after Close() until the user clicks the close gadget — fine
+     * for a single prompt, but disastrous for sequential prompts
+     * because they stack up behind each other and keyboard focus
+     * never returns to the app. AUTO makes it pop up on first
+     * Write; CLOSE gives it a close gadget for cancellation. */
     char con_spec[192];
     snprintf(con_spec, sizeof(con_spec),
-             "CON:60/60/560/80/%s/CLOSE/AUTO/WAIT",
+             "CON:60/60/560/80/%s/CLOSE/AUTO",
              title ? title : "Organizer");
     BPTR c = Open((STRPTR)con_spec, MODE_NEWFILE);
     if (!c) return -1;

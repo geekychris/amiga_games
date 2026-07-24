@@ -32,6 +32,8 @@ struct GfxBase       *GfxBase       = NULL;
 
 int    g_win_w   = WIN_W_INIT;
 int    g_win_h   = WIN_H_INIT;
+int    g_ox      = 4;   /* refreshed by recompute_layout from BorderLeft */
+int    g_oy      = 12;  /* refreshed from BorderTop */
 int    g_row_h   = 10;
 int    g_baseline = 8;
 int    g_char_w  = 8;
@@ -58,13 +60,21 @@ int    g_tasks_cursor = 0;
 int    g_tasks_scroll = 0;
 long   g_cal_month    = 0;
 long   g_cal_selected = 0;
+int    g_cal_day_view = 0;
+int    g_cal_event_cursor = 0;
 
 /* --- redraw --------------------------------------------------------- */
 
+/* Forward-declare so redraw_all can pick up the current window dims on
+ * every paint (IDCMP_REFRESHWINDOW may fire on resize without NEWSIZE
+ * on OS4, so relying on the NEWSIZE handler alone leaves stale layout). */
+static void recompute_layout(void);
+
 void redraw_all(void)
 {
-    ui_fill_rect(0, 0, g_win_w, g_win_h, PEN_BG);
-    ui_draw_tabs(0, 0, g_win_w);
+    recompute_layout();
+    ui_fill_rect(g_ox, g_oy, g_win_w, g_win_h, PEN_BG);
+    ui_draw_tabs(g_ox, g_oy, g_win_w);
 
     int cx, cy, cw, ch;
     ui_content_rect(&cx, &cy, &cw, &ch);
@@ -99,6 +109,8 @@ void state_touched(void)
 static void recompute_layout(void)
 {
     if (!g_win) return;
+    g_ox    = g_win->BorderLeft;
+    g_oy    = g_win->BorderTop;
     g_win_w = g_win->Width  - g_win->BorderLeft - g_win->BorderRight;
     g_win_h = g_win->Height - g_win->BorderTop  - g_win->BorderBottom;
     if (g_win_w < WIN_W_MIN) g_win_w = WIN_W_MIN;
@@ -299,6 +311,7 @@ int main(void)
     ab_register_var("today",        AB_TYPE_I32, &g_today);
     ab_register_var("cal_month",    AB_TYPE_I32, &g_cal_month);
     ab_register_var("cal_selected", AB_TYPE_I32, &g_cal_selected);
+    ab_register_var("cal_day_view", AB_TYPE_I32, &g_cal_day_view);
     ab_register_var("running",      AB_TYPE_I32, &g_running);
 
     /* Register scriptable actions. amiga_call_hook drives all of these. */

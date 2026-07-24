@@ -58,10 +58,20 @@
 #define MAX_NOTES      256
 #define MAX_TASKS      256
 #define MAX_EVENTS     256
-#define MAX_TAGS_LEN   64
-#define MAX_TITLE_LEN  80
-#define MAX_BODY_LEN   200
-#define MAX_PATH       256
+#define MAX_TAGS_LEN     64
+#define MAX_TITLE_LEN    80
+#define MAX_BODY_LEN     512   /* multi-line via encoded newlines */
+#define NOTE_BODY_ROWS   6     /* dialog stacks this many StringGadgets */
+#define NOTE_BODY_COLS   80    /* each row's char capacity */
+#define MAX_ATTENDEES_LEN 160
+#define MAX_URL_LEN      160
+#define MAX_NOTES_LEN    240
+#define MAX_PATH         256
+
+/* Day-view hour range. Events outside this window still exist and get
+ * shown in the drilldown list, they just don't render as time blocks. */
+#define DAY_HOUR_START   6
+#define DAY_HOUR_END     22   /* exclusive: shows 6:00 through 21:xx */
 
 /* Tabs — order controls tab-bar layout AND the tab-key cycle. */
 typedef enum {
@@ -99,26 +109,38 @@ typedef struct {
 
 typedef struct {
     int  id;
-    int  state;                  /* TaskState */
-    int  priority;               /* 1..3 */
-    long due;                    /* YYYYMMDD, 0 = none */
-    int  recur;                  /* RecurKind */
+    int  state;                    /* TaskState */
+    int  priority;                 /* 1..3 */
+    long due;                      /* YYYYMMDD, 0 = none */
+    int  recur;                    /* RecurKind */
     char tags[MAX_TAGS_LEN];
     char title[MAX_TITLE_LEN];
+    /* Extended attributes (storage v2). Older records default these
+     * to 0 / empty on load. */
+    int  effort_min;               /* estimated effort in minutes, 0 = none */
+    long scheduled_date;           /* YYYYMMDD to work on, 0 = unscheduled */
+    int  scheduled_start;          /* HHMM, -1 = all-day / unscheduled */
+    char notes[MAX_NOTES_LEN];     /* free-form description */
 } Task;
 
 typedef struct {
     int  id;
-    long date;                   /* YYYYMMDD */
-    int  time;                   /* HHMM, -1 = all-day */
-    int  recur;                  /* RecurKind */
+    long date;                            /* YYYYMMDD */
+    int  start_time;                      /* HHMM, -1 = all-day */
+    int  end_time;                        /* HHMM, -1 = no end / all-day */
+    int  recur;                           /* RecurKind */
     char tags[MAX_TAGS_LEN];
     char title[MAX_TITLE_LEN];
+    char attendees[MAX_ATTENDEES_LEN];    /* csv "; " separated */
+    char url[MAX_URL_LEN];                /* Zoom / Meet / etc */
+    char notes[MAX_NOTES_LEN];            /* free-form notes */
 } Event;
 
 /* --- runtime state (extern'd; owned by main.c) ---------------------- */
 extern int    g_win_w;
 extern int    g_win_h;
+extern int    g_ox;              /* window BorderLeft — origin of drawable area */
+extern int    g_oy;              /* window BorderTop  — origin of drawable area */
 extern int    g_row_h;
 extern int    g_baseline;
 extern int    g_char_w;
@@ -145,6 +167,8 @@ extern int    g_tasks_cursor;
 extern int    g_tasks_scroll;
 extern long   g_cal_month;       /* YYYYMM for month view */
 extern long   g_cal_selected;    /* YYYYMMDD, 0 = none */
+extern int    g_cal_day_view;    /* 0 = month grid, 1 = hourly day view */
+extern int    g_cal_event_cursor;/* row index into filtered day events */
 
 /* --- ui.c ---------------------------------------------------------- */
 void ui_draw_string(int x, int y, const char *s, UBYTE fg, UBYTE bg);
@@ -204,8 +228,26 @@ void calendar_draw(int x0, int y0, int w, int h);
 int  calendar_handle_key(UWORD raw);
 int  calendar_handle_click(int mx, int my);
 int  events_add(const char *title, long date);
+int  events_add_full(const char *title, long date, int start, int end,
+                     int recur, const char *tags, const char *attendees,
+                     const char *url, const char *notes);
 int  events_delete(int id);
 int  events_find_by_id(int id);
+/* Multi-section prompt-driven editor. If id < 0 creates a new event. */
+int  events_edit_interactive(int id, long default_date, int default_start);
+/* Open the modal Intuition dialog for editing an event in-place.
+ * Returns 1 on OK (writes back), 0 on Cancel/Close. Defined in
+ * event_dialog.c. */
+int  event_dialog_run(Event *inout);
+/* Modal note editor. Returns 1 if user hit OK (writes back to *inout),
+ * 0 on Cancel/Close. Body supports \n-encoded newlines and simple
+ * markdown-style tokens; see note_dialog.c for the token reference. */
+int  note_dialog_run(Note *inout);
+/* Modal task editor. Returns 1 on OK (writes back), 0 on Cancel/Close. */
+int  task_dialog_run(Task *inout);
+/* Build list of event array indices firing on `ymd`. Returns count.
+ * `out` must be at least MAX_EVENTS long. */
+int  events_on_day(long ymd, int *out);
 
 /* --- recur.c ------------------------------------------------------- */
 /* Does a recurring item that started on `base` fire on `check`?
