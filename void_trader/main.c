@@ -776,12 +776,15 @@ int main(void)
             WaitTOF();
         }
 #ifdef __PPC__
-        /* On sam460ex/QEMU, WaitTOF() returns immediately (no real
-         * VBlank) — the game loop runs unlocked. Cap FPS via DOS
-         * Delay(). NOTE: Delay(1) was crashing (DSI) — swap for a
-         * timer.device-based wait once we understand why. For now
-         * this is the diagnostic path. */
-        /* Delay(1); */    /* disabled while debugging DSI */
+        /* Pacing under diagnosis. Both Delay(1) and DateStamp
+         * busy-poll trigger DSI. Fall back to a pure CPU burn — no
+         * OS calls in the tight loop. Tune the count for ~50 FPS
+         * on sam460ex QEMU. This is a stopgap until gdb-multiarch
+         * can tell us what the DSI actually is. */
+        {
+            volatile int spin;
+            for (spin = 0; spin < 40000; spin++) { /* burn */ }
+        }
 #endif
 
         frame++;
