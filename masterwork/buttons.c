@@ -84,11 +84,15 @@ int buttons_height(void)
 static void draw_button(Button *b, int is_hover)
 {
     struct RastPort *r = rp;
-    UBYTE fg = PEN_FG, bg = PEN_BG;
-    if (is_hover) { fg = PEN_HL_FG; bg = PEN_HL_BG; }
+    /* Filled buttons pop against the pane backgrounds. We use the
+     * Workbench highlight pen (usually orange) for the fill and the
+     * regular text pen for labels — those two are guaranteed to be
+     * defined on any Workbench palette. */
+    UBYTE fill = is_hover ? PEN_FG : PEN_HL_BG;
+    UBYTE fg   = is_hover ? PEN_HL_BG : PEN_HL_FG;
 
     /* Fill + border */
-    SetAPen(r, bg);
+    SetAPen(r, fill);
     RectFill(r, b->x0, b->y0, b->x1, b->y1);
     SetAPen(r, PEN_BORDER);
     Move(r, b->x0, b->y0);
@@ -102,7 +106,7 @@ static void draw_button(Button *b, int is_hover)
     int lx = b->x0 + ((b->x1 - b->x0) - label_w) / 2;
     int ly = b->y0 + ((b->y1 - b->y0) + g_baseline) / 2;
     SetAPen(r, fg);
-    SetBPen(r, bg);
+    SetBPen(r, fill);
     SetDrMd(r, JAM2);
     Move(r, lx, ly);
     Text(r, (STRPTR)b->label, (LONG)strlen(b->label));

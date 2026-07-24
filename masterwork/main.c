@@ -226,8 +226,8 @@ int main(void)
     strcpy(panes[1].path, "SYS:");
 
     win = OpenWindowTags(NULL,
-        WA_Left,        20,
-        WA_Top,         20,
+        WA_Left,        4,
+        WA_Top,         12,      /* top of Workbench, dock at bottom */
         WA_Width,       WIN_W,
         WA_Height,      WIN_H,
         /* Plain ASCII hyphen - topaz doesn't render UTF-8 em-dash,
