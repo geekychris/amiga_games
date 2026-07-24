@@ -1,5 +1,5 @@
 /*
- * panes.c — directory listing, per-pane render + hit-test.
+ * panes.c - directory listing, per-pane render + hit-test.
  *
  * Uses `Examine` / `ExNext` walk (same as classic AmigaOS toolchain);
  * on OS4 the shim in masterwork.h aliases these to the SDK's
@@ -82,7 +82,98 @@ void clear_selection(Pane *p)
     for (int i = 0; i < p->count; i++) p->entries[i].selected = 0;
 }
 
+/* --- volume-list mode -------------------------------------------- */
+
+/* is_volume_view lives here so header/click code can special-case
+ * (Volumes) rendering. Path == "" is the sentinel. */
+int is_volume_view(const Pane *p) { return p->path[0] == 0; }
+
+/* Volume enumeration via DOS `Info` command captured to RAM: - safer
+ * than walking LockDosList directly, which had a DSI crash on OS4/PPC
+ * (the classic `struct DosList` layout has diverged and BADDR(dol_Name)
+ * doesn't survive the OS4 union rework). We parse Info's output: each
+ * line "NAME:  Mounted  ..." gives us a volume/assign name.
+ *
+ * Not the fastest path but bulletproof: `Info` is guaranteed to exist
+ * on any AmigaDOS >= 1.3 and its output format has been stable for
+ * three decades. */
+void refresh_volumes(Pane *p)
+{
+    p->count = 0;
+    p->cursor = 0;
+    p->scroll = 0;
+    p->path[0] = 0;
+
+    const char *tmpfile = "T:masterwork.vols";
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "C:Info >%s", tmpfile);
+    BPTR nil = Open((STRPTR)"NIL:", MODE_NEWFILE);
+    if (!nil || !Execute((STRPTR)cmd, (BPTR)0, nil)) {
+        if (nil) Close(nil);
+        snprintf(status_msg, sizeof(status_msg), "Info failed");
+        return;
+    }
+    Close(nil);
+
+    BPTR f = Open((STRPTR)tmpfile, MODE_OLDFILE);
+    if (!f) {
+        snprintf(status_msg, sizeof(status_msg), "can't read %s", tmpfile);
+        return;
+    }
+    char line[256];
+    while (FGets(f, (STRPTR)line, sizeof(line)) && p->count < MAX_ENTRIES) {
+        /* Info prints two sections; we care about lines that start with
+         * a name followed by ':' (volumes) or that look like an assign.
+         * Names never contain a space, so the first token that ends in
+         * ':' is our candidate. Skip blank / header lines. */
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = 0;
+        if (line[0] == 0 || line[0] == ' ' || line[0] == '\t') continue;
+        if (strchr(line, ':') == NULL) continue;
+        /* Volume lines look like: "Ram Disk [RAM]" or the header.
+         * The most reliable pattern is: token[0] = name, ends where a
+         * space or ':' or [ appears. Grab up to the first ':' or space. */
+        char name[MAX_NAME];
+        int n = 0;
+        for (int i = 0; line[i] && n < MAX_NAME - 2; i++) {
+            char c = line[i];
+            if (c == ' ' || c == '\t' || c == '[') break;
+            name[n++] = c;
+        }
+        if (n < 2) continue;
+        /* Ensure trailing ':' */
+        if (name[n - 1] != ':') { name[n++] = ':'; }
+        name[n] = 0;
+        /* Skip common header words that would trip our heuristic. */
+        if (stricmp((STRPTR)name, (STRPTR)"Unit:") == 0) continue;
+        if (stricmp((STRPTR)name, (STRPTR)"Size:") == 0) continue;
+        if (stricmp((STRPTR)name, (STRPTR)"Used:") == 0) continue;
+        if (stricmp((STRPTR)name, (STRPTR)"Free:") == 0) continue;
+        if (stricmp((STRPTR)name, (STRPTR)"Full:") == 0) continue;
+        if (stricmp((STRPTR)name, (STRPTR)"Errs:") == 0) continue;
+
+        Entry *ent = &p->entries[p->count];
+        strcpy(ent->name, name);
+        ent->is_dir   = 1;
+        ent->size     = 0;
+        ent->selected = 0;
+        p->count++;
+    }
+    Close(f);
+    DeleteFile((STRPTR)tmpfile);
+
+    if (p->count == 0) {
+        snprintf(status_msg, sizeof(status_msg),
+                 "no volumes parsed - try typing a path");
+    } else {
+        snprintf(status_msg, sizeof(status_msg),
+                 "%d device(s) - Enter to open", p->count);
+    }
+}
+
 /* --- directory refresh ------------------------------------------- */
+
+static int cmp_entries(const void *a, const void *b);
 
 static int cmp_entries(const void *a, const void *b)
 {
@@ -139,7 +230,7 @@ void refresh_pane(Pane *p)
         qsort(&p->entries[off], p->count - off, sizeof(Entry), cmp_entries);
     }
 
-    snprintf(status_msg, sizeof(status_msg), "%s — %d entries", p->path, p->count);
+    snprintf(status_msg, sizeof(status_msg), "%s - %d entries", p->path, p->count);
     if (bridge_ok) AB_I("refresh %s: %d entries", p->path, p->count);
 }
 
@@ -163,7 +254,7 @@ void draw_pane(int idx, int x0, int y0, int w, int h)
     SetAPen(rp, PEN_BG);
     RectFill(rp, x0, y0, x0 + w - 1, y0 + h - 1);
 
-    /* Border — thicker on active pane */
+    /* Border - thicker on active pane */
     SetAPen(rp, is_active ? PEN_ACTIVE : PEN_BORDER);
     Move(rp, x0, y0);
     Draw(rp, x0 + w - 1, y0);
@@ -178,8 +269,10 @@ void draw_pane(int idx, int x0, int y0, int w, int h)
         Draw(rp, x0 + 1, y0 + 1);
     }
 
-    /* Path header */
-    draw_string(x0 + 4, y0 + 2 + g_baseline, p->path, PEN_FG, PEN_BG);
+    /* Path header - volume-list mode shows "(Volumes)" so the user
+     * knows they've backed out past a real path. */
+    const char *hdr = is_volume_view(p) ? "(Volumes)" : p->path;
+    draw_string(x0 + 4, y0 + 2 + g_baseline, hdr, PEN_FG, PEN_BG);
     SetAPen(rp, PEN_BORDER);
     int sep_y = y0 + g_header_h - 4;
     Move(rp, x0 + 2, sep_y);

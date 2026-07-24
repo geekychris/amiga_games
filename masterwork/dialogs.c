@@ -1,8 +1,8 @@
 /*
- * dialogs.c — string prompts (CON:) + yes/no confirms (EasyRequest).
+ * dialogs.c - string prompts (CON:) + yes/no confirms (EasyRequest).
  *
  * Why CON: instead of a StringGadget popup?
- *   - No gadtools.library dependency required — works on any Amiga
+ *   - No gadtools.library dependency required - works on any Amiga
  *     with a Shell (i.e. every one from 2.x onward).
  *   - The console handler owns line editing (arrow keys, backspace,
  *     history-ish) for free; no per-key input state to manage.
@@ -31,7 +31,7 @@ int prompt_string(const char *title, const char *deflt,
     if (!out || outsz < 2) return 1;
     out[0] = 0;
 
-    /* Compose the CON: URL — CON:X/Y/W/H/Title/CLOSE/AUTO gives us a
+    /* Compose the CON: URL - CON:X/Y/W/H/Title/CLOSE/AUTO gives us a
      * 80×3 line window that auto-opens on read, closes on write, and
      * has a proper title bar. AUTO means Wait until first I/O. */
     char conurl[MAX_PATH + 96];
@@ -46,7 +46,7 @@ int prompt_string(const char *title, const char *deflt,
     }
 
     /* Show the default value on its own line so the user can just
-     * press Return to accept it (they'd still have to retype though —
+     * press Return to accept it (they'd still have to retype though -
      * plain CON: doesn't pre-populate the input buffer). */
     if (deflt && deflt[0]) {
         FPuts(con, (STRPTR)"Default: ");
@@ -81,7 +81,7 @@ int prompt_string(const char *title, const char *deflt,
 
 /*
  * Modal yes/no via EasyRequest. The vararg version needs a struct
- * that lives across the call — declared static to keep things simple.
+ * that lives across the call - declared static to keep things simple.
  * Body accepts one printf-style %s substitution because most callers
  * want to include a filename in the prompt.
  */

@@ -1,11 +1,11 @@
 /*
- * buttons.c — clickable button bar along the bottom of the window.
+ * buttons.c - clickable button bar along the bottom of the window.
  *
  * Uses plain RastPort Text rendering with a bordered rectangle per
  * button (no gadgets, no BOOPSI). Two-row layout so we get 10-12
  * short-labelled buttons without cramping.
  *
- * Hit-test uses cached rects computed at layout time — click coords
+ * Hit-test uses cached rects computed at layout time - click coords
  * always match the drawn button positions.
  */
 
@@ -50,13 +50,9 @@ static void act_swap   (void) {
     refresh_pane(&panes[0]);
     refresh_pane(&panes[1]);
 }
-static void act_parent (void) {
-    if (is_at_root(panes[active_pane].path)) {
-        snprintf(status_msg, sizeof(status_msg), "already at root");
-        return;
-    }
-    ascend_path(panes[active_pane].path);
-    refresh_pane(&panes[active_pane]);
+static void act_devices(void) {
+    /* Drop the active pane straight to the volume/assigns picker. */
+    refresh_volumes(&panes[active_pane]);
 }
 static void act_quit   (void) { running = 0; }
 
@@ -69,7 +65,7 @@ static Button g_buttons[] = {
     { "View",    act_view,    0, 0, 0, 0 },
     { "Refresh", act_refresh, 0, 0, 0, 0 },
     { "Swap",    act_swap,    0, 0, 0, 0 },
-    { "Parent",  act_parent,  0, 0, 0, 0 },
+    { "Devices", act_devices, 0, 0, 0, 0 },
     { "Quit",    act_quit,    0, 0, 0, 0 },
 };
 #define BUTTON_COUNT (int)(sizeof(g_buttons) / sizeof(g_buttons[0]))
