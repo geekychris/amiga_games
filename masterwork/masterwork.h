@@ -31,10 +31,12 @@
 
 #define VERSION "0.1"
 
-/* Window sizing — 720x460 gives enough room for 40-char columns and
- * a two-row button bar without cramping. */
-#define WIN_W          720
-#define WIN_H          460
+/* Window sizing. 640x380 fits inside the standard OS4 Workbench
+ * screen (usually 640x480) without the button bar disappearing under
+ * the OS4 dock at the bottom. If your Workbench is wider you can
+ * drag the window over — the layout re-flows for whatever fits. */
+#define WIN_W          640
+#define WIN_H          380
 #define PANE_MARGIN    6
 
 #define MAX_ENTRIES    512
