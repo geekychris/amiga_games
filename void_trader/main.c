@@ -775,6 +775,14 @@ int main(void)
         } else {
             WaitTOF();
         }
+#ifdef __PPC__
+        /* On sam460ex/QEMU, WaitTOF() returns immediately (no real
+         * VBlank) — the game loop runs unlocked. Cap FPS via DOS
+         * Delay(). NOTE: Delay(1) was crashing (DSI) — swap for a
+         * timer.device-based wait once we understand why. For now
+         * this is the diagnostic path. */
+        /* Delay(1); */    /* disabled while debugging DSI */
+#endif
 
         frame++;
         if (bridge_ok) ab_poll();
