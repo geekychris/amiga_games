@@ -17,7 +17,7 @@ else
 endif
 
 TARGET = organizer
-SRCS   = main.c ui.c storage.c notes.c tasks.c calendar.c recur.c dialogs.c tests.c
+SRCS   = main.c ui.c storage.c notes.c tasks.c calendar.c recur.c dialogs.c event_dialog.c note_dialog.c task_dialog.c tests.c
 OBJS   = $(SRCS:.c=.o)
 
 all: $(TARGET)

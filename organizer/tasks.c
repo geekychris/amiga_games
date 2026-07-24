@@ -1,13 +1,30 @@
 /*
- * tasks.c — Tasks tab: state / priority / due date / recur / tags.
+ * tasks.c — Tasks tab.
  *
- * Row: [id] [P] due  title  (tags)  state
- * Keys: n=new, r=rename, d=delete, space=toggle done, p=priority,
- *       u=due date, e=recur, t=tags.
+ * Row: [id] state P# due-yy-mm-dd  title  (sched/effort/tags)
+ * Keys:
+ *   N              = new (opens editor)
+ *   Enter          = edit selected (opens editor)
+ *   Space          = toggle done
+ *   D              = delete
+ *   Up / Down      = cursor
+ * Click:
+ *   single-click   = select
+ *   double-click   = edit
+ *
+ * All the per-attribute prompts (P/U/E/T) are gone — the modal
+ * editor covers all fields at once. `set_task` bridge hook keeps
+ * numeric setters available for scripting.
  */
 
 #include <string.h>
 #include <stdio.h>
+
+#include <exec/types.h>
+#include <dos/dos.h>
+#include <graphics/rastport.h>
+#include <proto/dos.h>
+#include <proto/graphics.h>
 
 #include "organizer.h"
 #include "bridge_client.h"
@@ -35,11 +52,14 @@ int tasks_add(const char *title)
     if (g_tasks_count >= MAX_TASKS) return -1;
     Task *t = &g_tasks[g_tasks_count++];
     memset(t, 0, sizeof(*t));
-    t->id       = next_id();
-    t->state    = ST_OPEN;
-    t->priority = 2;
-    t->due      = 0;
-    t->recur    = RECUR_NONE;
+    t->id              = next_id();
+    t->state           = ST_OPEN;
+    t->priority        = 2;
+    t->due             = 0;
+    t->recur           = RECUR_NONE;
+    t->effort_min      = 0;
+    t->scheduled_date  = 0;
+    t->scheduled_start = -1;
     strncpy(t->title, title ? title : "New task", sizeof(t->title) - 1);
     t->title[sizeof(t->title) - 1] = 0;
     g_tasks_cursor = g_tasks_count - 1;
@@ -111,6 +131,24 @@ int tasks_count_due_by(long ymd)
     return n;
 }
 
+/* --- editing --------------------------------------------------- */
+
+static int edit_selected(void)
+{
+    if (g_tasks_cursor < 0 || g_tasks_cursor >= g_tasks_count) return 0;
+    Task tmp = g_tasks[g_tasks_cursor];
+    if (task_dialog_run(&tmp)) {
+        g_tasks[g_tasks_cursor] = tmp;
+        snprintf(g_status, sizeof(g_status),
+                 "task %d '%s' saved  state=%d prio=%d due=%ld eff=%dm sched=%ld",
+                 tmp.id, tmp.title, tmp.state, tmp.priority,
+                 tmp.due, tmp.effort_min, tmp.scheduled_date);
+        state_touched();
+        return 1;
+    }
+    return 0;
+}
+
 /* --- rendering ---------------------------------------------------- */
 
 static char state_char(int s)
@@ -125,7 +163,7 @@ void tasks_draw(int x0, int y0, int w, int h)
 {
     char hdr[128];
     snprintf(hdr, sizeof(hdr),
-             "N)ew  R)ename  Space=done  P)rio  U)due  E)recur  T)ags  D)el  %d task%s",
+             "N)ew  Enter=edit  Space=done  D)elete  %d task%s",
              g_tasks_count, g_tasks_count == 1 ? "" : "s");
     ui_draw_string(x0 + 4, y0 + g_baseline, hdr, PEN_FG, PEN_BG);
     int list_top = y0 + g_row_h + 4;
@@ -137,14 +175,28 @@ void tasks_draw(int x0, int y0, int w, int h)
     for (int i = 0; i < rv && i + g_tasks_scroll < g_tasks_count; i++) {
         int idx = i + g_tasks_scroll;
         Task *t = &g_tasks[idx];
-        char left[MAX_TITLE_LEN + 48], right[MAX_TAGS_LEN + 32];
+        char left[MAX_TITLE_LEN + 64], right[MAX_TAGS_LEN + 48];
         int y, m, d; ymd_split(t->due, &y, &m, &d);
         char due_s[16];
         if (t->due == 0) strcpy(due_s, "     -");
         else             snprintf(due_s, sizeof(due_s), "%04d-%02d-%02d", y, m, d);
         snprintf(left, sizeof(left), "[%3d] %c P%d %s  %s",
                  t->id, state_char(t->state), t->priority, due_s, t->title);
-        snprintf(right, sizeof(right), "%s%s%s",
+        /* Right side: recur / sched / effort / tags. */
+        char sched_s[32] = "";
+        if (t->scheduled_date) {
+            int sy, sm, sd; ymd_split(t->scheduled_date, &sy, &sm, &sd);
+            if (t->scheduled_start >= 0)
+                snprintf(sched_s, sizeof(sched_s), "@%02d/%02d %02d:%02d ",
+                         sm, sd, t->scheduled_start / 100, t->scheduled_start % 100);
+            else
+                snprintf(sched_s, sizeof(sched_s), "@%02d/%02d ", sm, sd);
+        }
+        char effort_s[16] = "";
+        if (t->effort_min > 0) snprintf(effort_s, sizeof(effort_s), "%dm ", t->effort_min);
+        snprintf(right, sizeof(right), "%s%s%s%s%s",
+                 sched_s,
+                 effort_s,
                  t->recur ? recur_name(t->recur) : "",
                  (t->recur && t->tags[0]) ? " " : "",
                  t->tags);
@@ -168,68 +220,20 @@ int tasks_handle_key(UWORD raw)
     switch (c) {
     case 0x4C: /* Up   */ if (g_tasks_cursor > 0)                 g_tasks_cursor--; break;
     case 0x4D: /* Down */ if (g_tasks_cursor < g_tasks_count - 1) g_tasks_cursor++; break;
-    case 0x36: /* N */ {
-        char s[MAX_TITLE_LEN];
-        if (prompt_string("Organizer - New task title", "", s, sizeof(s)) == 0 && *s) {
-            tasks_add(s);
-            state_touched();
-            return 1;
-        }
-        break;
+    case 0x44: /* Enter -> edit */
+        return edit_selected() ? 1 : 0;
+    case 0x36: /* N -> new + edit */ {
+        int id = tasks_add("New task");
+        if (id < 0) return 0;
+        edit_selected();
+        state_touched();
+        return 1;
     }
-    case 0x13: /* R (rename) */
-        t = cur_task(); if (!t) return 0;
-        {
-            char s[MAX_TITLE_LEN];
-            if (prompt_string("Organizer - Rename task", t->title, s, sizeof(s)) == 0 && *s) {
-                strncpy(t->title, s, sizeof(t->title) - 1);
-                t->title[sizeof(t->title) - 1] = 0;
-                state_touched(); return 1;
-            }
-        }
-        break;
     case 0x40: /* Space -> toggle done */
         t = cur_task(); if (!t) return 0;
         t->state = (t->state == ST_DONE) ? ST_OPEN : ST_DONE;
         state_touched(); return 1;
-    case 0x19: /* P (priority) */
-        t = cur_task(); if (!t) return 0;
-        {
-            long p; if (prompt_int("Organizer - Priority (1-3)", t->priority, &p) == 0) {
-                tasks_set_priority(t->id, (int)p); state_touched(); return 1;
-            }
-        }
-        break;
-    case 0x1C: /* U (due date) */
-        t = cur_task(); if (!t) return 0;
-        {
-            long due; if (prompt_int("Organizer - Due YYYYMMDD (0=none)", t->due ? t->due : g_today, &due) == 0) {
-                tasks_set_due(t->id, due); state_touched(); return 1;
-            }
-        }
-        break;
-    case 0x12: /* E (recur) */
-        t = cur_task(); if (!t) return 0;
-        {
-            long r;
-            if (prompt_int("Recur: 0=none 1=daily 2=weekly 3=monthly 4=yearly",
-                           t->recur, &r) == 0) {
-                tasks_set_recur(t->id, (int)r); state_touched(); return 1;
-            }
-        }
-        break;
-    case 0x14: /* T (tags) */
-        t = cur_task(); if (!t) return 0;
-        {
-            char s[MAX_TAGS_LEN];
-            if (prompt_string("Organizer - Tags (csv)", t->tags, s, sizeof(s)) == 0) {
-                strncpy(t->tags, s, sizeof(t->tags) - 1);
-                t->tags[sizeof(t->tags) - 1] = 0;
-                state_touched(); return 1;
-            }
-        }
-        break;
-    case 0x22: /* D (delete) */
+    case 0x22: /* D delete */
         t = cur_task(); if (!t) return 0;
         if (confirm("Delete task [%s] ?", t->title)) {
             tasks_delete(t->id); state_touched(); return 1;
@@ -241,6 +245,16 @@ int tasks_handle_key(UWORD raw)
     return 1;
 }
 
+/* Double-click state — matches notes.c and calendar.c convention. */
+static int              last_click_row = -1;
+static struct DateStamp last_click_ts  = { 0, 0, 0 };
+static LONG ds_delta_ms(const struct DateStamp *a, const struct DateStamp *b)
+{
+    LONG dm = (b->ds_Minute - a->ds_Minute) * 60000L;
+    LONG dt = (b->ds_Tick   - a->ds_Tick)   * 20L;
+    return dm + dt;
+}
+
 int tasks_handle_click(int mx, int my)
 {
     int cx, cy, cw, ch;
@@ -250,10 +264,16 @@ int tasks_handle_click(int mx, int my)
     if (my < list_top) return 0;
     int row = (my - list_top) / g_row_h;
     int idx = row + g_tasks_scroll;
-    if (idx >= 0 && idx < g_tasks_count) {
-        g_tasks_cursor = idx;
-        redraw_all();
-        return 1;
-    }
-    return 0;
+    if (idx < 0 || idx >= g_tasks_count) return 0;
+
+    g_tasks_cursor = idx;
+    struct DateStamp now; DateStamp(&now);
+    int is_double =
+        (idx == last_click_row &&
+         ds_delta_ms(&last_click_ts, &now) < 500);
+    last_click_row = idx;
+    last_click_ts  = now;
+    if (is_double) edit_selected();
+    else           redraw_all();
+    return 1;
 }
