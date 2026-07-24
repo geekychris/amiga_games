@@ -203,27 +203,53 @@ static void handle_click(int mx, int my)
 
 /* --- main -------------------------------------------------------- */
 
+/* Crash bisector — writes a stage marker to a log file, flushing after
+ * each write. Whatever line is last in the file is the last successful
+ * stage; whatever step was ABOUT to run next is the one that DSI'd. */
+static BPTR g_bootlog = (BPTR)0;
+static void mark(const char *stage)
+{
+    if (!g_bootlog) return;
+    char line[128];
+    snprintf(line, sizeof(line), "%s\n", stage);
+    Write(g_bootlog, (STRPTR)line, (LONG)strlen(line));
+    Flush(g_bootlog);
+}
+
 int main(void)
 {
+    /* Try PROGDIR first, fall back to RAM: (writable everywhere). */
+    g_bootlog = Open((STRPTR)"RAM:masterwork.log", MODE_NEWFILE);
+    if (!g_bootlog) g_bootlog = Open((STRPTR)"T:masterwork.log", MODE_NEWFILE);
+    mark("00 entered main");
+
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
         (CONST_STRPTR)"intuition.library", 36);
-    if (!IntuitionBase) return 1;
+    if (!IntuitionBase) { mark("!! OpenLibrary intuition FAILED"); return 1; }
+    mark("01 opened intuition.library");
     GfxBase = (struct GfxBase *)OpenLibrary(
         (CONST_STRPTR)"graphics.library", 36);
-    if (!GfxBase) { CloseLibrary((struct Library *)IntuitionBase); return 1; }
+    if (!GfxBase) { mark("!! OpenLibrary graphics FAILED"); CloseLibrary((struct Library *)IntuitionBase); return 1; }
+    mark("02 opened graphics.library");
 
     printf("Masterwork v%s\n", VERSION);
+    mark("03 printed version");
     if (ab_init("masterwork") != 0) {
         printf("  Bridge: NOT FOUND\n"); bridge_ok = 0;
+        mark("04 ab_init failed (bridge_ok=0)");
     } else {
         printf("  Bridge: CONNECTED\n"); bridge_ok = 1;
+        mark("04 ab_init OK (bridge_ok=1)");
     }
     AB_I("Masterwork v%s starting", VERSION);
+    mark("05 AB_I sent");
     ab_register_var("running",     AB_TYPE_I32, &running);
     ab_register_var("active_pane", AB_TYPE_I32, &active_pane);
+    mark("06 registered vars");
 
     strcpy(panes[0].path, "RAM:");
     strcpy(panes[1].path, "SYS:");
+    mark("07 pane paths set");
 
     win = OpenWindowTags(NULL,
         WA_Left,        4,
@@ -248,12 +274,15 @@ int main(void)
 
     if (!win) {
         AB_E("OpenWindow failed");
+        mark("!! OpenWindow returned NULL");
         ab_cleanup();
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
         return 1;
     }
+    mark("08 OpenWindow OK");
     rp = win->RPort;
+    mark("09 got RPort");
 
     if (rp->Font) {
         int fh = rp->Font->tf_YSize;
@@ -266,12 +295,16 @@ int main(void)
         g_status_h = g_row_h + 4;
     }
     g_buttons_h = buttons_height();
+    mark("10 layout computed");
 
     refresh_pane(&panes[0]);
+    mark("11 refresh_pane RAM: OK");
     refresh_pane(&panes[1]);
+    mark("12 refresh_pane SYS: OK");
     strcpy(status_msg,
         "Space=select  Enter=descend  Tab=switch  or click a button");
     redraw_all();
+    mark("13 first redraw_all OK - entering event loop");
 
     while (running) {
         WaitPort(win->UserPort);
