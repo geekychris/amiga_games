@@ -31,13 +31,15 @@
 
 #define VERSION "0.1"
 
-/* Window sizing. 640x380 fits inside the standard OS4 Workbench
- * screen (usually 640x480) without the button bar disappearing under
- * the OS4 dock at the bottom. If your Workbench is wider you can
- * drag the window over — the layout re-flows for whatever fits. */
-#define WIN_W          640
-#define WIN_H          380
+/* Initial window size — user can drag-resize past this and the layout
+ * re-flows. Fits inside the standard OS4 640x480 Workbench without the
+ * button bar disappearing under the dock. */
+#define WIN_W_INIT     640
+#define WIN_H_INIT     380
+#define WIN_W_MIN      320
+#define WIN_H_MIN      200
 #define PANE_MARGIN    6
+#define SCROLLBAR_W    10   /* pixel width of the per-pane scrollbar */
 
 #define MAX_ENTRIES    512
 #define MAX_PATH       512
@@ -68,7 +70,11 @@ typedef struct {
 } Pane;
 
 /* Cached layout globals — populated from RastPort font at startup so
- * every subsystem draws with matching row heights + baselines. */
+ * every subsystem draws with matching row heights + baselines.
+ * g_win_w / g_win_h track the drawable area and get refreshed on
+ * IDCMP_NEWSIZE so resize re-flows the layout. */
+extern int g_win_w;
+extern int g_win_h;
 extern int g_row_h;
 extern int g_baseline;
 extern int g_header_h;
@@ -98,6 +104,13 @@ void refresh_volumes(Pane *p);
 int  is_volume_view(const Pane *p);
 void draw_pane(int idx, int x0, int y0, int w, int h);
 int  hit_test_pane(int mx, int my, int *out_pane, int *out_entry);
+
+/* Scrollbar hit detection: returns pane index (0/1) or -1 if the
+ * click didn't land on any scrollbar. *dir is set to -1 (page up),
+ * +1 (page down), or 0 (thumb / direct jump). */
+int  hit_test_scrollbar(int mx, int my, int *dir);
+/* Apply the scrollbar action. `my` matters only when dir == 0. */
+void scrollbar_scroll(int pane_idx, int dir, int my);
 void ascend_path(char *path);
 int  is_at_root(const char *path);
 void join_path(char *buf, size_t bufsz, const char *path, const char *name);
