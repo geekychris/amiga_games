@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Jump Quest - Sound System
  * Bouncy chiptune music via direct Paula + procedural SFX
@@ -213,8 +216,17 @@ void sound_music_start(void) {
     tick_count = 0;
     music_playing = 1;
 
-    /* Enable audio DMA for channels 0 and 1 */
+    /* Program both channels (AUDxLC/LEN/PER/VOL) BEFORE enabling DMA,
+     * otherwise Paula latches whatever garbage was in the registers. */
+    paula_set(AUD0, wave_square, WAVE_LEN / 2, note_periods[13], 0);
+    paula_set(AUD1, wave_bass,   WAVE_LEN / 2, note_periods[1],  0);
+
+    /* Now safe to enable audio DMA for channels 0 and 1 */
     DMACON = 0x8003;
+
+    /* Drive the first row via existing tick logic. */
+    tick_count = speed - 1;  /* next tick fires row */
+    sound_music_tick();
 }
 
 void sound_music_stop(void) {

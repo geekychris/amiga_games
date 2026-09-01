@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * ORBITAL PATROL for Amiga
  *
@@ -52,7 +55,7 @@ static struct Screen *screen = NULL;
 static struct Window *window = NULL;
 static struct ScreenBuffer *sbuf[2] = { NULL, NULL };
 static struct RastPort rp_buf[2];
-static WORD cur_buf = 0;
+static WORD cur_buf = 1;
 static struct MsgPort *safe_port = NULL;
 static BOOL safe_pending = FALSE;
 
@@ -181,9 +184,13 @@ static void swap_buffers(void)
 {
     WaitBlit();
     wait_safe();
-    ChangeScreenBuffer(screen, sbuf[cur_buf]);
-    safe_pending = TRUE;
-    cur_buf ^= 1;
+    /* ChangeScreenBuffer returns 0 if the swap was rejected; in that
+     * case don't schedule a safe-message wait we'll never get and
+     * don't flip cur_buf (we'd be drawing to the visible buffer). */
+    if (ChangeScreenBuffer(screen, sbuf[cur_buf])) {
+        safe_pending = TRUE;
+        cur_buf ^= 1;
+    }
 }
 
 static void cleanup_display(void)

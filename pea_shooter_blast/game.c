@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Pea Shooter Blast - Game logic
  */
@@ -73,45 +76,49 @@ typedef struct {
     WORD type;
 } EnemySpawn;
 
+/* Ground walkers/hoppers/bosses spawn at row 13 so they rest on the
+ * floor (row 14) rather than one tile above it, where the "on ground"
+ * check fails and they visibly oscillate. Flyers/turrets keep their
+ * air/wall positions. */
 static EnemySpawn level1_enemies[] = {
-    { 15, 12, ENEMY_WALKER },
-    { 28, 12, ENEMY_WALKER },
+    { 15, 13, ENEMY_WALKER },
+    { 28, 13, ENEMY_WALKER },
     { 40, 12, ENEMY_FLYER },
     { 55,  9, ENEMY_TURRET },
-    { 65, 12, ENEMY_HOPPER },
-    { 78, 12, ENEMY_WALKER },
+    { 65, 13, ENEMY_HOPPER },
+    { 78, 13, ENEMY_WALKER },
     { 85, 12, ENEMY_FLYER },
     { 95,  8, ENEMY_TURRET },
-    { 115, 12, ENEMY_BOSS },  /* boss */
+    { 115, 13, ENEMY_BOSS },  /* boss */
     { -1, -1, -1 }
 };
 
 static EnemySpawn level2_enemies[] = {
-    { 12, 12, ENEMY_WALKER },
-    { 25, 12, ENEMY_HOPPER },
+    { 12, 13, ENEMY_WALKER },
+    { 25, 13, ENEMY_HOPPER },
     { 35, 12, ENEMY_FLYER },
     { 45,  7, ENEMY_TURRET },
-    { 55, 12, ENEMY_WALKER },
+    { 55, 13, ENEMY_WALKER },
     { 65,  5, ENEMY_FLYER },
     { 80, 10, ENEMY_HOPPER },
-    { 90, 12, ENEMY_WALKER },
+    { 90, 13, ENEMY_WALKER },
     { 100, 12, ENEMY_TURRET },
-    { 115, 12, ENEMY_BOSS },
+    { 115, 13, ENEMY_BOSS },
     { -1, -1, -1 }
 };
 
 static EnemySpawn level3_enemies[] = {
-    { 12, 12, ENEMY_WALKER },
-    { 22, 12, ENEMY_HOPPER },
+    { 12, 13, ENEMY_WALKER },
+    { 22, 13, ENEMY_HOPPER },
     { 30,  5, ENEMY_FLYER },
-    { 42, 12, ENEMY_WALKER },
+    { 42, 13, ENEMY_WALKER },
     { 52, 12, ENEMY_FLYER },
     { 60,  8, ENEMY_TURRET },
-    { 72, 12, ENEMY_HOPPER },
+    { 72, 13, ENEMY_HOPPER },
     { 82,  4, ENEMY_TURRET },
-    { 92, 12, ENEMY_WALKER },
+    { 92, 13, ENEMY_WALKER },
     { 100,  7, ENEMY_FLYER },
-    { 112, 12, ENEMY_BOSS },
+    { 112, 13, ENEMY_BOSS },
     { -1, -1, -1 }
 };
 
@@ -151,7 +158,11 @@ void game_load_level(GameState *gs, WORD level_num)
     WORD i;
     EnemySpawn *spawns;
 
+    /* Clamp level into valid range [0, 2] so enemy_spawns[] and
+     * level_maps[] can't be indexed out of bounds by a negative or
+     * over-large level number. */
     gs->level = level_num;
+    if (gs->level < 0) gs->level = 0;
     if (gs->level > 2) gs->level = 2;
 
     /* Reset tank position */
@@ -664,6 +675,10 @@ static void update_enemy_bullets(GameState *gs)
             WORD py = FIX_INT(b->y);
             if (tile_is_solid(gs->level, px / TILE_W, py / TILE_H)) {
                 b->active = 0;
+                /* Bullet absorbed by terrain: skip player-hit check so
+                 * a bullet that intersects a wall on the same frame
+                 * as the tank can't also damage the tank. */
+                continue;
             }
         }
 

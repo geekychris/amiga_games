@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Orb Hunter - Drawing functions
  * Tile-based room rendering, character sprites, HUD, menus

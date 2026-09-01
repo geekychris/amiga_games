@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Rock Blaster - Input: Joystick port 2 + keyboard
  */
@@ -89,22 +92,24 @@ UWORD input_read(void)
     /* Read joystick port 2 (JOY1DAT register) */
     joy = custom.joy1dat;
 
-    /* Joystick decoding for digital joystick:
-     * JOY1DAT low byte = X counter, high byte = Y counter.
-     * For a digital joystick (as emulated by FS-UAE):
-     *   Right: bit1=1, bit0=0  (low byte = 0x02)
-     *   Left:  bit1=0, bit0=1  (low byte = 0x01)
-     *   Down:  bit9=1, bit8=0  (high byte = 0x02)
-     *   Up:    bit9=0, bit8=1  (high byte = 0x01)
+    /* Joystick decoding using Amiga quadrature semantics.
+     * JOY1DAT bits: 9 = Y2, 8 = Y1, 1 = X2, 0 = X1.
+     *   Right = bit 1
+     *   Left  = bit 1 XOR bit 0
+     *   Down  = bit 9
+     *   Up    = bit 9 XOR bit 8
+     * Down is unused in this game.
      */
     {
-        UWORD h = joy & 3;        /* horizontal bits */
-        UWORD v = (joy >> 8) & 3; /* vertical bits */
+        UWORD b0 = (joy >> 0) & 1;
+        UWORD b1 = (joy >> 1) & 1;
+        UWORD b8 = (joy >> 8) & 1;
+        UWORD b9 = (joy >> 9) & 1;
 
-        if (h == 2) result |= INPUT_RIGHT;
-        if (h == 1) result |= INPUT_LEFT;
-        if (v == 1) result |= INPUT_UP;
-        /* v == 2 would be down, not used in this game */
+        if (b1)         result |= INPUT_RIGHT;
+        if (b1 ^ b0)    result |= INPUT_LEFT;
+        if (b9 ^ b8)    result |= INPUT_UP;
+        /* down (b9) omitted — not used in this game */
     }
 
     /* Fire button: CIA-A PRA bit 7, active low (port 2) */

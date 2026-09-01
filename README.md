@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 2026 Chris Collins -->
+
 # amiga_games
 
 Example projects and games for the [AmigaBridge](https://github.com/geekychris/amiga_mcp) cross-development environment. Every project here compiles to a classic AmigaOS m68k executable and links against `libbridge.a` from the parent [`amiga_mcp`](https://github.com/geekychris/amiga_mcp) repo.

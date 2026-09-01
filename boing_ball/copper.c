@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "copper.h"
 
 #include <exec/memory.h>
@@ -124,9 +127,35 @@ void copper_set_rainbow(struct ViewPort *vp, BOOL enable)
     }
 }
 
-void copper_cleanup(void)
+static void free_ucoplist(struct UCopList *ucl)
 {
-    /* UCopLists freed by CloseScreen / FreeVPortCopLists */
-    sky_ucl = NULL;
-    rainbow_ucl = NULL;
+    if (!ucl) return;
+
+    /* CINIT allocates the internal CopList chain via graphics.library;
+     * FreeCopList() releases the whole chain in one call. Then release the
+     * UCopList wrapper we AllocMem()'d ourselves. */
+    if (ucl->FirstCopList) {
+        FreeCopList(ucl->FirstCopList);
+    }
+    FreeMem(ucl, sizeof(struct UCopList));
+}
+
+void copper_cleanup(struct ViewPort *vp)
+{
+    /* Detach whichever UCopList is attached so CloseScreen()/free below
+     * don't double-free, then explicitly release BOTH lists we allocated
+     * in copper_init(). */
+    if (vp) {
+        Forbid();
+        vp->UCopIns = NULL;
+        Permit();
+    }
+    if (sky_ucl) {
+        free_ucoplist(sky_ucl);
+        sky_ucl = NULL;
+    }
+    if (rainbow_ucl) {
+        free_ucoplist(rainbow_ucl);
+        rainbow_ucl = NULL;
+    }
 }

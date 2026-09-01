@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Lunar Rider - Sound declarations
  * Direct hardware Paula audio: SFX + bouncy bass melody

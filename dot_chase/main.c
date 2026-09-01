@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * DOT CHASE - dot-eater arcade game for Amiga
  *
@@ -161,8 +164,17 @@ static void swap_buffers(void)
 
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
+    static const char msg[] = "Game reset";
+    int n;
+
     game_init(&gs);
-    strncpy(buf, "Game reset", bufsz);
+    if (!buf || bufsz <= 0) return 0;
+
+    /* NUL-terminate even when the buffer is shorter than the message. */
+    n = (int)sizeof(msg) - 1;               /* length without NUL */
+    if (n > bufsz - 1) n = bufsz - 1;
+    memcpy(buf, msg, n);
+    buf[n] = '\0';
     return 0;
 }
 
@@ -265,8 +277,13 @@ int main(void)
         return 20;
     }
 
-    /* Init sound */
-    sound_init();
+    /* Init sound. If it fails, waveform pointers are NULL and later
+     * Paula DMA setup would read from unmapped memory / crash. */
+    if (sound_init() == -1) {
+        AB_E("sound_init failed - aborting");
+        cleanup_all();
+        return 20;
+    }
 
     /* Init game */
     game_init(&gs);
@@ -334,7 +351,19 @@ int main(void)
         if (gs.ev_flags & EV_POWER)     sound_power();
         gs.ev_flags = 0;
 
-        /* Siren control */
+        /* Siren + frightened-drone control. Track prior fright state
+         * so we shut off the power drone (channel 3) on the transition
+         * out of frightened mode, letting the siren resume cleanly. */
+        {
+            static WORD prev_fright = 0;
+            WORD fright_now = gs.fright_active ? 1 : 0;
+
+            if (prev_fright && !fright_now) {
+                sound_power_off();
+            }
+            prev_fright = fright_now;
+        }
+
         if (gs.state == STATE_PLAYING) {
             if (gs.fright_active) {
                 sound_siren_off();
@@ -343,6 +372,7 @@ int main(void)
             }
         } else {
             sound_siren_off();
+            sound_power_off();
         }
 
         /* Render */

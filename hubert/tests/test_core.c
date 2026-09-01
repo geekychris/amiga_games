@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * test_core.c — host-runnable unit tests for the pure hubert modules.
  *
@@ -21,7 +24,7 @@ static int g_fail = 0;
 
 #define CHECK(expr, name) do { \
     if (expr) { g_pass++; } \
-    else { g_fail++; fprintf(stderr, "FAIL %s at %s:%d\n", name, __FILE__, __LINE__); } \
+    else { g_fail++; fprintf(stderr, "FAIL %s at %s:%ld\n", name, __FILE__, (long)__LINE__); } \
 } while (0)
 
 /* ─── history ─────────────────────────────────────────────────────────── */
@@ -334,6 +337,42 @@ static void test_executor_join_and_hook(void)
         CHECK(len > 0, "join_ok");
         CHECK(strcmp(buf, "echo \"hello world\"") == 0, "join_quotes");
     }
+
+    /* argv[0] itself gets quoted when it has spaces */
+    {
+        char *quoted0[] = { "my prog", "arg", 0 };
+        int len = executor_join(buf, (int)sizeof(buf), 2, quoted0);
+        CHECK(len > 0, "join_argv0_ok");
+        CHECK(strcmp(buf, "\"my prog\" arg") == 0, "join_argv0_quote");
+    }
+
+    /* embedded quotes and backslashes get escaped inside the quoted arg */
+    {
+        char *withq[] = { "echo", "he said \"hi\"", 0 };
+        int len = executor_join(buf, (int)sizeof(buf), 2, withq);
+        CHECK(len > 0, "join_embed_q_ok");
+        CHECK(strcmp(buf, "echo \"he said \\\"hi\\\"\"") == 0, "join_embed_q");
+    }
+    {
+        char *withbs[] = { "echo", "a\\b", 0 };
+        int len = executor_join(buf, (int)sizeof(buf), 2, withbs);
+        CHECK(len > 0, "join_embed_bs_ok");
+        CHECK(strcmp(buf, "echo \"a\\\\b\"") == 0, "join_embed_bs");
+    }
+
+    /* shell metacharacters force quoting so they don't reach the shell raw */
+    {
+        char *withmeta[] = { "echo", "a>b", 0 };
+        int len = executor_join(buf, (int)sizeof(buf), 2, withmeta);
+        CHECK(len > 0, "join_meta_gt_ok");
+        CHECK(strcmp(buf, "echo \"a>b\"") == 0, "join_meta_gt");
+    }
+    {
+        char *withpipe[] = { "echo", "a|b", 0 };
+        int len = executor_join(buf, (int)sizeof(buf), 2, withpipe);
+        CHECK(len > 0, "join_meta_pipe_ok");
+        CHECK(strcmp(buf, "echo \"a|b\"") == 0, "join_meta_pipe");
+    }
 }
 
 /* ─── run all ─────────────────────────────────────────────────────────── */
@@ -356,6 +395,6 @@ int main(void)
     test_builtin_set();
     test_executor_join_and_hook();
 
-    fprintf(stderr, "\n%d passed, %d failed\n", g_pass, g_fail);
+    fprintf(stderr, "\n%ld passed, %ld failed\n", (long)g_pass, (long)g_fail);
     return g_fail == 0 ? 0 : 1;
 }

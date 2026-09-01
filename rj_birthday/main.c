@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * RJ'S 70TH BIRTHDAY BASH
  *
@@ -229,26 +232,46 @@ static void cleanup_display(void)
 
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
+    const char *msg = "Game reset";
+    int n;
     game_init(&gs);
-    strncpy(buf, "Game reset", bufsz);
+    if (!buf || bufsz <= 0) return 0;
+    n = (int)strlen(msg);
+    if (n > bufsz - 1) n = bufsz - 1;
+    memcpy(buf, msg, n);
+    buf[n] = '\0';
     return 0;
 }
 
 static int hook_add_life(const char *args, char *buf, int bufsz)
 {
+    char tmp[32];
+    int n;
     gs.lives++;
-    sprintf(buf, "Lives: %ld", (long)gs.lives);
+    if (!buf || bufsz <= 0) return 0;
+    sprintf(tmp, "Lives: %ld", (long)gs.lives);
+    n = (int)strlen(tmp);
+    if (n > bufsz - 1) n = bufsz - 1;
+    memcpy(buf, tmp, n);
+    buf[n] = '\0';
     return 0;
 }
 
 static int hook_set_room(const char *args, char *buf, int bufsz)
 {
     WORD room = 0;
+    char tmp[32];
+    int n;
     if (args && args[0] >= '0' && args[0] <= '5')
         room = args[0] - '0';
     gs.player.x = room * ROOM_W + 160;
     gs.current_room = room;
-    sprintf(buf, "Room: %ld", (long)room);
+    if (!buf || bufsz <= 0) return 0;
+    sprintf(tmp, "Room: %ld", (long)room);
+    n = (int)strlen(tmp);
+    if (n > bufsz - 1) n = bufsz - 1;
+    memcpy(buf, tmp, n);
+    buf[n] = '\0';
     return 0;
 }
 

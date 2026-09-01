@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /* Auto-generated from uranus.png - DO NOT EDIT */
 #ifndef PLANET_GFX_H
 #define PLANET_GFX_H

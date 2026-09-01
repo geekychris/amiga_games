@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include <exec/types.h>
 #include <intuition/intuition.h>
 #include <hardware/cia.h>

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * SKY KNIGHTS - aerial combat arcade for Amiga
  *
@@ -188,15 +191,35 @@ static void cleanup_display(void)
 
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
+    const char *msg = "Game reset";
+    int n;
     game_init(&gs);
-    strncpy(buf, "Game reset", bufsz);
+    if (!buf || bufsz <= 0) return 0;
+    n = (int)strlen(msg);
+    if (n > bufsz - 1) n = bufsz - 1;
+    memcpy(buf, msg, n);
+    buf[n] = '\0';
     return 0;
 }
 
 static int hook_status(const char *args, char *buf, int bufsz)
 {
-    sprintf(buf, "Wave:%ld P1:%ld P2:%ld State:%ld",
+    /* Longest plausible expansion is ~48 chars. Refuse to format if the
+     * caller's buffer can't hold it, rather than truncating past the
+     * expected end and hoping sprintf leaves us NUL-terminated. */
+    char tmp[80];
+    int n;
+    if (!buf || bufsz < 64) {
+        if (buf && bufsz > 0) buf[0] = '\0';
+        return 0;
+    }
+    sprintf(tmp, "Wave:%ld P1:%ld P2:%ld State:%ld",
             (long)gs.wave, (long)gs.score[0], (long)gs.score[1], (long)gs.state);
+    tmp[sizeof(tmp) - 1] = '\0';
+    n = (int)strlen(tmp);
+    if (n > bufsz - 1) n = bufsz - 1;
+    memcpy(buf, tmp, n);
+    buf[n] = '\0';
     return 0;
 }
 

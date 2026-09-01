@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Symbol Demo - Example program with rich debug symbols for testing
  * the Symbol Table / Debug Info Loading system.
@@ -170,7 +173,7 @@ static void update_game(GameState *gs)
         gs->score += 10;
     }
 
-    /* Level up every 500 points */
+    /* Level up every 500 points. Level 2 is reached at score=500. */
     if (gs->score > 0 && (gs->score % 500) == 0 && gs->score >= gs->level * 500) {
         gs->level++;
         AB_I("Level up! Now level %ld", (long)gs->level);
@@ -237,7 +240,12 @@ static int move_hook(const char *args, char *resultBuf, int bufSize)
     AB_D("Player move: %s -> vel(%ld,%ld)", args,
          (long)game.player.velocity.x, (long)game.player.velocity.y);
 
-    sprintf(resultBuf, "vel=%ld,%ld", (long)game.player.velocity.x, (long)game.player.velocity.y);
+    if (bufSize > 0) {
+        snprintf(resultBuf, (size_t)bufSize, "vel=%ld,%ld",
+                 (long)game.player.velocity.x,
+                 (long)game.player.velocity.y);
+        resultBuf[bufSize - 1] = '\0';
+    }
     return 0;
 }
 
@@ -248,21 +256,23 @@ int main(void)
     ULONG class;
     int hb_counter = 0;
 
-    IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
-    if (!IntuitionBase) return 1;
-
-    GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 36);
-    if (!GfxBase) {
-        CloseLibrary((struct Library *)IntuitionBase);
-        return 1;
-    }
-
     printf("symbol_demo starting\n");
 
+    /* Bridge init FIRST so ab_cleanup can flow through every exit path */
     if (ab_init("symbol_demo") != 0) {
         printf("  Bridge: NOT FOUND\n");
     } else {
         printf("  Bridge: CONNECTED\n");
+    }
+
+    IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
+    if (!IntuitionBase) { ab_cleanup(); return 1; }
+
+    GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 36);
+    if (!GfxBase) {
+        CloseLibrary((struct Library *)IntuitionBase);
+        ab_cleanup();
+        return 1;
     }
 
     /* Register variables */

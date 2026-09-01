@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * test_example.c - Example test program using bridge test harness
  */
@@ -15,8 +18,10 @@ static int factorial(int n) {
 
 int main(void)
 {
-    if (!ab_init("test_example")) {
+    /* ab_init returns 0 on success; non-zero indicates failure. */
+    if (ab_init("test_example") != 0) {
         printf("Failed to connect to AmigaBridge\n");
+        ab_cleanup();
         return 1;
     }
 

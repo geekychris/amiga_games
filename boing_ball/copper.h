@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef COPPER_H
 #define COPPER_H
 
@@ -12,6 +15,6 @@
 
 void copper_init(struct ViewPort *vp);
 void copper_set_rainbow(struct ViewPort *vp, BOOL enable);
-void copper_cleanup(void);
+void copper_cleanup(struct ViewPort *vp);
 
 #endif

@@ -1,8 +1,12 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Jump Quest - Title Screen
  * Character select and game start
  */
 #include "game.h"
+#include <bridge_client.h>
 
 static void draw_big_text(struct RastPort *rp, int x, int y, const char *str, int color) {
     int i, cx;
@@ -177,5 +181,8 @@ int title_screen(struct RastPort *rp) {
         if (input_check_esc()) {
             return -1; /* quit */
         }
+
+        /* Service bridge hooks/vars every frame so host stays responsive. */
+        ab_poll();
     }
 }

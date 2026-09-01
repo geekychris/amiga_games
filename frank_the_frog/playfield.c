@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Frank the Frog - Playfield drawing
  */
@@ -27,7 +30,9 @@ static void draw_road_divider(struct RastPort *rp, int row)
     /* Dashed center line */
     SetAPen(rp, (long)COL_ROAD_LINE);
     for (col = 0; col < SCREEN_W; col += 24) {
-        RectFill(rp, col, y_mid, col + 10, y_mid + 1);
+        int x2 = col + 10;
+        if (x2 > SCREEN_W - 1) x2 = SCREEN_W - 1;
+        RectFill(rp, col, y_mid, x2, y_mid + 1);
     }
 }
 

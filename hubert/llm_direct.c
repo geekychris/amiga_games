@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "llm_direct.h"
 
 #include "http.h"
@@ -181,9 +184,17 @@ int llm_chat_stream(const LlmConfig *cfg,
         http_stream_close(&hs); return -4;
     }
 
+    {
+    int saw_done = 0;
     for (;;) {
         int rl = http_read_line(&hs, line, (int)sizeof(line));
-        if (rl == 0) break;
+        if (rl == 0) {
+            /* End of body. Treat premature close (no `done` frame yet) as
+             * an error so the caller doesn't silently succeed on a
+             * truncated stream. */
+            if (!saw_done) { http_stream_close(&hs); return -5; }
+            break;
+        }
         if (rl < 0) { http_stream_close(&hs); return -5; }
         if (line[0] == '\0') continue;
 
@@ -215,11 +226,20 @@ int llm_chat_stream(const LlmConfig *cfg,
                         "message.tool_calls[0].function.arguments", &al);
                     if (raw) {
                         if (*raw == '"') {
-                            /* JSON string — unescape into targs */
-                            (void)jsonx_string(line,
+                            /* JSON string — unescape into targs. Only
+                             * expose tool_args if the unescape succeeds;
+                             * otherwise we'd hand the dispatcher stale
+                             * bytes from a previous call and it could
+                             * fire the wrong command. */
+                            JsonxResult jr = jsonx_string(line,
                                 "message.tool_calls[0].function.arguments",
                                 targs, (int)sizeof(targs));
-                            delta.tool_args = targs;
+                            if (jr == JSONX_OK) {
+                                delta.tool_args = targs;
+                            } else {
+                                targs[0] = '\0';
+                                /* delta.tool_args stays NULL */
+                            }
                         } else {
                             int n = al < (int)sizeof(targs) - 1 ? al : (int)sizeof(targs) - 1;
                             memcpy(targs, raw, (size_t)n);
@@ -247,12 +267,16 @@ int llm_chat_stream(const LlmConfig *cfg,
 
         {
             int done = 0;
-            if (jsonx_bool(line, "done", &done) == JSONX_OK && done) delta.done = 1;
+            if (jsonx_bool(line, "done", &done) == JSONX_OK && done) {
+                delta.done = 1;
+                saw_done = 1;
+            }
         }
 
         if (cb) cb(&delta, userdata);
         if (delta.done) break;
     }
+    }   /* end saw_done scope */
 
     http_stream_close(&hs);
     return 0;

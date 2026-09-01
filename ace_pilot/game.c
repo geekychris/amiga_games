@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * game.c - Game logic, AI, waves, collision for Ace Pilot
  */
@@ -237,11 +240,19 @@ void game_spawn_wave(GameWorld *w)
 {
     WORD base_count;
     WORD has_blimp;
+    LONG diff;
 
     w->wave++;
 
+    /* Clamp difficulty before mixing into enemy count so out-of-range
+     * host values cannot underflow into a huge WORD. */
+    diff = g_tune.difficulty;
+    if (diff < 1) diff = 1;
+    if (diff > 10) diff = 10;
+
     /* Number of enemies scales with wave and difficulty */
-    base_count = 2 + w->wave + (WORD)(g_tune.difficulty - 1);
+    base_count = 2 + w->wave + (WORD)(diff - 1);
+    if (base_count < 1) base_count = 1;
     if (base_count > MAX_ENEMIES) base_count = MAX_ENEMIES;
 
     /* One blimp every 3 waves */

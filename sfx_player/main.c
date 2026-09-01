@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * SFX Player - AmigaBridge Client Demo
  *
@@ -429,14 +432,22 @@ int main(void)
     LONG prev_channel;
     UBYTE alloc_chan;
 
+    /* Connect to AmigaBridge daemon FIRST, before any fallible init */
+    if (ab_init("sfx_player") != 0) {
+        printf("Bridge: NOT FOUND\n");
+    } else {
+        printf("Bridge: CONNECTED\n");
+    }
+
     IntuitionBase = (struct IntuitionBase *)
         OpenLibrary((CONST_STRPTR)"intuition.library", 36);
-    if (!IntuitionBase) return 1;
+    if (!IntuitionBase) { ab_cleanup(); return 1; }
 
     GfxBase = (struct GfxBase *)
         OpenLibrary((CONST_STRPTR)"graphics.library", 36);
     if (!GfxBase) {
         CloseLibrary((struct Library *)IntuitionBase);
+        ab_cleanup();
         return 1;
     }
 
@@ -448,6 +459,7 @@ int main(void)
         printf("Failed to allocate chip RAM for samples\n");
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
+        ab_cleanup();
         return 1;
     }
 
@@ -461,6 +473,7 @@ int main(void)
         FreeMem(sample_data, SAMPLE_LEN);
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
+        ab_cleanup();
         return 1;
     }
 
@@ -472,6 +485,7 @@ int main(void)
         FreeMem(sample_data, SAMPLE_LEN);
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
+        ab_cleanup();
         return 1;
     }
 
@@ -491,18 +505,12 @@ int main(void)
         FreeMem(sample_data, SAMPLE_LEN);
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
+        ab_cleanup();
         return 1;
     }
     audio_open = TRUE;
     prev_channel = channel;
     printf("audio.device opened on channel %ld\n", (long)channel);
-
-    /* Connect to AmigaBridge daemon */
-    if (ab_init("sfx_player") != 0) {
-        printf("Bridge: NOT FOUND\n");
-    } else {
-        printf("Bridge: CONNECTED\n");
-    }
 
     AB_I("SFX Player starting");
 

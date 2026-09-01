@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "executor.h"
 
 #include <string.h>
@@ -27,7 +30,21 @@ int executor_join(char *dst, int dstSize, int argc, char **argv)
         const char *a = argv[i];
         int need_quote = 0;
         int j;
-        for (j = 0; a[j]; j++) if (a[j] == ' ' || a[j] == '\t') { need_quote = 1; break; }
+        /* SystemTagList's command-line parser treats double-quotes as
+         * delimiters, backslash as an in-quote escape, and splits on
+         * whitespace. Shell metacharacters like > and | are also
+         * significant when the string is executed. Any arg containing
+         * any of these has to be requoted with embedded quotes/backslashes
+         * escaped, or the receiving process sees a completely different
+         * argv. */
+        for (j = 0; a[j]; j++) {
+            char c = a[j];
+            if (c == ' ' || c == '\t' || c == '"' || c == '\\' ||
+                c == '>' || c == '<' || c == '|' || c == '*' || c == '?') {
+                need_quote = 1;
+                break;
+            }
+        }
         if (i > 0) {
             if (off + 1 >= dstSize) return -1;
             dst[off++] = ' ';
@@ -37,8 +54,15 @@ int executor_join(char *dst, int dstSize, int argc, char **argv)
             dst[off++] = '"';
         }
         for (j = 0; a[j]; j++) {
+            char c = a[j];
+            if (need_quote && (c == '"' || c == '\\')) {
+                /* Escape embedded quote/backslash for SystemTagList's
+                 * in-quote handling. */
+                if (off + 1 >= dstSize) return -1;
+                dst[off++] = '\\';
+            }
             if (off + 1 >= dstSize) return -1;
-            dst[off++] = a[j];
+            dst[off++] = c;
         }
         if (need_quote) {
             if (off + 1 >= dstSize) return -1;

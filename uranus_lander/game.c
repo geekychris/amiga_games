@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Uranus Lander - Game logic
  */
@@ -335,6 +338,12 @@ void game_init(GameState *gs)
     WORD i;
 
     memset(gs, 0, sizeof(GameState));
+
+    /* Restore level-dependent physics defaults so a fresh game does not
+     * inherit the harder tune left over from previous game_new_level runs. */
+    g_tune.gravity  = GRAVITY_DEFAULT;
+    g_tune.fuel_max = FUEL_DEFAULT;
+
     gs->lives = (WORD)g_tune.start_lives;
     gs->level = 1;
     gs->score = 0;

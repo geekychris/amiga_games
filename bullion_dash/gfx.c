@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Bullion Dash - Graphics layer
  * Custom screen with double buffering via ScreenBuffer.
@@ -121,9 +124,13 @@ struct RastPort *gfx_backbuffer(void)
 
 void gfx_swap(void)
 {
-    /* Display the back buffer */
+    /* Display the back buffer. ChangeScreenBuffer can fail if a prior
+     * swap is still pending; in that case we must NOT wait on dbufport
+     * (no reply is coming) or toggle current_buf. */
+    if (!ChangeScreenBuffer(screen, sb[current_buf ^ 1])) {
+        return;
+    }
     current_buf ^= 1;
-    ChangeScreenBuffer(screen, sb[current_buf]);
 
     /* Wait for safe to draw */
     WaitPort(dbufport);

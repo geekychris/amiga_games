@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Frank the Frog - Sound effects
  * Uses modplay for playback (direct Paula channel 3).
@@ -174,16 +177,21 @@ static void build_gameover(BYTE *b)
 int sound_init(void)
 {
     BYTE *p;
+    int mod_ok = 0;
 
     /* Init the MOD player (generates music samples + patterns) */
     if (modplay_init() != 0) {
         AB_W("sound: modplay init failed, continuing without music");
+    } else {
+        mod_ok = 1;
     }
 
     /* Allocate chip RAM for SFX */
     sfx_block = (BYTE *)AllocMem(TOTAL_SFX, MEMF_CHIP | MEMF_CLEAR);
     if (!sfx_block) {
         AB_E("sound: SFX chip RAM alloc failed");
+        /* Release MOD player's chip RAM if it was successfully initialized. */
+        if (mod_ok) modplay_cleanup();
         return 1;
     }
 

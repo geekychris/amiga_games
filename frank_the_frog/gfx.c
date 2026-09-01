@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Frank the Frog - Graphics layer
  * Custom screen with double buffering via ScreenBuffer.
@@ -121,12 +124,19 @@ struct RastPort *gfx_backbuffer(void)
 
 void gfx_swap(void)
 {
-    /* Display the back buffer */
-    current_buf ^= 1;
-    ChangeScreenBuffer(screen, sb[current_buf]);
+    int candidate = current_buf ^ 1;
 
-    /* Wait for safe to draw */
-    WaitPort(dbufport);
+    /* Try to display the candidate back buffer. Only commit current_buf on
+     * success — ChangeScreenBuffer can reject the request. */
+    if (!ChangeScreenBuffer(screen, sb[candidate])) {
+        /* Rejected: don't WaitPort (message won't arrive). Skip this frame. */
+        return;
+    }
+
+    current_buf = candidate;
+
+    /* Drain any safe-to-draw messages non-blockingly. Avoids WaitPort()
+     * blocking indefinitely if a message was lost or not yet posted. */
     while (GetMsg(dbufport)) ;
 
     /* Point rastport at the new back buffer */

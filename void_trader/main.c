@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * void_trader — Elite-alike space trading + combat demo for Amiga.
  * Phase 1: multi-object 3D engine, 6DoF flight, cockpit + HUD,

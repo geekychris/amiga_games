@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * LUNAR RIDER - side-scrolling arcade for Amiga
  *

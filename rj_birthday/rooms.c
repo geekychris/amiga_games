@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * rooms.c - Room background rendering
  * Each room is 320px wide, drawn relative to camera position

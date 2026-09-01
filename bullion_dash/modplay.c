@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Bullion Dash - MOD-style music player
  * Direct Paula hardware access. Fast-paced adventurous chiptune.
@@ -769,9 +772,21 @@ void modplay_sfx(BYTE *data, UWORD len_words, UWORD period, UWORD volume)
 
     custom.dmacon = (UWORD)0x8208;  /* enable ch3 */
 
+    /* Paula latches ac_ptr/ac_len at DMA start; after the first pass it
+     * re-reads ac_ptr/ac_len for the loop. Point the reload at the
+     * 1-word silence buffer in CHIP RAM so one-shot SFX don't repeat. */
+    if (mp.silence) {
+        custom.aud[3].ac_ptr = (UWORD *)mp.silence;
+        custom.aud[3].ac_len = 1;
+    }
+
     mp.sfx_active = 1;
-    /* Calculate duration in frames: samples / sample_rate * 50 */
-    mp.sfx_frames = (int)((ULONG)len_words * 2 * (ULONG)period / 35469UL) + 3;
+    /* Duration in frames: bytes / bytes_per_second_at_this_period * 50.
+     * Paula sample rate = PAL_CLOCK / period, so bytes/sec = ~3546895/period.
+     * frames = len_words * 2 * period * 50 / PAL_CLOCK
+     *        = len_words * 2 * period / (PAL_CLOCK / 50)
+     *        ~ len_words * 2 * period / 70938. */
+    mp.sfx_frames = (int)((ULONG)len_words * 2 * (ULONG)period / 70938UL) + 3;
     if (mp.sfx_frames < 3) mp.sfx_frames = 3;
     if (mp.sfx_frames > 25) mp.sfx_frames = 25;
 }

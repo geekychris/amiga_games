@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Boing Ball - Reimagined
  *
@@ -279,7 +282,7 @@ int main(int argc, char **argv)
     /* Pre-render sphere frames */
     if (!sphere_init()) {
         sphere_cleanup();
-        copper_cleanup();
+        copper_cleanup(screen ? &screen->ViewPort : NULL);
         close_display();
         close_libs();
         return 20;
@@ -350,7 +353,7 @@ int main(int argc, char **argv)
 
     sound_cleanup();
     sphere_cleanup();
-    copper_cleanup();
+    copper_cleanup(screen ? &screen->ViewPort : NULL);
     close_display();
     close_libs();
 

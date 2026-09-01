@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Jump Quest - Enemy System
  * Bug enemies: beetle, fly, spider, ant
@@ -41,6 +44,7 @@ void enemies_spawn(const EntitySpawn *spawns) {
                 game.enemies[i].vx = 0;
                 game.enemies[i].vy = FP(1);
                 game.enemies[i].y = s->ty * TILE_SIZE;
+                game.enemies[i].dir = DIR_RIGHT; /* positive = dropping */
                 break;
             case ENT_ANT:
                 game.enemies[i].vx = FP(2);

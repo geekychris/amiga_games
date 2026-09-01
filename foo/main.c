@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include <exec/types.h>
 #include <intuition/intuition.h>
 #include <graphics/gfx.h>
@@ -23,7 +26,15 @@ static LONG bridge_ok = 0;
 /* Hook example: called remotely via bridge */
 static int hook_status(const char *args, char *result, int bufsize)
 {
-    sprintf(result, "loop_count=%ld running=%ld", (long)loop_count, (long)running);
+    char tmp[128];
+    int n;
+    sprintf(tmp, "loop_count=%ld running=%ld", (long)loop_count, (long)running);
+    if (bufsize > 0) {
+        n = (int)strlen(tmp);
+        if (n > bufsize - 1) n = bufsize - 1;
+        memcpy(result, tmp, n);
+        result[n] = '\0';
+    }
     return 0;
 }
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * App Launcher for Amiga
  *
@@ -200,19 +203,16 @@ static void stats_load(void)
         if (*p == '\n') p++;
 
         if (ni > 0) {
-            WORD i, found = 0;
+            WORD i;
+            /* Only update stats for apps we've actually discovered on disk.
+             * Deleted apps must not consume MAX_APPS slots and block current
+             * executables. Call scan_directory() BEFORE stats_load(). */
             for (i = 0; i < app_count; i++) {
                 if (strcmp(apps[i].name, name) == 0) {
                     apps[i].count = count;
-                    found = 1;
+                    apps[i].is_new = 0;  /* seen before */
                     break;
                 }
-            }
-            if (!found && app_count < MAX_APPS) {
-                strncpy(apps[app_count].name, name, NAME_LEN - 1);
-                apps[app_count].count = count;
-                apps[app_count].is_new = 0;
-                app_count++;
             }
         }
     }
@@ -444,9 +444,11 @@ int main(int argc, char *argv[])
     /* Install keyboard handler */
     input_handler_init();
 
-    /* Load stats, scan, sort, build list */
-    stats_load();
+    /* Scan disk first so stats_load() only annotates real files.
+     * This prevents stale stats entries for deleted apps from filling
+     * MAX_APPS slots and blocking discovery of current executables. */
     scan_directory();
+    stats_load();
     sort_apps();
     build_list();
 
@@ -568,7 +570,8 @@ int main(int argc, char *argv[])
                 WORD want_up = 0, want_down = 0, want_launch = 0;
                 UWORD joy;
 
-                /* ESC does nothing - use close gadget or Quit button */
+                /* ESC exits the launcher */
+                if (key_pop(0x45)) { running = 0; break; }
 
                 /* Enter to launch */
                 if (key_pop(0x44) || key_pop(0x43)) want_launch = 1;

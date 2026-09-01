@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * input.h - Joystick and keyboard input for Ace Pilot
  * Player 1: Joystick port 2 + keyboard

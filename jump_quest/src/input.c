@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Jump Quest - Input Handler
  * Joystick port 2 + Keyboard
@@ -78,21 +81,16 @@ UWORD input_read(void) {
     /* Read joystick port 2 */
     joy = JOY1DAT;
 
-    /* Horizontal: XOR of bits 1 and 9 */
-    if (joy & 0x0002) {
-        if (joy & 0x0001) result |= INP_LEFT;
-        else result |= INP_RIGHT;
-    } else if (joy & 0x0001) {
-        result |= INP_RIGHT;
-    }
-
-    /* Vertical: XOR of bits 9 and 8 */
-    if (joy & 0x0200) {
-        if (joy & 0x0100) result |= INP_UP;
-        else result |= INP_DOWN;
-    } else if (joy & 0x0100) {
-        result |= INP_DOWN;
-    }
+    /* Standard JOY1DAT decoding:
+     *   left  = bit 9
+     *   right = bit 0
+     *   up    = bit 9 XOR bit 8
+     *   down  = bit 1 XOR bit 0
+     */
+    if (joy & 0x0200) result |= INP_LEFT;
+    if (joy & 0x0001) result |= INP_RIGHT;
+    if (((joy >> 9) ^ (joy >> 8)) & 0x0001) result |= INP_UP;
+    if (((joy >> 1) ^ (joy >> 0)) & 0x0001) result |= INP_DOWN;
 
     /* Fire button = jump (active low) */
     if (!(CIAAPRA & 0x80)) {

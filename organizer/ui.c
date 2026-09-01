@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * ui.c — shared drawing primitives + tab bar + list-row renderer.
  *

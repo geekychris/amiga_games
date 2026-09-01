@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Conway's Game of Life for Amiga
  * Uses AmigaBridge for remote monitoring and control.
@@ -186,8 +189,41 @@ static void place_glider(int cx, int cy)
     for (i = 0; i < 5; i++) {
         gx = (cx + offsets[i][0]) % GRID_W;
         gy = (cy + offsets[i][1]) % GRID_H;
+        /* C '%' can return a negative result for negative operands; force the
+         * index positive to preserve toroidal wrapping and stay in-bounds. */
+        if (gx < 0) gx += GRID_W;
+        if (gy < 0) gy += GRID_H;
         grid_cur[gy][gx] = 1;
     }
+}
+
+/* Recount live cells in grid_cur into `population`. Shared helper so hooks
+ * that mutate the grid keep the reported population in sync. */
+static void recount_population(void)
+{
+    int x, y;
+    population = 0;
+    for (y = 0; y < GRID_H; y++) {
+        for (x = 0; x < GRID_W; x++) {
+            if (grid_cur[y][x]) population++;
+        }
+    }
+}
+
+/* Shared response writer for hook callbacks. Validates buf/bufSize, tolerates
+ * zero-sized buffers, and always NUL-terminates non-empty output. */
+static void write_hook_response(char *buf, int bufSize, const char *src)
+{
+    int i;
+    if (!buf || bufSize <= 0) return;
+    if (!src) {
+        buf[0] = '\0';
+        return;
+    }
+    for (i = 0; i < bufSize - 1 && src[i] != '\0'; i++) {
+        buf[i] = src[i];
+    }
+    buf[i] = '\0';
 }
 
 /* Place a Gosper glider gun at top-left area */
@@ -251,17 +287,19 @@ static int hook_clear(const char *args, char *buf, int bufSize)
     clear_grid();
     if (g_win) draw_full(g_win->RPort);
     AB_I("Grid cleared");
-    strncpy(buf, "OK", (size_t)(bufSize - 1));
+    write_hook_response(buf, bufSize, "OK");
     return 0;
 }
 
 static int hook_randomize(const char *args, char *buf, int bufSize)
 {
     int density = parse_int(args, 30);
+    char local[64];
     randomize_grid(density);
     if (g_win) draw_full(g_win->RPort);
     AB_I("Randomized grid, density=%ld%%", (long)density);
-    sprintf(buf, "OK density=%ld", (long)density);
+    sprintf(local, "OK density=%ld", (long)density);
+    write_hook_response(buf, bufSize, local);
     return 0;
 }
 
@@ -269,6 +307,7 @@ static int hook_glider(const char *args, char *buf, int bufSize)
 {
     int gx = GRID_W / 2;
     int gy = GRID_H / 2;
+    char local[64];
 
     if (args && *args) {
         /* Parse "x,y" */
@@ -282,9 +321,11 @@ static int hook_glider(const char *args, char *buf, int bufSize)
     }
 
     place_glider(gx, gy);
+    recount_population();
     if (g_win) draw_full(g_win->RPort);
     AB_I("Placed glider at %ld,%ld", (long)gx, (long)gy);
-    sprintf(buf, "OK at %ld,%ld", (long)gx, (long)gy);
+    sprintf(local, "OK at %ld,%ld", (long)gx, (long)gy);
+    write_hook_response(buf, bufSize, local);
     return 0;
 }
 
@@ -293,18 +334,21 @@ static int hook_gosper(const char *args, char *buf, int bufSize)
     (void)args;
     clear_grid();
     place_gosper_gun();
+    recount_population();
     if (g_win) draw_full(g_win->RPort);
     AB_I("Placed Gosper glider gun");
-    strncpy(buf, "OK", (size_t)(bufSize - 1));
+    write_hook_response(buf, bufSize, "OK");
     return 0;
 }
 
 static int hook_toggle_pause(const char *args, char *buf, int bufSize)
 {
+    char local[32];
     (void)args;
     running_sim = running_sim ? 0 : 1;
     AB_I("Simulation %s", running_sim ? "resumed" : "paused");
-    sprintf(buf, "OK %s", running_sim ? "running" : "paused");
+    sprintf(local, "OK %s", running_sim ? "running" : "paused");
+    write_hook_response(buf, bufSize, local);
     return 0;
 }
 
@@ -428,13 +472,7 @@ int main(void)
                             cy * CELL_SIZE + CELL_SIZE - 1);
 
                         /* Recalculate population */
-                        {
-                            int px, py;
-                            population = 0;
-                            for (py = 0; py < GRID_H; py++)
-                                for (px = 0; px < GRID_W; px++)
-                                    if (grid_cur[py][px]) population++;
-                        }
+                        recount_population();
                     }
                 }
             }

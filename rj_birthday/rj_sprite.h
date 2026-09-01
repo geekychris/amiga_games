@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * rj_sprite.h - RJ Mical head sprite (32x40, 4 bitplanes)
  * Generated from rj_head.jpg, dithered to game palette

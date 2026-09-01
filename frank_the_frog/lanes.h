@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Frank the Frog - Lane objects (traffic + river)
  */
@@ -21,8 +24,9 @@ int lanes_check_car(int px, int py);
 
 /*
  * Check if pixel position (px,py) is on a log/turtle.
- * Returns 0 if in water (death), or the lane's pixel speed (with sign)
- * so the caller can ride the frog along.
+ * Returns 0 when the frog is in water (death), or 1 when on a safe log/turtle.
+ * If on a log/turtle, *ride_dx receives the movement amount (with sign) to
+ * apply this frame so the caller can ride the frog along.
  */
 int lanes_check_river(int px, int py, int *ride_dx);
 

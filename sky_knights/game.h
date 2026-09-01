@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * SKY KNIGHTS - aerial combat arcade for Amiga
  * Game definitions and structures

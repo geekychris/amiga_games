@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * sound.c - Sound effect synthesis for Ace Pilot
  * Uses ptplayer for playback via SFX structures
@@ -109,10 +112,13 @@ void sound_init(void)
 
 void sound_cleanup(void)
 {
-    if (sfx_gun_data)     FreeMem(sfx_gun_data, SFX_GUN_LEN);
-    if (sfx_explode_data) FreeMem(sfx_explode_data, SFX_EXPLODE_LEN);
-    if (sfx_hit_data)     FreeMem(sfx_hit_data, SFX_HIT_LEN);
-    if (sfx_die_data)     FreeMem(sfx_die_data, SFX_DIE_LEN);
+    /* Null the pointers immediately after free so a stray sfx_* call
+     * after cleanup, or a second cleanup pass, cannot use freed memory
+     * or double-free. */
+    if (sfx_gun_data)     { FreeMem(sfx_gun_data, SFX_GUN_LEN);         sfx_gun_data = NULL; }
+    if (sfx_explode_data) { FreeMem(sfx_explode_data, SFX_EXPLODE_LEN); sfx_explode_data = NULL; }
+    if (sfx_hit_data)     { FreeMem(sfx_hit_data, SFX_HIT_LEN);         sfx_hit_data = NULL; }
+    if (sfx_die_data)     { FreeMem(sfx_die_data, SFX_DIE_LEN);         sfx_die_data = NULL; }
 }
 
 void sfx_gunfire(void)

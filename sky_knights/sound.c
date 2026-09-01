@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * SKY KNIGHTS - Sound system
  * Direct hardware audio via custom chip registers

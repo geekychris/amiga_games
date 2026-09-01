@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Bullion Dash - Level management
  *
@@ -2614,8 +2617,13 @@ int level_load_text(const char *path)
                 case '-': gs.tiles[x][y] = TILE_BAR; break;
                 case '$': gs.tiles[x][y] = TILE_GOLD; break;
                 case 'X': gs.tiles[x][y] = TILE_HIDDEN_LADDER; break;
-                case 'P': gs.tiles[x][y] = TILE_EMPTY; /* player start handled separately */ break;
-                case 'E': gs.tiles[x][y] = TILE_EMPTY; break;
+                /* Preserve spawn markers so a later
+                 * level_activate_spawn_markers() call can rebuild
+                 * live entities from them. Otherwise a
+                 * level_save_text() -> level_load_text() roundtrip
+                 * loses player + enemy positions. */
+                case 'P': gs.tiles[x][y] = TILE_PLAYER; break;
+                case 'E': gs.tiles[x][y] = TILE_ENEMY; break;
                 case 'T': gs.tiles[x][y] = TILE_TRAP; break;
                 default:  gs.tiles[x][y] = TILE_EMPTY; break;
             }

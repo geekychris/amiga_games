@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 """
 Generate a Blue Danube waltz MOD file for Ace Pilot.
 Produces a valid ProTracker .mod file with a simple sine wave sample

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * RJ's 70th Birthday Bash
  * A tribute to RJ Mical

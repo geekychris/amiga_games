@@ -42,6 +42,16 @@
 */test_new_features
 */disk_benchmark
 */arexx_test
+*/ballblazer
+*/fractalus
+*/ham_raster
+*/ham_test
+*/masterwork
+*/opus
+*/organizer
+*/terrain_test
+*/void_trader
 
 # macOS
 .DS_Store
+*.dSYM/

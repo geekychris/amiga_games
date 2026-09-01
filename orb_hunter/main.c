@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * ORB HUNTER for Amiga
  *
@@ -528,13 +531,20 @@ static void cleanup_display(void)
 
 /* --- Bridge hooks --- */
 
+/* Copy a fixed message into a bridge-supplied buffer, always terminating
+ * when bufsz > 0. Handles NULL buf and non-positive bufsz safely. */
+static void copy_bounded(char *buf, int bufsz, const char *msg)
+{
+    int i;
+    if (!buf || bufsz <= 0) return;
+    for (i = 0; msg[i] && i < bufsz - 1; i++) buf[i] = msg[i];
+    buf[i] = '\0';
+}
+
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
     game_init(&gs);
-    if (bufsz > 0) {
-        strncpy(buf, "Game reset", bufsz);
-        buf[bufsz - 1] = '\0';
-    }
+    copy_bounded(buf, bufsz, "Game reset");
     return 0;
 }
 
@@ -546,10 +556,7 @@ static int hook_give_items(const char *args, char *buf, int bufsz)
     gs.hunter.missiles = 30;
     gs.hunter.max_missiles = 30;
     gs.hunter.has_long_beam = 1;
-    if (bufsz > 0) {
-        strncpy(buf, "All items given", bufsz);
-        buf[bufsz - 1] = '\0';
-    }
+    copy_bounded(buf, bufsz, "All items given");
     return 0;
 }
 
@@ -557,10 +564,9 @@ static int hook_full_health(const char *args, char *buf, int bufsz)
 {
     char tmp[32];
     gs.hunter.health = gs.hunter.max_energy;
-    if (bufsz <= 0) return 0;
+    if (!buf || bufsz <= 0) return 0;
     sprintf(tmp, "Health: %ld", (long)gs.hunter.health);
-    strncpy(buf, tmp, bufsz);
-    buf[bufsz - 1] = '\0';
+    copy_bounded(buf, bufsz, tmp);
     return 0;
 }
 

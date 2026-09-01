@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * PEA SHOOTER BLAST - side-scrolling tank action for Amiga
  *
@@ -22,6 +25,7 @@
 #include <exec/memory.h>
 #include <hardware/custom.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 
 #include "bridge_client.h"
@@ -405,42 +409,71 @@ static void cleanup_display(void)
 
 /* --- Bridge hooks --- */
 
+/* Bounded reply helper: formats into a fixed scratch buffer, then
+ * copies at most bufsz-1 bytes into the caller's buffer and always
+ * NUL-terminates. Rejects non-positive bufsz to avoid negative-sized
+ * copies. Amiga amiga.lib sprintf has no size-limited variant. */
+extern int vsprintf(char *, const char *, va_list);
+
+static void hook_reply(char *buf, int bufsz, const char *fmt, ...)
+{
+    char scratch[128];
+    va_list ap;
+    WORD i;
+
+    if (!buf || bufsz <= 0) return;
+
+    va_start(ap, fmt);
+    vsprintf(scratch, fmt, ap);
+    va_end(ap);
+    scratch[sizeof(scratch) - 1] = 0;
+
+    for (i = 0; i < bufsz - 1 && scratch[i]; i++)
+        buf[i] = scratch[i];
+    buf[i] = 0;
+}
+
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
+    (void)args;
     game_init(&gs);
-    strncpy(buf, "Game reset", bufsz);
+    hook_reply(buf, bufsz, "Game reset");
     return 0;
 }
 
 static int hook_next_level(const char *args, char *buf, int bufsz)
 {
+    (void)args;
     if (gs.level < 2) {
         game_load_level(&gs, (WORD)(gs.level + 1));
-        sprintf(buf, "Level %ld", (long)gs.level + 1);
+        hook_reply(buf, bufsz, "Level %ld", (long)gs.level + 1);
     } else {
-        strncpy(buf, "Already at last level", bufsz);
+        hook_reply(buf, bufsz, "Already at last level");
     }
     return 0;
 }
 
 static int hook_add_life(const char *args, char *buf, int bufsz)
 {
+    (void)args;
     gs.lives++;
-    sprintf(buf, "Lives: %ld", (long)gs.lives);
+    hook_reply(buf, bufsz, "Lives: %ld", (long)gs.lives);
     return 0;
 }
 
 static int hook_heal(const char *args, char *buf, int bufsz)
 {
+    (void)args;
     gs.tank.health = MAX_HEALTH;
-    strncpy(buf, "Healed to full", bufsz);
+    hook_reply(buf, bufsz, "Healed to full");
     return 0;
 }
 
 static int hook_max_weapon(const char *args, char *buf, int bufsz)
 {
+    (void)args;
     gs.tank.weapon_level = 7;
-    strncpy(buf, "Weapon maxed", bufsz);
+    hook_reply(buf, bufsz, "Weapon maxed");
     return 0;
 }
 
@@ -499,15 +532,60 @@ int main(void)
     /* Build SFX */
     build_sfx();
 
-    /* Load MOD music */
+    /* Load MOD music. Before handing the buffer to ptplayer, validate
+     * the 15/31-sample MOD header against mod_size so a truncated or
+     * bogus file can't drive mt_init off the end of the buffer. */
     mod_data = load_file_to_chip("DH2:Dev/music.mod", &mod_size);
     if (mod_data) {
-        AB_I("Loaded music.mod (%ld bytes)", (long)mod_size);
-        mt_install_cia(CUSTOM_BASE, NULL, 1);
-        mt_init(CUSTOM_BASE, mod_data, NULL, 0);
-        mt_MusicChannels = 2;
-        mt_Enable = 1;
-        music_playing = 1;
+        WORD mod_ok = 0;
+        /* Minimum: 1084-byte header (20 name + 31*30 sample hdrs +
+         * 1 songlen + 1 restart + 128 orders + 4 sig). */
+        if (mod_size >= 1084) {
+            ULONG total_samples = 0;
+            WORD max_pattern = 0;
+            WORD i;
+            /* Highest pattern number in the order table gives us the
+             * pattern-data size (each pattern is 1024 bytes: 64 rows
+             * x 4 channels x 4 bytes). Scan all 128 order slots so
+             * we cover unused-but-populated entries too. */
+            for (i = 0; i < 128; i++) {
+                UBYTE p = mod_data[952 + i];
+                if (p > max_pattern) max_pattern = p;
+            }
+            /* Sum sample lengths (word count at offset +22 of each
+             * 30-byte sample header, starting at offset 20). */
+            for (i = 0; i < 31; i++) {
+                ULONG off = 20 + (ULONG)i * 30 + 22;
+                ULONG slen_w = ((ULONG)mod_data[off] << 8) | mod_data[off + 1];
+                total_samples += slen_w * 2;
+            }
+            {
+                ULONG needed = 1084UL +
+                               ((ULONG)max_pattern + 1) * 1024UL +
+                               total_samples;
+                if (needed <= mod_size) {
+                    AB_I("Loaded music.mod (%ld bytes)", (long)mod_size);
+                    mt_install_cia(CUSTOM_BASE, NULL, 1);
+                    mt_init(CUSTOM_BASE, mod_data, NULL, 0);
+                    mt_MusicChannels = 2;
+                    mt_Enable = 1;
+                    music_playing = 1;
+                    mod_ok = 1;
+                } else {
+                    AB_W("MOD size %ld < required %ld - refusing to play",
+                         (long)mod_size, (long)needed);
+                }
+            }
+        } else {
+            AB_W("MOD too small (%ld bytes) - refusing to play", (long)mod_size);
+        }
+        if (!mod_ok) {
+            /* Match the existing cleanup path (see shutdown at end of
+             * main()): free chip buffer and drop the pointer. */
+            FreeMem(mod_data, mod_size);
+            mod_data = NULL;
+            mod_size = 0;
+        }
     } else {
         AB_W("Could not load music.mod - no music");
     }

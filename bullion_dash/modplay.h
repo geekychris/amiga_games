@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Bullion Dash - MOD-style music player with direct Paula hardware access
  * Synthesizes adventurous chiptune music for puzzle platformer gameplay.

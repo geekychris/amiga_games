@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * engine3d.h - 3D wireframe engine for Ace Pilot
  * Fixed-point math, camera transform, perspective projection

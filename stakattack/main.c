@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * StakAttack - A colorful block-stacking game for the Amiga
  *
@@ -272,8 +275,14 @@ static void swap_buffers(void)
 
     WaitBlit();
 
-    /* Swap: show the buffer we just drew to */
-    ChangeScreenBuffer(screen, sbuf[cur_buf]);
+    /* Swap: show the buffer we just drew to. If ChangeScreenBuffer
+     * rejects the swap, no SafeMessage will arrive on this port —
+     * leave cur_buf and safe_to_write[] unchanged so the caller can
+     * simply retry next frame, and skip the WaitPort() below that
+     * would otherwise deadlock. */
+    if (!ChangeScreenBuffer(screen, sbuf[cur_buf])) {
+        return;
+    }
     safe_to_write[cur_buf] = FALSE;
 
     /* Switch to the other buffer for next frame's drawing */
@@ -301,8 +310,14 @@ static void close_display(void)
 
 static int hook_reset(const char *args, char *response, int maxLen)
 {
+    const char *msg = "game reset";
+    int n;
     game_start(&gs);
-    strncpy(response, "game reset", maxLen);
+    if (!response || maxLen <= 0) return 0;
+    n = (int)strlen(msg);
+    if (n > maxLen - 1) n = maxLen - 1;
+    memcpy(response, msg, n);
+    response[n] = '\0';
     return 0;
 }
 
@@ -315,12 +330,13 @@ int main(void)
     UWORD input;
     int game_input;
 
+    /* Bridge init FIRST, before any fallible library init */
+    ab_init("stakattack");
+
     IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 39);
     GfxBase = (struct GfxBase *)OpenLibrary("graphics.library", 39);
     if (!IntuitionBase || !GfxBase) goto cleanup;
 
-    /* Bridge init */
-    ab_init("stakattack");
     ab_register_var("score", AB_TYPE_U32, &gs.score);
     ab_register_var("level", AB_TYPE_I32, &gs.level);
     ab_register_var("lines", AB_TYPE_I32, &gs.lines);
@@ -336,7 +352,7 @@ int main(void)
     build_sfx();
 
     /* Load MOD music */
-    mod_data = load_file_to_chip("DH2:Dev/stakattack.mod", &mod_size);
+    mod_data = load_file_to_chip("PROGDIR:stakattack.mod", &mod_size);
     if (mod_data) {
         AB_I("Loaded stakattack.mod (%ld bytes)", (long)mod_size);
         mt_install_cia(CUSTOM_BASE, NULL, 1); /* PAL */

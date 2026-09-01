@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Frank the Frog - road-crossing arcade game for Amiga
  * Uses AmigaBridge for remote monitoring.
@@ -72,7 +75,8 @@ static void read_joystick(int *dx, int *dy, int *fire)
 static int game_state = STATE_TITLE;
 static int transition_frames = 0; /* frames to wait during transitions */
 static ULONG frame_count = 0;
-static LONG bridge_ok = 0;
+static LONG bridge_ok = 0;             /* connection active */
+static int  bridge_initialized = 0;    /* ab_init() succeeded — needs cleanup */
 
 /* Bridge variables for remote monitoring */
 static LONG var_score = 0;
@@ -82,24 +86,45 @@ static LONG var_frog_col = 0;
 static LONG var_frog_row = 0;
 static LONG var_state = 0;
 
+/* Signaled by hook_reset so main loop redraws title on both buffers */
+static volatile int reset_pending = 0;
+
 /* Hook: get game status */
 static int hook_status(const char *args, char *resultBuf, int bufSize)
 {
-    sprintf(resultBuf, "state=%ld score=%ld lives=%ld level=%ld frog=(%ld,%ld) frame=%lu",
-            (long)game_state, (long)var_score, (long)var_lives,
-            (long)var_level, (long)var_frog_col, (long)var_frog_row,
-            (unsigned long)frame_count);
-    resultBuf[bufSize - 1] = '\0';
+    char local[160];
+    int n;
+
+    if (bufSize <= 0 || !resultBuf) return 0;
+
+    n = sprintf(local, "state=%ld score=%ld lives=%ld level=%ld frog=(%ld,%ld) frame=%lu",
+                (long)game_state, (long)var_score, (long)var_lives,
+                (long)var_level, (long)var_frog_col, (long)var_frog_row,
+                (unsigned long)frame_count);
+    if (n < 0) n = 0;
+    if (n > bufSize - 1) n = bufSize - 1;
+    if (n > (int)(sizeof(local) - 1)) n = (int)(sizeof(local) - 1);
+    memcpy(resultBuf, local, n);
+    resultBuf[n] = '\0';
     return 0;
 }
 
 /* Hook: reset game */
 static int hook_reset(const char *args, char *resultBuf, int bufSize)
 {
+    static const char msg[] = "Game reset to title";
+    int n;
+
+    if (bufSize <= 0 || !resultBuf) return 0;
+
     game_state = STATE_TITLE;
     transition_frames = 0;
-    strncpy(resultBuf, "Game reset to title", bufSize - 1);
-    resultBuf[bufSize - 1] = '\0';
+    reset_pending = 1;  /* main loop will call draw_both_buffers(draw_title) */
+
+    n = (int)sizeof(msg) - 1;
+    if (n > bufSize - 1) n = bufSize - 1;
+    memcpy(resultBuf, msg, n);
+    resultBuf[n] = '\0';
     return 0;
 }
 
@@ -243,6 +268,7 @@ int main(void)
 
     /* Connect to bridge */
     if (ab_init("frank_frog") == 0) {
+        bridge_initialized = 1;
         bridge_ok = 1;
         AB_I("Frank the Frog starting");
 
@@ -259,7 +285,7 @@ int main(void)
     /* Init graphics */
     if (gfx_init() != 0) {
         AB_E("Failed to open screen");
-        if (bridge_ok) ab_cleanup();
+        if (bridge_initialized) ab_cleanup();
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
         return 1;
@@ -326,6 +352,16 @@ int main(void)
         }
 
         if (!running) break;
+
+        /* Handle remote reset hook: redraw title on both buffers before the
+         * normal state dispatch, matching the STATE_GAMEOVER→TITLE transition. */
+        if (reset_pending) {
+            reset_pending = 0;
+            game_state = STATE_TITLE;
+            transition_frames = 0;
+            draw_both_buffers(draw_title);
+            goto next_frame;
+        }
 
         rp = gfx_backbuffer();
 
@@ -524,7 +560,7 @@ next_frame:
     sound_cleanup();
     if (win) CloseWindow(win);
     gfx_cleanup();
-    if (bridge_ok) ab_cleanup();
+    if (bridge_initialized) ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * PPC audio stub — void_trader's modplay.c + sfx.c both bang directly
  * on the Paula chip registers via <hardware/custom.h>, which requires
