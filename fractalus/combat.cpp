@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "combat.h"
 #include "game.h"
 #include "sfx.h"
@@ -43,7 +46,11 @@ void Combat::init(ULONG seed, LONG cam_x, LONG cam_y, LONG cam_z)
         s.y = SAUCER_CRUISE_Y + crand_range(-30, 60);
         s.state = SS_APPROACHING;
         s.dying_timer = 0;
-        s.fire_cooldown = crand_range(30, SAUCER_FIRE_COOL);
+        /* Grace period on mission start: 6-10 seconds before the first
+         * shot. Was crand_range(30, SAUCER_FIRE_COOL) which meant the
+         * player could be hit within one second of spawning, before
+         * they'd even oriented themselves. */
+        s.fire_cooldown = crand_range(180, 300);
         s.hp = 3;
     }
 
