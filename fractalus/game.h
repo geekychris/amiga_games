@@ -42,12 +42,22 @@ enum RescueState {
     RS_TAKEOFF    = 5,   /* brief lift back into flying */
 };
 
-/* Top-level game mode. Restart transitions LOSE/WIN -> TITLE. */
+/* Top-level game mode. Restart transitions LOSE/WIN -> TITLE.
+ *
+ * GM_ATTRACT is an idle-screensaver-style demo: after a few seconds of
+ * no input on the title screen, main.cpp drops the sim into ATTRACT
+ * with a fresh world, and game.tick() synthesises always-thrust +
+ * gentle-turn input so the ship flies itself in a slow circle over
+ * the terrain. Any real keypress bounces us back to GM_TITLE (with
+ * the triggering keystroke consumed so it doesn't also start a
+ * mission on the same frame). Purely eye-candy — no scoring, no
+ * combat damage. */
 enum GameMode {
     GM_PLAYING = 0,
     GM_WIN     = 1,
     GM_LOSE    = 2,
     GM_TITLE   = 3,     /* pre-mission briefing, waiting for SPACE */
+    GM_ATTRACT = 4,     /* auto-fly demo when title sits idle */
 };
 
 /* Mission tunables. */
