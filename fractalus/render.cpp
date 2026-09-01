@@ -1255,17 +1255,19 @@ void Renderer::flip()
         WaitTOF();         /* rejected — try again next frame */
     }
 
-    /* Frame-rate cap via dos.library Delay(). Once the OS4 buffer-swap
-     * bug was fixed the game started running at 150-200 fps on PPC —
-     * game logic is per-frame so it blasts through a mission in
-     * seconds. WaitTOF() is a no-op on OS4/RTG (returns immediately),
-     * so we can't loop it to pace; DateStamp granularity on OS4
-     * turned out finer than the classic 1/50s so a DateStamp-based
-     * cap broke out of the wait too fast. Delay(N) is the reliable
-     * dos.library sleep — N is in 1/50 s ticks. Delay(2) = 40 ms =
-     * ~25 fps. CLAUDE.md warned that Delay(1) can DSI on -lauto
-     * newlib PPC, but Delay(2+) has been safe elsewhere in the tree. */
-    Delay(2);
+    /* Frame-rate cap intentionally NOT applied here.
+     *
+     * We tried Delay(2) — even though CLAUDE.md's warning was
+     * specifically about Delay(1), the tighter cap wedges the game
+     * on OS4 too (confirmed: game freezes on the frame after the
+     * first Delay(2) call; no DSI logged but the main loop stops
+     * ticking). WaitTOF() on OS4/RTG returns immediately so a
+     * WaitTOF loop can't pace either. DateStamp cap was defeated
+     * by finer-than-20ms tick resolution on OS4.
+     *
+     * Result: PPC runs at 150-200 fps and gameplay is fast.
+     * Follow-up: timer.device IORequest with an explicit 40 ms
+     * TR_ADDREQUEST is the reliable path — schedule that. */
 }
 
 void Renderer::render(const GameState &gs, const Terrain &world,
