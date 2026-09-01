@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef VT_SCANNER_H
 #define VT_SCANNER_H
 

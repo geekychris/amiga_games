@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * arexx_test - ARexx port test application
  *
@@ -22,11 +25,13 @@
 #include <rexx/rxslib.h>
 #include <rexx/errors.h>
 #include <dos/dos.h>
+#include <devices/timer.h>
 #include <proto/exec.h>
 #include <proto/intuition.h>
 #include <proto/graphics.h>
 #include <proto/rexxsyslib.h>
 #include <proto/dos.h>
+#include <proto/timer.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -241,8 +246,12 @@ int main(void)
     struct Window *win;
     struct IntuiMessage *imsg;
     struct RexxMsg *rmsg;
+    struct MsgPort *timerPort = NULL;
+    struct timerequest *timerReq = NULL;
+    BYTE timerOpen = -1;
+    BOOL timerPending = FALSE;
     ULONG class;
-    ULONG winSig, rexxSig, signals;
+    ULONG winSig, rexxSig, timerSig = 0, signals;
     int redraw_counter = 0;
 
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
@@ -289,7 +298,22 @@ int main(void)
     }
     rexxPort->mp_Node.ln_Name = PORT_NAME;
     rexxPort->mp_Node.ln_Pri = 0;
+
+    /* Bail out if the public port name is already taken instead of
+     * silently registering a second port with the same name. */
+    Forbid();
+    if (FindPort((CONST_STRPTR)PORT_NAME) != NULL) {
+        Permit();
+        printf("ERROR: ARexx port '%s' already exists\n", PORT_NAME);
+        DeleteMsgPort(rexxPort);
+        rexxPort = NULL;
+        ab_cleanup();
+        CloseLibrary((struct Library *)GfxBase);
+        CloseLibrary((struct Library *)IntuitionBase);
+        return 1;
+    }
     AddPort(rexxPort);
+    Permit();
     printf("  ARexx port: %s (active)\n", PORT_NAME);
     AB_I("ARexx port '%s' created", PORT_NAME);
 
@@ -320,12 +344,34 @@ int main(void)
     winSig = 1UL << win->UserPort->mp_SigBit;
     rexxSig = 1UL << rexxPort->mp_SigBit;
 
+    /* Periodic 100ms timer so ab_poll() runs even when no window or
+     * ARexx events arrive. Best-effort: if any step fails we fall back
+     * to the two existing signals. */
+    timerPort = CreateMsgPort();
+    if (timerPort) {
+        timerReq = (struct timerequest *)CreateIORequest(timerPort,
+                                                        sizeof(struct timerequest));
+        if (timerReq) {
+            timerOpen = OpenDevice((CONST_STRPTR)"timer.device",
+                                    UNIT_VBLANK,
+                                    (struct IORequest *)timerReq, 0);
+            if (timerOpen == 0) {
+                timerSig = 1UL << timerPort->mp_SigBit;
+                timerReq->tr_node.io_Command = TR_ADDREQUEST;
+                timerReq->tr_time.tv_secs = 0;
+                timerReq->tr_time.tv_micro = 100000;
+                SendIO((struct IORequest *)timerReq);
+                timerPending = TRUE;
+            }
+        }
+    }
+
     AB_I("Window opened, entering main loop");
     redraw(win);
 
     /* Main loop using Wait() for efficiency */
     while (running) {
-        signals = Wait(winSig | rexxSig | SIGBREAKF_CTRL_C);
+        signals = Wait(winSig | rexxSig | timerSig | SIGBREAKF_CTRL_C);
 
         /* CTRL-C */
         if (signals & SIGBREAKF_CTRL_C) {
@@ -356,6 +402,19 @@ int main(void)
             }
         }
 
+        /* Timer tick: consume reply and requeue */
+        if (timerSig && (signals & timerSig)) {
+            while (GetMsg(timerPort)) { /* drain */ }
+            timerPending = FALSE;
+            if (running) {
+                timerReq->tr_node.io_Command = TR_ADDREQUEST;
+                timerReq->tr_time.tv_secs = 0;
+                timerReq->tr_time.tv_micro = 100000;
+                SendIO((struct IORequest *)timerReq);
+                timerPending = TRUE;
+            }
+        }
+
         loop_count++;
 
         /* Periodic redraw */
@@ -382,6 +441,17 @@ int main(void)
     }
     Permit();
     DeleteMsgPort(rexxPort);
+
+    /* Tear down periodic timer */
+    if (timerReq) {
+        if (timerPending) {
+            AbortIO((struct IORequest *)timerReq);
+            WaitIO((struct IORequest *)timerReq);
+        }
+        if (timerOpen == 0) CloseDevice((struct IORequest *)timerReq);
+        DeleteIORequest((struct IORequest *)timerReq);
+    }
+    if (timerPort) DeleteMsgPort(timerPort);
 
     CloseWindow(win);
     ab_cleanup();

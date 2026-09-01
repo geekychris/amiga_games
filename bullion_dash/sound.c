@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Bullion Dash - Sound effects
  * Uses modplay for playback (direct Paula channel 3).
@@ -209,6 +212,9 @@ int sound_init(void)
     sfx_block = (BYTE *)AllocMem(TOTAL_SFX, MEMF_CHIP | MEMF_CLEAR);
     if (!sfx_block) {
         AB_E("sound: SFX chip RAM alloc failed (%ld bytes)", (long)TOTAL_SFX);
+        /* Pair the successful modplay_init() with its cleanup so we
+         * don't leak the MOD player's chip RAM when SFX alloc fails. */
+        modplay_cleanup();
         return 1;
     }
 

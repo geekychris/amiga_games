@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * ROCK BLASTER for Amiga
  *
@@ -418,6 +421,63 @@ static int hook_add_life(const char *args, char *buf, int bufsz)
     return 0;
 }
 
+/* Validate a MOD file (ProTracker 4-channel M.K./M!K! variants).
+ * Returns 1 if the buffer contains a plausible, complete MOD; 0 otherwise.
+ * Checks:
+ *   - 1084-byte header present
+ *   - "M.K.", "M!K!", "M&K!", "FLT4" or "4CHN" format tag at offset 1080
+ *   - All 128 pattern-table entries in range (0..highest known pattern)
+ *   - Pattern data (1024 bytes per pattern) fits inside file
+ *   - Declared sample data (from 22-byte instrument slots) fits in remainder
+ */
+static WORD validate_mod(const UBYTE *buf, ULONG size)
+{
+    ULONG i;
+    ULONG num_patterns;
+    ULONG highest_pat = 0;
+    ULONG pat_bytes;
+    ULONG sample_bytes = 0;
+    ULONG sample_offset;
+
+    if (!buf || size < 1084) return 0;
+
+    /* Check format tag at offset 1080 (4 bytes). */
+    {
+        const UBYTE *tag = buf + 1080;
+        WORD ok =
+            (tag[0]=='M' && tag[1]=='.' && tag[2]=='K' && tag[3]=='.') ||
+            (tag[0]=='M' && tag[1]=='!' && tag[2]=='K' && tag[3]=='!') ||
+            (tag[0]=='M' && tag[1]=='&' && tag[2]=='K' && tag[3]=='!') ||
+            (tag[0]=='F' && tag[1]=='L' && tag[2]=='T' && tag[3]=='4') ||
+            (tag[0]=='4' && tag[1]=='C' && tag[2]=='H' && tag[3]=='N');
+        if (!ok) return 0;
+    }
+
+    /* Pattern table: 128 bytes starting at offset 952. Song length at 950. */
+    num_patterns = buf[950];
+    if (num_patterns > 128) return 0;
+    for (i = 0; i < 128; i++) {
+        ULONG p = buf[952 + i];
+        if (p >= 128) return 0;   /* out-of-range pattern index */
+        if (p > highest_pat) highest_pat = p;
+    }
+
+    /* Each pattern is 4 channels * 64 rows * 4 bytes = 1024 bytes. */
+    pat_bytes = ((ULONG)(highest_pat + 1)) * 1024UL;
+    if (1084UL + pat_bytes > size) return 0;
+
+    /* Sum sample lengths (words) from 31 instrument slots starting at 20. */
+    for (i = 0; i < 31; i++) {
+        const UBYTE *smp = buf + 20 + (i * 30);
+        ULONG len_w = ((ULONG)smp[22] << 8) | (ULONG)smp[23];
+        sample_bytes += len_w * 2UL;
+    }
+    sample_offset = 1084UL + pat_bytes;
+    if (sample_offset + sample_bytes > size) return 0;
+
+    return 1;
+}
+
 /* --- Main --- */
 
 int main(void)
@@ -479,14 +539,22 @@ int main(void)
     /* Load MOD music from install-relative path (PROGDIR: = binary's dir). */
     mod_data = load_file_to_chip("PROGDIR:axelf.mod", &mod_size);
     if (mod_data) {
-        AB_I("Loaded axelf.mod (%ld bytes)", (long)mod_size);
-        /* Install CIA timer for music playback */
-        mt_install_cia(CUSTOM_BASE, NULL, 1); /* PAL */
-        mt_init(CUSTOM_BASE, mod_data, NULL, 0);
-        mt_MusicChannels = 2; /* Reserve 2 channels for music, 2 for SFX */
-        mt_Enable = 1;
-        music_playing = 1;
-    } else {
+        if (!validate_mod(mod_data, mod_size)) {
+            AB_W("axelf.mod failed validation - not installing");
+            FreeMem(mod_data, mod_size);
+            mod_data = NULL;
+            mod_size = 0;
+        } else {
+            AB_I("Loaded axelf.mod (%ld bytes)", (long)mod_size);
+            /* Install CIA timer for music playback */
+            mt_install_cia(CUSTOM_BASE, NULL, 1); /* PAL */
+            mt_init(CUSTOM_BASE, mod_data, NULL, 0);
+            mt_MusicChannels = 2; /* Reserve 2 channels for music, 2 for SFX */
+            mt_Enable = 1;
+            music_playing = 1;
+        }
+    }
+    if (!mod_data) {
         AB_W("Could not load axelf.mod - no music");
     }
 

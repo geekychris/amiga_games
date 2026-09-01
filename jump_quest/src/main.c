@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Jump Quest
  * A platformer for the Amiga
@@ -143,9 +146,14 @@ static int check_level_end(Player *p) {
 }
 
 /* Bridge hooks */
+static volatile int reset_requested = 0;
+
 static int hook_reset(const char *args, char *result, int bufSize) {
-    game.state = STATE_TITLE;
+    /* Request title-flow transition; consumed by main loop. */
+    reset_requested = 1;
     (void)args;
+    (void)result;
+    (void)bufSize;
     return 0;
 }
 
@@ -411,6 +419,12 @@ title:
         /* Escape to quit */
         if (input_check_esc()) {
             running = 0;
+        }
+
+        /* Bridge-driven reset: honour title-flow transition */
+        if (reset_requested) {
+            reset_requested = 0;
+            goto title;
         }
 
         /* Bridge updates every 30 frames */

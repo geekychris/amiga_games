@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * URANUS LANDER for Amiga
  *
@@ -309,6 +312,7 @@ int main(void)
     WORD music_key_held = 0;
     WORD was_thrusting = 0;
     WORD startup_delay = 30;
+    WORD cia_installed = 0;
 
     /* Open libraries */
     IntuitionBase = (struct IntuitionBase *)OpenLibrary("intuition.library", 39);
@@ -342,6 +346,11 @@ int main(void)
     ab_register_hook("add_life",   "Add one extra life",          hook_add_life);
     ab_register_hook("add_fuel",   "Refill fuel tank",            hook_add_fuel);
 
+    /* Clamp bridge-writable tunables into a safe range BEFORE the first
+     * frame consumes them (reset_ship uses fuel_max as a WORD). */
+    if (g_tune.fuel_max < 1)     g_tune.fuel_max = 1;
+    if (g_tune.fuel_max > 32767) g_tune.fuel_max = 32767;
+
     /* Init trig tables */
     game_init_tables();
 
@@ -366,13 +375,17 @@ int main(void)
     if (mod_data) {
         AB_I("Loaded uranus.mod (%ld bytes)", (long)mod_size);
         mt_install_cia(CUSTOM_BASE, NULL, 1); /* PAL */
+        cia_installed = 1;
         mt_init(CUSTOM_BASE, mod_data, NULL, 0);
         mt_MusicChannels = 1;  /* Only protect 1 channel for music, 3 for SFX */
         mt_mastervol(CUSTOM_BASE, 28); /* Lower music volume so SFX punch through */
         mt_Enable = 1;
         music_playing = 1;
     } else {
-        AB_W("Could not load uranus.mod - no music");
+        AB_W("Could not load uranus.mod - SFX (land/beep) disabled");
+        /* Without a valid mt_mod pointer, sfx_land/sfx_beep are unsafe to
+         * call, so leave music_playing=0 and cia_installed=0 to skip SFX
+         * playback. Cleanup below removes CIA only if we installed it. */
     }
 
     /* Init game to title screen */
@@ -473,21 +486,25 @@ int main(void)
                 game_update(&gs, &is);
 
                 /* Thrust sound: play immediately on press, retrigger while held, silence on release */
-                if (gs.ev_thrust) {
-                    if (!was_thrusting || (gs.frame % 18) == 0)
-                        sfx_thrust_play();
-                    was_thrusting = 1;
-                } else {
-                    if (was_thrusting)
-                        sfx_thrust_stop();
-                    was_thrusting = 0;
+                if (cia_installed) {
+                    if (gs.ev_thrust) {
+                        if (!was_thrusting || (gs.frame % 18) == 0)
+                            sfx_thrust_play();
+                        was_thrusting = 1;
+                    } else {
+                        if (was_thrusting)
+                            sfx_thrust_stop();
+                        was_thrusting = 0;
+                    }
                 }
-                if (gs.ev_crash)
-                    sfx_crash_play();
-                if (gs.ev_land)
-                    sfx_land_play();
-                if (gs.ev_low_fuel)
-                    sfx_beep_play();
+                if (cia_installed) {
+                    if (gs.ev_crash)
+                        sfx_crash_play();
+                    if (gs.ev_land)
+                        sfx_land_play();
+                    if (gs.ev_low_fuel)
+                        sfx_beep_play();
+                }
 
                 /* Draw everything */
                 draw_clear(rp);
@@ -522,9 +539,12 @@ int main(void)
 
     AB_I("Shutting down");
 
-    /* Cleanup */
+    /* Cleanup — mt_end silences channels only if music was actually playing.
+     * mt_remove_cia is paired with mt_install_cia, tracked separately. */
     if (music_playing) {
         mt_end(CUSTOM_BASE);
+    }
+    if (cia_installed) {
         mt_remove_cia(CUSTOM_BASE);
     }
 

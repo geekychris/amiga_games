@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Masterwork — dual-pane file manager, inspired by Directory Opus.
 #
 # ARCH=m68k (default) — classic AmigaOS 3.x on 680x0

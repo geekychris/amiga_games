@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * test_direct.c — host tests for http.c / jsonx.c / llm_direct.c.
  *
@@ -96,10 +99,14 @@ static void test_http_stream_chunked_ndjson(void)
         "Content-Type: application/x-ndjson\r\n"
         "Transfer-Encoding: chunked\r\n"
         "\r\n"
-        "12\r\n"
+        /* Chunk size = actual byte count in hex. Payload is the JSON
+         * plus one trailing '\n' (17 bytes / 0x11 for the first,
+         * 18 bytes / 0x12 for the second). The chunk's own trailing
+         * CRLF is framing and doesn't count toward the size. */
+        "11\r\n"
         "{\"n\":1,\"m\":\"hi\"}\n"
         "\r\n"
-        "13\r\n"
+        "12\r\n"
         "{\"n\":2,\"m\":\"bye\"}\n"
         "\r\n"
         "0\r\n\r\n"

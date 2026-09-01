@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Minimal MOD-style music player with heavy metal track generator.
  * Uses direct Paula hardware access. Call modplay_tick() each VBlank.
@@ -589,12 +592,16 @@ void modplay_sfx(BYTE *data, UWORD len_words, UWORD period, UWORD volume)
 
     custom.dmacon = (UWORD)0x8208;  /* enable ch3 */
 
-    /* Point loop at silence */
-    /* (will be set on next modplay_tick via need_loop) */
+    /* Ensure the caller's sample doesn't loop indefinitely: mark ch3 as
+     * one-shot with a pending loop-swap. Next modplay_tick() will call
+     * paula_set_loop(3) which points DMA at silence once Paula finishes the
+     * first playthrough. */
+    mp.ch[3].loops = 0;
+    mp.ch[3].need_loop = 1;
 
     mp.sfx_active = 1;
     /* Calculate duration in frames: samples / sample_rate * 50 */
-    mp.sfx_frames = (int)((ULONG)len_words * 2 * (ULONG)period / 35469UL) + 3;
+    mp.sfx_frames = (int)((ULONG)len_words * (ULONG)period / 35469UL) + 3;
     if (mp.sfx_frames < 3) mp.sfx_frames = 3;
     if (mp.sfx_frames > 25) mp.sfx_frames = 25;
 }

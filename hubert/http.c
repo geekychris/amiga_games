@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "http.h"
 
 #include <string.h>
@@ -148,7 +151,11 @@ static int parse_status(const char *line)
     int i = 0;
     while (line[i] && line[i] != ' ') i++;
     while (line[i] == ' ') i++;
-    if (line[i] < '0' || line[i] > '9') return -1;
+    /* All three digits must be present and decimal — otherwise the
+     * status line is truncated or malformed and we bail. */
+    if (line[i]   < '0' || line[i]   > '9') return -1;
+    if (line[i+1] < '0' || line[i+1] > '9') return -1;
+    if (line[i+2] < '0' || line[i+2] > '9') return -1;
     return (line[i] - '0') * 100 + (line[i+1] - '0') * 10 + (line[i+2] - '0');
 }
 
@@ -223,6 +230,7 @@ int http_open_from_request(HttpStream *s, NetConn *c,
 int http_read_line(HttpStream *s, char *out, int outSize)
 {
     int o = 0;
+    int overflowed = 0;   /* out buffer filled before we hit '\n' */
     if (s->body_done) return 0;
 
     for (;;) {
@@ -236,6 +244,7 @@ int http_read_line(HttpStream *s, char *out, int outSize)
              * by the size line reader (blank lines yield ""). */
             rc = read_wire_line(s, sizeLine, (int)sizeof(sizeLine));
             if (rc <= 0) {
+                if (overflowed) { out[outSize > 0 ? outSize - 1 : 0] = '\0'; return -1; }
                 if (o > 0) { out[o] = '\0'; return 1; }
                 return rc == 0 ? 0 : -1;
             }
@@ -251,6 +260,7 @@ int http_read_line(HttpStream *s, char *out, int outSize)
             }
             if (v == 0) {
                 s->body_done = 1;
+                if (overflowed) { out[outSize > 0 ? outSize - 1 : 0] = '\0'; return -1; }
                 if (o > 0) { out[o] = '\0'; return 1; }
                 return 0;
             }
@@ -262,6 +272,7 @@ int http_read_line(HttpStream *s, char *out, int outSize)
         if (s->buf_pos >= s->buf_len) {
             int r = refill(s);
             if (r <= 0) {
+                if (overflowed) { out[outSize > 0 ? outSize - 1 : 0] = '\0'; return -1; }
                 if (o > 0) { out[o] = '\0'; return 1; }
                 return r;
             }
@@ -273,8 +284,16 @@ int http_read_line(HttpStream *s, char *out, int outSize)
             s->buf_pos++;
             if (s->chunked) s->chunk_remaining--;
             if (ch == '\r') continue;
-            if (ch == '\n') { out[o] = '\0'; return 1; }
+            if (ch == '\n') {
+                /* If we overflowed while draining this line, surface it as
+                 * a hard error instead of silently truncating success —
+                 * the caller can't tell truncated data from a real line. */
+                if (overflowed) { out[outSize > 0 ? outSize - 1 : 0] = '\0'; return -1; }
+                out[o] = '\0';
+                return 1;
+            }
             if (o < outSize - 1) out[o++] = ch;
+            else                 overflowed = 1;
         }
     }
 }

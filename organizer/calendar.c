@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * calendar.c — Calendar tab: month grid, hourly day view, rich event editor.
  *

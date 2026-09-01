@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # hubert — build both the m68k binary and the host-side unit tests.
 #
 # The Amiga binary uses m68k-amigaos-gcc (via Docker at repo root). The

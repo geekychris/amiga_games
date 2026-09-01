@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include <exec/types.h>
 #include <intuition/intuition.h>
 #include <intuition/gadgetclass.h>
@@ -114,9 +117,20 @@ static LONG elapsed_ticks(struct DateStamp *start, struct DateStamp *end)
     return (days * 24L * 60L * 50L * 60L) + (mins * 60L * 50L) + ticks;
 }
 
+/* Session counter for the current write/read pair. bump_temp_seq() bumps it,
+ * build_temp_path() renders <path>/diskbench_<seq>.tmp using the current value.
+ * The same value must be used by write and its matching read for cleanup. */
+static ULONG temp_path_seq = 0;
+
+static void bump_temp_seq(void)
+{
+    temp_path_seq++;
+}
+
 static void build_temp_path(char *buf, int bufsize)
 {
     LONG pathlen;
+    char suffix[32];
     strncpy(buf, test_path, bufsize - 1);
     buf[bufsize - 1] = '\0';
     pathlen = strlen(buf);
@@ -126,7 +140,21 @@ static void build_temp_path(char *buf, int bufsize)
             buf[pathlen + 1] = '\0';
         }
     }
-    strncat(buf, "diskbench.tmp", bufsize - strlen(buf) - 1);
+    sprintf(suffix, "diskbench_%lu.tmp", (unsigned long)temp_path_seq);
+    strncat(buf, suffix, bufsize - strlen(buf) - 1);
+}
+
+/* Test size upper bound: chosen so that (test_size * 50) fits in a signed 32-bit
+ * LONG used in the KB/s calculation, with plenty of headroom. */
+#define TEST_SIZE_MAX (32L * 1024L * 1024L)  /* 32 MB */
+
+/* Clamp bridge-writable parameters before running a benchmark. */
+static void clamp_bench_params(void)
+{
+    if (block_size < 1) block_size = 1;
+    if (block_size > IO_BUF_SIZE) block_size = IO_BUF_SIZE;
+    if (test_size < 1) test_size = 1;
+    if (test_size > TEST_SIZE_MAX) test_size = TEST_SIZE_MAX;
 }
 
 static LONG do_write_test(void)
@@ -334,6 +362,8 @@ static int hook_run_write(const char *args, char *result, int bufsize)
         strncpy(test_path, args, sizeof(test_path) - 1);
         test_path[sizeof(test_path) - 1] = '\0';
     }
+    clamp_bench_params();
+    bump_temp_seq();
     speed = do_write_test();
     sprintf(status_msg, "Write: %ld KB/s", (long)(speed / 1024L));
     update_results();
@@ -350,6 +380,8 @@ static int hook_run_read(const char *args, char *result, int bufsize)
         strncpy(test_path, args, sizeof(test_path) - 1);
         test_path[sizeof(test_path) - 1] = '\0';
     }
+    clamp_bench_params();
+    bump_temp_seq();
     speed = do_read_test();
     sprintf(status_msg, "Read: %ld KB/s", (long)(speed / 1024L));
     update_results();
@@ -366,6 +398,8 @@ static int hook_run_all(const char *args, char *result, int bufsize)
         strncpy(test_path, args, sizeof(test_path) - 1);
         test_path[sizeof(test_path) - 1] = '\0';
     }
+    clamp_bench_params();
+    bump_temp_seq();
     ws = do_write_test();
     rs = do_read_test();
     sprintf(status_msg, "Done: W=%ld R=%ld KB/s",
@@ -497,6 +531,8 @@ int main(void)
                     break;
                 case GID_WRITE:
                     sync_path_from_gadget();
+                    clamp_bench_params();
+                    bump_temp_seq();
                     do_write_test();
                     sprintf(status_msg, "Write: %ld KB/s",
                             (long)(write_speed / 1024L));
@@ -505,6 +541,8 @@ int main(void)
                     break;
                 case GID_READ:
                     sync_path_from_gadget();
+                    clamp_bench_params();
+                    bump_temp_seq();
                     do_read_test();
                     sprintf(status_msg, "Read: %ld KB/s",
                             (long)(read_speed / 1024L));
@@ -513,6 +551,8 @@ int main(void)
                     break;
                 case GID_ALL:
                     sync_path_from_gadget();
+                    clamp_bench_params();
+                    bump_temp_seq();
                     do_write_test();
                     do_read_test();
                     sprintf(status_msg, "Done: W=%ld R=%ld KB/s",

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * modgen.h - Procedural ProTracker MOD generator
  * Builds an original heroic space-theme tune in chip RAM.

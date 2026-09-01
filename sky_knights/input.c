@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * SKY KNIGHTS - Input: Keyboard (P1) + Joystick port 2 (P2)
  */
@@ -8,60 +11,88 @@
 extern volatile struct Custom custom;
 extern volatile struct CIA ciaa;
 
-static UWORD key_state = 0;
-static UWORD sys_state = 0;
+/* Track each physical key independently, so releasing one alias doesn't
+ * clear an action bit still owned by another held alias (e.g. cursor-left
+ * and A both map to INP_LEFT — releasing A must not cancel cursor-left). */
+#define NUM_MAPPED_KEYS 12
+static UBYTE key_down[NUM_MAPPED_KEYS];  /* 1 = held, 0 = up */
+
+static const UBYTE key_codes[NUM_MAPPED_KEYS] = {
+    0x4F, /*  0: cursor left  -> LEFT   */
+    0x4E, /*  1: cursor right -> RIGHT  */
+    0x4C, /*  2: cursor up    -> FLAP   */
+    0x20, /*  3: A            -> LEFT   */
+    0x22, /*  4: D            -> RIGHT  */
+    0x11, /*  5: W            -> FLAP   */
+    0x40, /*  6: space        -> FLAP   */
+    0x45, /*  7: escape       -> ESC    */
+    0x50, /*  8: F1           -> START1 */
+    0x51, /*  9: F2           -> START2 */
+    0x01, /* 10: 1            -> START1 */
+    0x02  /* 11: 2            -> START2 */
+};
+
+/* Action produced by each slot; sys keys (ESC/START*) return 0 here and
+ * are folded into sys_state instead of the per-player key_state. */
+static const UWORD key_actions[NUM_MAPPED_KEYS] = {
+    INP_LEFT,   INP_RIGHT,  INP_FLAP,
+    INP_LEFT,   INP_RIGHT,  INP_FLAP,
+    INP_FLAP,
+    0, 0, 0, 0, 0
+};
+
+static const UWORD key_sys_actions[NUM_MAPPED_KEYS] = {
+    0, 0, 0, 0, 0, 0, 0,
+    INP_ESC, INP_START1, INP_START2, INP_START1, INP_START2
+};
+
+static UWORD derive_key_state(void)
+{
+    UWORD s = 0;
+    WORD i;
+    for (i = 0; i < NUM_MAPPED_KEYS; i++)
+        if (key_down[i]) s |= key_actions[i];
+    return s;
+}
+
+static UWORD derive_sys_state(void)
+{
+    UWORD s = 0;
+    WORD i;
+    for (i = 0; i < NUM_MAPPED_KEYS; i++)
+        if (key_down[i]) s |= key_sys_actions[i];
+    return s;
+}
 
 void input_key_down(UWORD code)
 {
-    switch (code) {
-        case 0x4F: key_state |= INP_LEFT;   break;  /* cursor left */
-        case 0x4E: key_state |= INP_RIGHT;  break;  /* cursor right */
-        case 0x4C: key_state |= INP_FLAP;   break;  /* cursor up */
-        case 0x20: key_state |= INP_LEFT;   break;  /* A */
-        case 0x22: key_state |= INP_RIGHT;  break;  /* D */
-        case 0x11: key_state |= INP_FLAP;   break;  /* W */
-        case 0x40: key_state |= INP_FLAP;   break;  /* space */
-        case 0x45: sys_state |= INP_ESC;    break;  /* escape */
-        case 0x50: sys_state |= INP_START1; break;  /* F1 */
-        case 0x51: sys_state |= INP_START2; break;  /* F2 */
-        case 0x01: sys_state |= INP_START1; break;  /* 1 */
-        case 0x02: sys_state |= INP_START2; break;  /* 2 */
-    }
+    WORD i;
+    for (i = 0; i < NUM_MAPPED_KEYS; i++)
+        if (key_codes[i] == (UBYTE)code) key_down[i] = 1;
 }
 
 void input_key_up(UWORD code)
 {
-    switch (code) {
-        case 0x4F: key_state &= ~INP_LEFT;   break;
-        case 0x4E: key_state &= ~INP_RIGHT;  break;
-        case 0x4C: key_state &= ~INP_FLAP;   break;
-        case 0x20: key_state &= ~INP_LEFT;   break;
-        case 0x22: key_state &= ~INP_RIGHT;  break;
-        case 0x11: key_state &= ~INP_FLAP;   break;
-        case 0x40: key_state &= ~INP_FLAP;   break;
-        case 0x45: sys_state &= ~INP_ESC;    break;
-        case 0x50: sys_state &= ~INP_START1; break;
-        case 0x51: sys_state &= ~INP_START2; break;
-        case 0x01: sys_state &= ~INP_START1; break;
-        case 0x02: sys_state &= ~INP_START2; break;
-    }
+    WORD i;
+    for (i = 0; i < NUM_MAPPED_KEYS; i++)
+        if (key_codes[i] == (UBYTE)code) key_down[i] = 0;
 }
 
 void input_reset(void)
 {
-    key_state = 0;
-    sys_state = 0;
+    WORD i;
+    for (i = 0; i < NUM_MAPPED_KEYS; i++) key_down[i] = 0;
 }
 
 void input_read(InputState *input)
 {
     UWORD joy;
 
-    /* Player 1: keyboard */
-    input->p1 = key_state & (INP_LEFT | INP_RIGHT | INP_FLAP);
+    /* Player 1: keyboard — derive fresh action mask from per-key state. */
+    input->p1 = derive_key_state() & (INP_LEFT | INP_RIGHT | INP_FLAP);
 
     /* System keys */
-    input->sys = sys_state;
+    input->sys = derive_sys_state();
 
     /* Player 2: Joystick port 2 (JOY1DAT).
      * Amiga joystick decoding uses direct bit tests:

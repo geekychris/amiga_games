@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Frank the Frog - Graphics layer (custom screen, double buffer)
  */

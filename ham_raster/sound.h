@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef HAM_RASTER_SOUND_H
 #define HAM_RASTER_SOUND_H
 

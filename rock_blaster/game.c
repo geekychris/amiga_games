@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Rock Blaster - Game logic
  */
@@ -89,7 +92,10 @@ static ULONG rng(void)
 static Fixed rng_range(Fixed lo, Fixed hi)
 {
     ULONG r = rng();
-    return lo + (Fixed)((r * (ULONG)(hi - lo)) >> 15);
+    /* Widen to 64-bit before multiply so r * (hi - lo) can't overflow the
+     * 32-bit ULONG intermediate. r is 15-bit and (hi - lo) may be full
+     * fixed-point range. */
+    return lo + (Fixed)(((unsigned long long)r * (unsigned long long)(ULONG)(hi - lo)) >> 15);
 }
 
 /* Wrap coordinates to screen */

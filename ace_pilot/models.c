@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * models.c - Wireframe model data for Ace Pilot
  * All coordinates in model-local space, Y-up
@@ -149,21 +152,25 @@ static const WORD bullet_edges[][2] = {
 };
 
 /* --- Model table --- */
+/* Radii are compared in game.c using ((r>>4)*(r>>4)) against a distance
+ * squared computed the same way, so any radius < 16 collapses to 0 and
+ * the object can never be hit. Values below are scaled so every collidable
+ * object gets a usable collision radius in world units. */
 const Model models[MODEL_COUNT] = {
     /* MODEL_BIPLANE */
-    { 9, 12, biplane_verts, biplane_edges, 15 },
+    { 9, 12, biplane_verts, biplane_edges, 40 },
     /* MODEL_BLIMP */
-    { 10, 16, blimp_verts, blimp_edges, 22 },
+    { 10, 16, blimp_verts, blimp_edges, 48 },
     /* MODEL_HANGAR */
-    { 8, 12, hangar_verts, hangar_edges, 18 },
+    { 8, 12, hangar_verts, hangar_edges, 32 },
     /* MODEL_FUEL_TANK */
-    { 12, 18, fuel_verts, fuel_edges, 10 },
+    { 12, 18, fuel_verts, fuel_edges, 32 },
     /* MODEL_RUNWAY */
-    { 6, 5, runway_verts, runway_edges, 42 },
+    { 6, 5, runway_verts, runway_edges, 48 },
     /* MODEL_PYRAMID */
-    { 5, 8, pyramid_verts, pyramid_edges, 18 },
+    { 5, 8, pyramid_verts, pyramid_edges, 32 },
     /* MODEL_TREE */
-    { 7, 9, tree_verts, tree_edges, 14 },
+    { 7, 9, tree_verts, tree_edges, 24 },
     /* MODEL_BULLET */
-    { 2, 1, bullet_verts, bullet_edges, 2 },
+    { 2, 1, bullet_verts, bullet_edges, 16 },
 };

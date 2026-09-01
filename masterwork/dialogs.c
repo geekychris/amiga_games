@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * dialogs.c - string prompts (CON:) + yes/no confirms (EasyRequest).
  *

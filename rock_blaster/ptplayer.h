@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * ptplayer.h - C interface to Frank Wille's ptplayer V5.1
  * All functions expect a6 = $dff000 (CUSTOM), passed via inline asm.

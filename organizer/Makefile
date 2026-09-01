@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 # Organizer — notes, tasks, calendar for AmigaOS (built for OS4 PPC).
 #
 # ARCH=m68k (default) — classic AmigaOS 3.x on 680x0

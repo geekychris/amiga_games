@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * DOT_CHASE - Rendering (dirty-rect approach)
  *
@@ -31,6 +34,13 @@ static WORD prev_fruit_x, prev_fruit_y;
 static LONG prev_score;
 static WORD prev_lives;
 static WORD maze_dirty;  /* flag to force full maze redraw */
+
+/* Prior visibility of transient overlays (popup / READY / LEVEL CLEAR).
+ * When one goes inactive we need to restore the maze pixels beneath it,
+ * so mark both back- and front-buffer full redraws pending. */
+static WORD prev_popup_active;
+static WORD prev_ready_visible;
+static WORD prev_level_done_visible;
 
 /* 5x7 font */
 static const UBYTE font_data[36][7] = {
@@ -124,8 +134,23 @@ static void format_number(char *buf, LONG val, int field_width)
     char tmp[12];
     int i = 0, j;
     LONG v = val;
+    if (field_width <= 0) { if (buf) buf[0] = '\0'; return; }
+    if (v < 0) v = 0;
     if (v == 0) { tmp[i++] = '0'; }
-    else { while (v > 0) { tmp[i++] = '0' + (char)(v % 10); v /= 10; } }
+    else {
+        while (v > 0 && i < (int)sizeof(tmp)) {
+            tmp[i++] = '0' + (char)(v % 10);
+            v /= 10;
+        }
+    }
+    if (i > field_width) {
+        /* Value doesn't fit -- emit an overflow marker instead of
+         * writing negative buffer indices or truncating digits from the
+         * high end. */
+        for (j = 0; j < field_width; j++) buf[j] = '*';
+        buf[field_width] = '\0';
+        return;
+    }
     for (j = 0; j < field_width - i; j++) buf[j] = ' ';
     for (j = 0; j < i; j++) buf[field_width - 1 - j] = tmp[j];
     buf[field_width] = '\0';
@@ -522,21 +547,38 @@ void draw_game(struct RastPort *rp, GameState *gs)
     }
 
     /* Popup text */
-    if (gs->popup_active) {
-        char buf[8];
-        format_number(buf, gs->popup_score, 4);
-        draw_text(rp, MAZE_OX + gs->popup_x - 8, MAZE_OY + gs->popup_y, COL_CYAN, buf, 1);
-    }
+    {
+        WORD popup_now = gs->popup_active ? 1 : 0;
+        WORD ready_now = (gs->state == STATE_READY) ? 1 : 0;
+        WORD level_done_now = (gs->state == STATE_LEVEL_DONE &&
+                               ((gs->state_timer >> 3) & 1)) ? 1 : 0;
 
-    /* READY text */
-    if (gs->state == STATE_READY) {
-        draw_text_centered(rp, MAZE_OY + 17 * TILE_SIZE, COL_YELLOW, "READY", 1);
-    }
+        if (popup_now) {
+            char buf[8];
+            format_number(buf, gs->popup_score, 4);
+            draw_text(rp, MAZE_OX + gs->popup_x - 8, MAZE_OY + gs->popup_y, COL_CYAN, buf, 1);
+        }
 
-    if (gs->state == STATE_LEVEL_DONE) {
-        if ((gs->state_timer >> 3) & 1) {
+        if (ready_now) {
+            draw_text_centered(rp, MAZE_OY + 17 * TILE_SIZE, COL_YELLOW, "READY", 1);
+        }
+
+        if (level_done_now) {
             draw_text_centered(rp, MAZE_OY + 17 * TILE_SIZE, COL_WHITE, "LEVEL CLEAR", 1);
         }
+
+        /* If any overlay just turned off, its pixels sit on top of the
+         * maze in both buffers. Mark maze dirty so the next two frames
+         * repaint the underlying maze cleanly. */
+        if ((prev_popup_active && !popup_now) ||
+            (prev_ready_visible && !ready_now) ||
+            (prev_level_done_visible && !level_done_now)) {
+            draw_set_dirty();
+        }
+
+        prev_popup_active = popup_now;
+        prev_ready_visible = ready_now;
+        prev_level_done_visible = level_done_now;
     }
 
     /* Save current positions for next frame */

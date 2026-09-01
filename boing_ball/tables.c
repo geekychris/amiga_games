@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "tables.h"
 
 /* Pre-computed sin/cos tables in 8.8 fixed point.
@@ -8,17 +11,19 @@
 WORD sin_table[TABLE_SIZE];
 WORD cos_table[TABLE_SIZE];
 
-/* Standard sine values for first quadrant (0..63) in 8.8 fixed point */
+/* Standard sine values for first quadrant (0..64) in 8.8 fixed point.
+ * sine_q1[i] = round(256 * sin(i * PI / 128))
+ * Index 0 -> 0, index 64 -> 256 (== sin(pi/2) * 256). */
 static const WORD sine_q1[65] = {
-      0,   6,  12,  18,  25,  31,  37,  43,
-     49,  56,  62,  68,  74,  80,  86,  91,
-     97, 103, 109, 114, 120, 125, 130, 136,
-    141, 146, 151, 156, 160, 165, 170, 174,
-    178, 182, 186, 190, 194, 197, 201, 204,
-    207, 210, 213, 216, 218, 221, 223, 225,
-    227, 229, 230, 232, 233, 234, 235, 236,
-    237, 238, 238, 239, 239, 239, 240, 240,
-    240
+      0,   6,  13,  19,  25,  31,  38,  44,
+     50,  56,  62,  68,  74,  80,  86,  92,
+     98, 104, 109, 115, 121, 126, 132, 137,
+    142, 147, 152, 157, 162, 167, 172, 177,
+    181, 185, 190, 194, 198, 202, 206, 209,
+    213, 216, 220, 223, 226, 229, 231, 234,
+    237, 239, 241, 243, 245, 247, 248, 250,
+    251, 252, 253, 254, 255, 255, 256, 256,
+    256
 };
 
 void tables_init(void)

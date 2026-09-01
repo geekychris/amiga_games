@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Bullion Dash - a puzzle platformer for Amiga
  * Uses AmigaBridge for remote monitoring.
@@ -17,6 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #include "bridge_client.h"
 
@@ -39,8 +43,34 @@ extern struct Custom custom;
 /* Global game state - accessible from all modules via extern */
 GameState gs;
 
+/* bridge_init_ok: set once ab_init() succeeds. Persists across disconnects
+ * so ab_cleanup() runs on every exit path.
+ * bridge_ok: mutable connection flag; cleared when ab_is_connected() drops
+ * so we stop pushing vars / calling ab_heartbeat until reconnect. */
+static LONG bridge_init_ok = 0;
 static LONG bridge_ok = 0;
 static int transition_frames = 0;
+
+/* Shared bounded printf helper for hook handlers. Validates the caller's
+ * buffer, formats into a bounded local buffer, copies at most bufSize-1
+ * bytes, and always NUL-terminates. */
+static void hook_result_fmt(char *resultBuf, int bufSize, const char *fmt, ...)
+{
+    va_list ap;
+    char tmp[256];
+    int n;
+
+    if (!resultBuf || bufSize <= 0) return;
+
+    va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap);
+    va_end(ap);
+
+    n = (int)strlen(tmp);
+    if (n > bufSize - 1) n = bufSize - 1;
+    memcpy(resultBuf, tmp, n);
+    resultBuf[n] = '\0';
+}
 
 /* Bridge variables for remote monitoring */
 static LONG var_score = 0;
@@ -54,12 +84,11 @@ static LONG var_player_gy = 0;
 /* Hook: get game status */
 static int hook_status(const char *args, char *resultBuf, int bufSize)
 {
-    sprintf(resultBuf,
+    hook_result_fmt(resultBuf, bufSize,
             "state=%ld level=%ld score=%ld lives=%ld gold=%ld/%ld player=(%ld,%ld) frame=%ld",
             (long)gs.state, (long)gs.level_num, (long)gs.score,
             (long)gs.lives, (long)gs.gold_collected, (long)gs.gold_total,
             (long)gs.player.gx, (long)gs.player.gy, (long)gs.frame);
-    resultBuf[bufSize - 1] = '\0';
     return 0;
 }
 
@@ -68,8 +97,7 @@ static int hook_reset(const char *args, char *resultBuf, int bufSize)
 {
     gs.state = STATE_TITLE;
     transition_frames = 0;
-    strncpy(resultBuf, "Game reset to title", bufSize - 1);
-    resultBuf[bufSize - 1] = '\0';
+    hook_result_fmt(resultBuf, bufSize, "Game reset to title");
     return 0;
 }
 
@@ -79,23 +107,20 @@ static int hook_goto_level(const char *args, char *resultBuf, int bufSize)
     int lvl;
 
     if (!args || !args[0]) {
-        strncpy(resultBuf, "ERROR: specify level number", bufSize - 1);
-        resultBuf[bufSize - 1] = '\0';
+        hook_result_fmt(resultBuf, bufSize, "ERROR: specify level number");
         return 1;
     }
 
     lvl = atoi(args);
     if (lvl < 1 || lvl > MAX_LEVELS) {
-        sprintf(resultBuf, "ERROR: level must be 1-%ld", (long)MAX_LEVELS);
-        resultBuf[bufSize - 1] = '\0';
+        hook_result_fmt(resultBuf, bufSize, "ERROR: level must be 1-%ld", (long)MAX_LEVELS);
         return 1;
     }
 
     gs.level_num = lvl;
     level_load(&gs, lvl);
     gs.state = STATE_PLAYING;
-    sprintf(resultBuf, "Loaded level %ld", (long)lvl);
-    resultBuf[bufSize - 1] = '\0';
+    hook_result_fmt(resultBuf, bufSize, "Loaded level %ld", (long)lvl);
     return 0;
 }
 
@@ -155,6 +180,7 @@ int main(void)
 
     /* Connect to bridge */
     if (ab_init("bullion_dash") == 0) {
+        bridge_init_ok = 1;
         bridge_ok = 1;
         AB_I("Bullion Dash starting");
 
@@ -174,7 +200,7 @@ int main(void)
     /* Init graphics */
     if (gfx_init() != 0) {
         AB_E("Failed to open screen");
-        if (bridge_ok) ab_cleanup();
+        if (bridge_init_ok) ab_cleanup();
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
         return 1;
@@ -396,7 +422,9 @@ next_frame:
     sound_cleanup();
     if (win) CloseWindow(win);
     gfx_cleanup();
-    if (bridge_ok) ab_cleanup();
+    /* Always cleanup if ab_init() ever succeeded, even if the connection
+     * has since dropped and cleared bridge_ok. */
+    if (bridge_init_ok) ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
 

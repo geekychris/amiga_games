@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "sound.h"
 #include "tables.h"
 
@@ -75,13 +78,22 @@ static void synthesize_clank(void)
 BOOL sound_init(void)
 {
     audio_port = CreateMsgPort();
-    if (!audio_port) return FALSE;
+    if (!audio_port) {
+        sound_cleanup();
+        return FALSE;
+    }
 
     audio_io = (struct IOAudio *)CreateIORequest(audio_port, sizeof(struct IOAudio));
-    if (!audio_io) return FALSE;
+    if (!audio_io) {
+        sound_cleanup();
+        return FALSE;
+    }
 
     sample_data = (BYTE *)AllocMem(SAMPLE_LENGTH, MEMF_CHIP | MEMF_CLEAR);
-    if (!sample_data) return FALSE;
+    if (!sample_data) {
+        sound_cleanup();
+        return FALSE;
+    }
 
     audio_io->ioa_Request.io_Message.mn_ReplyPort = audio_port;
     audio_io->ioa_Request.io_Message.mn_Node.ln_Pri = 0;
@@ -91,8 +103,10 @@ BOOL sound_init(void)
     audio_io->ioa_Data = which_channel;
     audio_io->ioa_Length = sizeof(which_channel);
 
-    if (OpenDevice(AUDIONAME, 0, (struct IORequest *)audio_io, 0) != 0)
+    if (OpenDevice(AUDIONAME, 0, (struct IORequest *)audio_io, 0) != 0) {
+        sound_cleanup();
         return FALSE;
+    }
 
     device_open = TRUE;
     synthesize_clank();

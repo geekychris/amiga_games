@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * hubert — main REPL.
  *
@@ -537,11 +540,34 @@ static void convo_reset(void)
     convo_ensure();
 }
 
+/* Accumulator for the current assistant turn's streamed content — so we can
+ * push the full response back into g_convo after the stream ends. Without
+ * this the model loses coherence across turns because we'd only echo tokens
+ * to the terminal and never re-feed them as assistant messages. */
+static char g_ask_accum[LLM_MAX_MESSAGE_LEN];
+static int  g_ask_accum_len;
+
+static void ask_accum_reset(void)
+{
+    g_ask_accum_len = 0;
+    g_ask_accum[0]  = '\0';
+}
+
+static void ask_accum_append(const char *s)
+{
+    int i = 0;
+    while (s[i] && g_ask_accum_len < (int)sizeof(g_ask_accum) - 1) {
+        g_ask_accum[g_ask_accum_len++] = s[i++];
+    }
+    g_ask_accum[g_ask_accum_len] = '\0';
+}
+
 static void ask_stream_cb(const LlmDelta *d, void *ud)
 {
     (void)ud;
-    if (d->content && d->content[0] && g_ask_ctx) {
-        ctx_out(g_ask_ctx, d->content);
+    if (d->content && d->content[0]) {
+        if (g_ask_ctx) ctx_out(g_ask_ctx, d->content);
+        ask_accum_append(d->content);
     }
 }
 
@@ -617,23 +643,57 @@ static void run_tool_command(ShellCtx *ctx, const char *cmdline,
     out[off] = '\0';
 }
 
-/* Read a file's contents into out (NUL-terminated, truncated). */
-static void tool_read_file(const char *path, char *out, int outSize)
+/* Bounded string append helper — copies s into out at *poff, up to
+ * outSize-1 bytes total. Always NUL-terminates. */
+static void bounded_append(char *out, int outSize, int *poff, const char *s)
+{
+    int off = *poff;
+    while (*s && off < outSize - 1) out[off++] = *s++;
+    if (outSize > 0) out[off] = '\0';
+    *poff = off;
+}
+
+/* Bounded append of a LONG in decimal. */
+static void bounded_append_long(char *out, int outSize, int *poff, long v)
+{
+    int off = *poff;
+    char stack[16];
+    int sl = 0;
+    long uv;
+    if (v < 0) {
+        if (off < outSize - 1) out[off++] = '-';
+        uv = -v;
+    } else {
+        uv = v;
+    }
+    if (uv == 0) {
+        if (off < outSize - 1) out[off++] = '0';
+    } else {
+        while (uv > 0 && sl < (int)sizeof(stack)) { stack[sl++] = (char)('0' + (uv % 10)); uv /= 10; }
+        while (sl > 0 && off < outSize - 1) out[off++] = stack[--sl];
+    }
+    if (outSize > 0) out[off] = '\0';
+    *poff = off;
+}
+
+/* Read a file's contents into out (NUL-terminated, truncated).
+ * Returns 0 on success, non-zero on failure. */
+static int tool_read_file(const char *path, char *out, int outSize)
 {
     BPTR fh;
     LONG n;
     int off = 0;
     char chunk[512];
 
-    if (!path || !path[0]) { strcpy(out, "error: empty path"); return; }
+    if (!path || !path[0]) {
+        bounded_append(out, outSize, &off, "error: empty path");
+        return 1;
+    }
     fh = Open((CONST_STRPTR)path, MODE_OLDFILE);
     if (!fh) {
-        int i;
-        const char *msg = "error: cannot open ";
-        for (i = 0; msg[i] && off < outSize - 1; i++) out[off++] = msg[i];
-        for (i = 0; path[i] && off < outSize - 1; i++) out[off++] = path[i];
-        out[off] = '\0';
-        return;
+        bounded_append(out, outSize, &off, "error: cannot open ");
+        bounded_append(out, outSize, &off, path);
+        return 1;
     }
     for (;;) {
         n = Read(fh, chunk, (LONG)sizeof(chunk));
@@ -644,40 +704,53 @@ static void tool_read_file(const char *path, char *out, int outSize)
             if (off >= outSize - 1) break;
         }
     }
-    out[off] = '\0';
+    if (outSize > 0) out[off] = '\0';
     Close(fh);
+    return 0;
 }
 
-static void tool_write_file(const char *path, const char *content,
-                            char *out, int outSize)
+/* Returns 0 on success, non-zero on failure. */
+static int tool_write_file(const char *path, const char *content,
+                           char *out, int outSize)
 {
     BPTR fh;
     int clen;
     int written;
-    if (!path || !path[0]) { strcpy(out, "error: empty path"); return; }
+    int off = 0;
+    if (!path || !path[0]) {
+        bounded_append(out, outSize, &off, "error: empty path");
+        return 1;
+    }
     if (!content) content = "";
     fh = Open((CONST_STRPTR)path, MODE_NEWFILE);
     if (!fh) {
-        int i, off = 0;
-        const char *msg = "error: cannot create ";
-        for (i = 0; msg[i] && off < outSize - 1; i++) out[off++] = msg[i];
-        for (i = 0; path[i] && off < outSize - 1; i++) out[off++] = path[i];
-        out[off] = '\0';
-        return;
+        bounded_append(out, outSize, &off, "error: cannot create ");
+        bounded_append(out, outSize, &off, path);
+        return 1;
     }
     clen = (int)strlen(content);
     written = (int)Write(fh, (APTR)content, (LONG)clen);
     Close(fh);
-    sprintf(out, "wrote %ld bytes to %s", (long)written, path);
-    if (outSize > 0) out[outSize - 1] = '\0';
+    if (written < clen) {
+        bounded_append(out, outSize, &off, "error: short write to ");
+        bounded_append(out, outSize, &off, path);
+        return 1;
+    }
+    bounded_append(out, outSize, &off, "wrote ");
+    bounded_append_long(out, outSize, &off, (long)written);
+    bounded_append(out, outSize, &off, " bytes to ");
+    bounded_append(out, outSize, &off, path);
+    return 0;
 }
 
 /* Directory listing via ExAll — but keeping the hubert binary compact,
- * we route through DOS' List command via SystemTagList and capture. */
-static void tool_list_dir(const char *path, char *out, int outSize)
+ * we route through DOS' List command via SystemTagList and capture.
+ * Returns 0 on success, non-zero on failure. */
+static int tool_list_dir(const char *path, char *out, int outSize)
 {
     static char cmdline[512];
     int off = 0, i;
+    LONG list_rc;
     const char *pre = "List ";
     const char *post = " NOHEAD QUICK >";
     for (i = 0; pre[i] && off < (int)sizeof(cmdline) - 1; i++) cmdline[off++] = pre[i];
@@ -690,27 +763,41 @@ static void tool_list_dir(const char *path, char *out, int outSize)
     }
     cmdline[off] = '\0';
     DeleteFile((CONST_STRPTR)CAPTURE_TMP);
-    (void)SystemTagList((CONST_STRPTR)cmdline, 0);
+    list_rc = SystemTagList((CONST_STRPTR)cmdline, 0);
     g_capture_len = 0; g_capture[0] = '\0';
     slurp_capture_file();
-    /* Copy into caller's buffer. */
+    /* Copy into caller's buffer, bounded. */
     {
-        int j = 0;
-        while (g_capture[j] && j < outSize - 1) { out[j] = g_capture[j]; j++; }
-        out[j] = '\0';
+        int j = 0, oo = 0;
+        while (g_capture[j] && oo < outSize - 1) { out[oo++] = g_capture[j++]; }
+        if (outSize > 0) out[oo] = '\0';
     }
+    return (list_rc == 0) ? 0 : (int)list_rc;
 }
 
-static void tool_system_info(char *out, int outSize)
+static int tool_system_info(char *out, int outSize)
 {
     /* SysBase is opaque to us; we can at least report free chip + fast RAM
      * which is what the model most often wants for "what's the current
      * memory pressure" style questions. */
     ULONG chip = AvailMem(MEMF_CHIP);
     ULONG fast = AvailMem(MEMF_FAST);
-    sprintf(out, "free_chip=%lu free_fast=%lu",
-        (unsigned long)chip, (unsigned long)fast);
-    if (outSize > 0) out[outSize - 1] = '\0';
+    int off = 0;
+    bounded_append(out, outSize, &off, "free_chip=");
+    bounded_append_long(out, outSize, &off, (long)chip);
+    bounded_append(out, outSize, &off, " free_fast=");
+    bounded_append_long(out, outSize, &off, (long)fast);
+    return 0;
+}
+
+/* Emit "exit=<rc>\n<body>" into out with bounded appends. */
+static void format_tool_result(char *out, int outSize, int rc, const char *body)
+{
+    int off = 0;
+    bounded_append(out, outSize, &off, "exit=");
+    bounded_append_long(out, outSize, &off, (long)rc);
+    if (off < outSize - 1) { out[off++] = '\n'; out[off] = '\0'; }
+    bounded_append(out, outSize, &off, body);
 }
 
 /* Dispatch a tool call. Result is formatted as "exit=<N>\n<data>" — same
@@ -729,7 +816,7 @@ static void dispatch_tool(ShellCtx *ctx, const char *name, const char *args,
         /* Arguments are a JSON object like {"command":"..."} — the caller
          * already handed us the raw JSON in `args`. */
         if (jsonx_string(args, "command", cmd, (int)sizeof(cmd)) != JSONX_OK) {
-            strcpy(out, "exit=1\nerror: missing 'command'");
+            format_tool_result(out, outSize, 1, "error: missing 'command'");
             return;
         }
         run_tool_command(ctx, cmd, out, outSize);
@@ -737,46 +824,54 @@ static void dispatch_tool(ShellCtx *ctx, const char *name, const char *args,
     }
     if (strcmp(name, "read_file") == 0) {
         static char body[LLM_MAX_MESSAGE_LEN];
+        int rc;
         if (jsonx_string(args, "path", path, (int)sizeof(path)) != JSONX_OK) {
-            strcpy(out, "exit=1\nerror: missing 'path'"); return;
+            format_tool_result(out, outSize, 1, "error: missing 'path'");
+            return;
         }
-        tool_read_file(path, body, (int)sizeof(body));
-        sprintf(out, "exit=0\n%s", body);
-        out[outSize - 1] = '\0';
+        rc = tool_read_file(path, body, (int)sizeof(body));
+        format_tool_result(out, outSize, rc, body);
         return;
     }
     if (strcmp(name, "write_file") == 0) {
-        static char body[128];
+        static char body[256];
+        int rc;
         if (jsonx_string(args, "path", path, (int)sizeof(path)) != JSONX_OK) {
-            strcpy(out, "exit=1\nerror: missing 'path'"); return;
+            format_tool_result(out, outSize, 1, "error: missing 'path'");
+            return;
         }
         if (jsonx_string(args, "content", content, (int)sizeof(content)) != JSONX_OK) {
             content[0] = '\0';
         }
-        tool_write_file(path, content, body, (int)sizeof(body));
-        sprintf(out, "exit=0\n%s", body);
-        out[outSize - 1] = '\0';
+        rc = tool_write_file(path, content, body, (int)sizeof(body));
+        format_tool_result(out, outSize, rc, body);
         return;
     }
     if (strcmp(name, "list_dir") == 0) {
         static char body[LLM_MAX_MESSAGE_LEN];
+        int rc;
         if (jsonx_string(args, "path", path, (int)sizeof(path)) != JSONX_OK) {
             strcpy(path, "SYS:");
         }
-        tool_list_dir(path, body, (int)sizeof(body));
-        sprintf(out, "exit=0\n%s", body);
-        out[outSize - 1] = '\0';
+        rc = tool_list_dir(path, body, (int)sizeof(body));
+        format_tool_result(out, outSize, rc, body);
         return;
     }
     if (strcmp(name, "system_info") == 0) {
         static char body[128];
-        tool_system_info(body, (int)sizeof(body));
-        sprintf(out, "exit=0\n%s", body);
-        out[outSize - 1] = '\0';
+        int rc;
+        rc = tool_system_info(body, (int)sizeof(body));
+        format_tool_result(out, outSize, rc, body);
         return;
     }
-    sprintf(out, "exit=1\nunknown tool: %s", name);
-    if (outSize > 0) out[outSize - 1] = '\0';
+    {
+        static char unknown_body[128];
+        int off = 0;
+        bounded_append(unknown_body, (int)sizeof(unknown_body), &off,
+                       "unknown tool: ");
+        bounded_append(unknown_body, (int)sizeof(unknown_body), &off, name);
+        format_tool_result(out, outSize, 1, unknown_body);
+    }
 }
 
 static int bi_ask(ShellCtx *ctx, int argc, char **argv)
@@ -829,6 +924,7 @@ static int bi_ask(ShellCtx *ctx, int argc, char **argv)
         int rc;
         tool_name[0] = '\0';
         tool_args[0] = '\0';
+        ask_accum_reset();
 
         rc = llm_chat_stream(&cfg, &g_convo, ask_stream_cb, 0,
                              tool_name, (int)sizeof(tool_name),
@@ -841,7 +937,7 @@ static int bi_ask(ShellCtx *ctx, int argc, char **argv)
                 case -3: msg = "\nask: HTTP request failed\n"; break;
                 case -4: msg = "\nask: HTTP non-200 status\n"; break;
                 case -5: msg = "\nask: stream I/O error\n"; break;
-                default: sprintf(errbuf, "\nask: LLM error %d\n", rc); msg = errbuf;
+                default: sprintf(errbuf, "\nask: LLM error %ld\n", (long)rc); msg = errbuf;
             }
             ctx_out(ctx, msg);
             g_ask_ctx = 0;
@@ -849,13 +945,10 @@ static int bi_ask(ShellCtx *ctx, int argc, char **argv)
         }
 
         if (tool_name[0] == '\0') {
-            /* No tool call — response is complete. Persist an empty
-             * assistant turn so the model sees this exchange in the next
-             * ask (the streamed content isn't captured, but it's visible
-             * on the terminal — the model doesn't need it for coherence
-             * because Ollama also keeps the emitted content in its history
-             * message... but since we manage messages ourselves we don't
-             * see that either. This is a known simplification.) */
+            /* No tool call — response is complete. Persist the full
+             * streamed assistant reply into the conversation so the model
+             * sees its own prior answer on the next ask. */
+            llm_msgs_add(&g_convo, LLM_ROLE_ASSISTANT, g_ask_accum);
             ctx_out(ctx, "\n");
             g_ask_ctx = 0;
             return 0;
@@ -872,7 +965,10 @@ static int bi_ask(ShellCtx *ctx, int argc, char **argv)
         ctx_out(ctx, tool_result);
         ctx_out(ctx, "\n");
 
-        if (!llm_msgs_add(&g_convo, LLM_ROLE_ASSISTANT, "")) break;
+        /* Record the assistant tool-call turn — include any streamed
+         * content the model produced alongside the tool_call so the
+         * next turn has full context. */
+        if (!llm_msgs_add(&g_convo, LLM_ROLE_ASSISTANT, g_ask_accum)) break;
         if (!llm_msgs_add(&g_convo, LLM_ROLE_TOOL, tool_result)) break;
     }
     ctx_out(ctx, "\nask: step budget exhausted\n");
@@ -1092,6 +1188,11 @@ int main(void)
     char ch;
     char prompt[280];
 
+    /* Attach to amiga-bridge FIRST so early failures (e.g. RAW: open
+     * failing) still get logged/cleaned-up via the bridge. Failure is
+     * soft — the shell stays usable without the bridge. */
+    g_bridge_ok = (ab_init("hubert") == 0);
+
     /* Open a proper RAW: console so we get keypress-level input. The
      * inherited stdout is line-buffered by DOS; RAW: gives us cursor keys
      * and lets us do our own line editing. */
@@ -1099,6 +1200,7 @@ int main(void)
                      MODE_NEWFILE);
     if (!g_console) {
         Printf("hubert: could not open RAW: console\n");
+        if (g_bridge_ok) ab_cleanup();
         return 20;
     }
     /* Tell the executor to route external command stdout back into this
@@ -1118,9 +1220,7 @@ int main(void)
     refresh_cwd(&ctx);
     g_ctx_ref = &ctx;
 
-    /* Attach to amiga-bridge if it's running. Failure is soft — the shell
-     * stays fully usable without the bridge. */
-    g_bridge_ok = (ab_init("hubert") == 0);
+    /* Register bridge vars/hooks (only if ab_init succeeded above). */
     if (g_bridge_ok) {
         int i = 0;
         while (ctx.cwd[i] && i < (int)sizeof(g_bridge_cwd) - 1) {

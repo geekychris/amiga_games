@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Jump Quest - Game Header
  * All shared defines, types, and externs
@@ -153,7 +156,7 @@ typedef struct {
     BYTE  type;
     WORD  x, y;      /* pixel position */
     BYTE  active;
-    BYTE  frame;
+    UBYTE frame;
     BYTE  collected;
     BYTE  float_off;  /* bobbing offset */
 } Item;
@@ -191,8 +194,8 @@ typedef struct {
     BYTE  state;      /* 0=idle, 1=walk, 2=jump, 3=fall */
     BYTE  frame;      /* animation frame */
     BYTE  frame_timer;
-    BYTE  invuln;     /* invulnerability timer */
-    BYTE  speed_boost; /* speed boost timer */
+    UBYTE invuln;     /* invulnerability timer */
+    UBYTE speed_boost; /* speed boost timer */
     BYTE  walk_frame;
 } Player;
 

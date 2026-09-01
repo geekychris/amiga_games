@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * test_new_features.c - Tests for new bridge daemon features
  *
@@ -77,8 +80,10 @@ int main(void)
 {
     char buf[256];
 
+    /* ab_init returns 0 on success; non-zero indicates failure. */
     if (ab_init("test_newfeatures") != 0) {
         printf("Failed to connect to AmigaBridge\n");
+        ab_cleanup();
         return 1;
     }
 

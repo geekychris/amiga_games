@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Level 2: "Server Room" - Indoor, medium difficulty
  * 120 tiles wide x 14 tiles tall

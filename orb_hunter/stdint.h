@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef _STDINT_H
 #define _STDINT_H
 typedef signed char int8_t;

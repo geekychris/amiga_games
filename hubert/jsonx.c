@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "jsonx.h"
 
 #include <string.h>
@@ -225,7 +228,15 @@ static JsonxResult unescape_string(const char *src, char *out, int outSize)
                 case 'b': if (o < outSize - 1) out[o++] = 8;    break;
                 case 'f': if (o < outSize - 1) out[o++] = 12;   break;
                 case 'u': {
-                    int cp = hex4(p);
+                    int cp;
+                    int k;
+                    /* Verify 4 characters remain in the input AND none of
+                     * them is the string-terminating '"' or NUL — hex4
+                     * would otherwise read garbage past the string. */
+                    for (k = 0; k < 4; k++) {
+                        if (p[k] == '\0' || p[k] == '"') return JSONX_PARSE_ERROR;
+                    }
+                    cp = hex4(p);
                     if (cp < 0) return JSONX_PARSE_ERROR;
                     p += 4;
                     /* Encode as UTF-8. BMP-only; surrogate pairs collapse to
@@ -272,12 +283,22 @@ JsonxResult jsonx_string(const char *src, const char *path,
     return unescape_string(v, out, outSize);
 }
 
+/* True only for characters that legally follow a JSON literal value at
+ * the top of a value slot (whitespace, structural, or NUL). */
+static int is_value_terminator(char c)
+{
+    return c == '\0' || c == ' '  || c == '\t' || c == '\n' || c == '\r' ||
+           c == ','  || c == '}'  || c == ']';
+}
+
 JsonxResult jsonx_bool(const char *src, const char *path, int *out)
 {
     const char *v = walk(src, path);
     if (!v) return JSONX_NOT_FOUND;
-    if (v[0] == 't' && strncmp(v, "true", 4) == 0)  { *out = 1; return JSONX_OK; }
-    if (v[0] == 'f' && strncmp(v, "false", 5) == 0) { *out = 0; return JSONX_OK; }
+    if (v[0] == 't' && strncmp(v, "true", 4) == 0 &&
+        is_value_terminator(v[4]))  { *out = 1; return JSONX_OK; }
+    if (v[0] == 'f' && strncmp(v, "false", 5) == 0 &&
+        is_value_terminator(v[5])) { *out = 0; return JSONX_OK; }
     return JSONX_TYPE_MISMATCH;
 }
 

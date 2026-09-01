@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef SOUND_H
 #define SOUND_H
 
@@ -12,6 +15,8 @@ void sound_die(void);
 void sound_fruit(void);
 void sound_extra_life(void);
 void sound_power(void);
+/* Stop the power-pellet drone: clears power_on and disables channel 3. */
+void sound_power_off(void);
 
 /* Siren control */
 void sound_set_siren(int speed);

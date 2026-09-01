@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Frank the Frog - Lane objects (traffic + river)
  * Tuned difficulty: gentler speeds, better spacing.
@@ -312,6 +315,9 @@ int lanes_check_river(int px, int py, int *ride_dx)
         for (j = 0; j < l->num_objs; j++) {
             int ox = l->objs[j].x;
             int ow = l->objs[j].width;
+
+            /* Match rendering guard: skip objects not currently drawn */
+            if (ox < 0 || ox + ow > SCREEN_W) continue;
 
             if (px + TILE_W - 4 > ox && px + 4 < ox + ow) {
                 /* Riding speed: only applies on movement frames */

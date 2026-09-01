@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * ACE PILOT for Amiga
  *
@@ -57,6 +60,12 @@ static WORD   music_playing = 0;
 
 /* Game world */
 static GameWorld world;
+
+/* Authoritative top-level game state.
+ * world.state covers PLAYING/DYING/GAMEOVER during gameplay; game_state
+ * adds the STATE_TITLE overlay. Kept as file-static so hook_reset() can
+ * route a remote reset back to the title screen. */
+static WORD game_state = STATE_TITLE;
 
 /* Palette: designed for both classic green and color modes */
 static UWORD palette[16] = {
@@ -238,7 +247,10 @@ static void hook_copy(char *buf, int bufsz, const char *src)
 static int hook_reset(const char *args, char *buf, int bufsz)
 {
     (void)args;
-    game_init(&world);
+    /* Route remote reset through the authoritative title state so
+     * var_state and world.state cannot diverge from what gameplay sees. */
+    game_state = STATE_TITLE;
+    world.state = STATE_TITLE;
     hook_copy(buf, bufsz, "Game reset");
     return 0;
 }
@@ -308,7 +320,6 @@ static int hook_set_difficulty(const char *args, char *buf, int bufsz)
 int main(void)
 {
     WORD running = 1;
-    WORD game_state = STATE_TITLE;
     WORD mode_press = 0;
     LONG var_score_p1 = 0;
     LONG var_score_p2 = 0;
@@ -509,7 +520,9 @@ int main(void)
         var_lives_p1 = world.players[0].lives;
         var_wave     = world.wave;
         var_enemies  = world.enemies_alive;
-        var_state    = game_state;
+        /* Report authoritative state so observers see PLAYING/DYING/GAMEOVER
+         * transitions coming from world.state during gameplay. */
+        var_state    = (game_state == STATE_TITLE) ? STATE_TITLE : world.state;
 
         push_timer++;
         if (push_timer >= 50) {

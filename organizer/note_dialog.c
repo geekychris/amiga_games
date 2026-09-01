@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * note_dialog.c — modal note editor with multi-line body + format toolbar.
  *

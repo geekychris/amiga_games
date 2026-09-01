@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Lunar Rider - Drawing functions
  * Parallax backgrounds, terrain, buggy, enemies, HUD, title screen
@@ -240,15 +243,17 @@ static void draw_near_mountains(struct RastPort *rp, LONG scroll_x)
 static void draw_terrain(struct RastPort *rp, GameState *gs)
 {
     WORD x;
-    WORD scroll_px = (WORD)(gs->scroll_x / 100);
+    LONG scroll_px = gs->scroll_x / 100;
 
     /* Draw ground surface */
     for (x = 0; x < SCREEN_W; x++) {
-        WORD tidx = (WORD)((scroll_px + x) % TERRAIN_LEN);
+        LONG raw_tidx = (scroll_px + x) % TERRAIN_LEN;
+        WORD tidx;
         WORD th;
         WORD ttype;
 
-        if (tidx < 0) tidx += TERRAIN_LEN;
+        if (raw_tidx < 0) raw_tidx += TERRAIN_LEN;
+        tidx = (WORD)raw_tidx;
         th = gs->terrain_h[tidx];
         ttype = gs->terrain[tidx];
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include <exec/types.h>
 #include <intuition/intuition.h>
 #include <graphics/gfxbase.h>
@@ -217,7 +220,12 @@ int main(void)
         }
 
         /* Adjustable speed: ball_speed is delay in ticks (1=fast, 10=slow) */
-        Delay(ball_speed < 1 ? 1 : ball_speed);
+        {
+            LONG delay_ticks = ball_speed;
+            if (delay_ticks < 1) delay_ticks = 1;
+            if (delay_ticks > 300) delay_ticks = 300;  /* cap at ~6s */
+            Delay(delay_ticks);
+        }
     }
 
     AB_I("Bouncing Ball shutting down");

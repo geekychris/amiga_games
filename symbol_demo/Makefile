@@ -1,7 +1,12 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Chris Collins
+
 CC = m68k-amigaos-gcc
 CFLAGS = -noixemul -O0 -m68020 -g -Wall -I../../amiga-bridge/include
 LDFLAGS = -noixemul -g -L../../amiga-bridge -lbridge -lamiga
 TARGET = symbol_demo
+
+.PHONY: all clean
 
 all: $(TARGET)
 

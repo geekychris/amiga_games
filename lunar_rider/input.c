@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Lunar Rider - Input handling
  * Keyboard + Joystick port 2, simultaneous support

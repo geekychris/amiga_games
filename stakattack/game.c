@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * StakAttack - block-stacking game logic
  * Pure game state management, no rendering or input reading.
@@ -584,13 +587,17 @@ void game_update(GameState *gs, int input)
         if (input & GINPUT_DOWN) {
             if (piece_fits(gs, gs->current.type, gs->current.rotation,
                            gs->current.x, gs->current.y + 1)) {
+                /* Successful move: award score, refresh lock timer, and
+                 * arm the auto-drop for a full drop_speed interval so we
+                 * don't trigger a second automatic move this frame. */
                 gs->current.y++;
                 gs->score += 1;
                 gs->drop_timer = gs->drop_speed;
                 gs->lock_timer = 30;
+            } else {
+                /* Blocked: keep the timer expired so we retry immediately. */
+                gs->drop_timer = 0;
             }
-            /* Even if we can't move down, reset timer to keep it fast */
-            gs->drop_timer = 0;
         }
 
         /* Auto-drop */

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * DOT_CHASE - Sound
  * Retro dot-eater sounds via direct Paula chip access
@@ -206,6 +209,13 @@ void sound_power(void)
     power_phase = 0;
 }
 
+void sound_power_off(void)
+{
+    if (!power_on) return;
+    power_on = 0;
+    CUSTOM->dmacon = DMAF_AUD3;
+}
+
 void sound_set_siren(int speed)
 {
     siren_on = 1;
@@ -274,7 +284,10 @@ void sound_update(void)
         }
     }
 
-    /* Siren on channel 2 */
+    /* Siren on channel 2. Silenced while power drone is active so
+     * the two don't fight. The main loop is responsible for clearing
+     * power_on (via sound_power_off) when frightened mode ends,
+     * which lets the siren resume cleanly next frame. */
     if (siren_on && !power_on) {
         WORD base_period;
         WORD range;

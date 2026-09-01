@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Orb Hunter - Core game logic
  */
@@ -304,8 +307,11 @@ static void update_hunter(GameState *gs, WORD inp_left, WORD inp_right,
                 h->y = new_y;
             }
         } else {
-            /* Rising - check ceiling */
-            if (tile_is_solid(gs, tx_l, ty_t) || tile_is_solid(gs, tx_r, ty_t)) {
+            /* Rising - let a negative new_y through so check_room_transition()
+               can detect a top-room exit before we clamp against the ceiling. */
+            if (px_top < 0) {
+                h->y = new_y;
+            } else if (tile_is_solid(gs, tx_l, ty_t) || tile_is_solid(gs, tx_r, ty_t)) {
                 h->y = FIX((ty_t + 1) * TILE_H);
                 h->dy = 0;
             } else {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * tests.c — ab_test suite: recur math, date arithmetic, storage roundtrip.
  *

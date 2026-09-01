@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * DOT_CHASE - Input: Keyboard + Joystick port 2
  */
@@ -16,53 +19,62 @@ extern volatile struct CIA ciaa;
 #define KEY_FIRE   16
 #define KEY_ESC    32
 
-static UWORD key_state = 0;
+/* Per-physical-key held-state. Indexed by raw keycode. Releasing one alias
+ * (e.g. W) must not clear the action if another (e.g. cursor-up) is still
+ * held. So we track each physical key independently and OR them together
+ * in input_read(). */
+#define MAX_RAWKEYS 128
+static UBYTE key_down[MAX_RAWKEYS];
+
+/* Map raw keycode -> action bit (0 if unmapped). */
+static UWORD keycode_to_action(UWORD code)
+{
+    switch (code) {
+        case 0x4C: return KEY_UP;     /* cursor up */
+        case 0x4D: return KEY_DOWN;   /* cursor down */
+        case 0x4F: return KEY_LEFT;   /* cursor left */
+        case 0x4E: return KEY_RIGHT;  /* cursor right */
+        case 0x11: return KEY_UP;     /* W */
+        case 0x21: return KEY_DOWN;   /* S */
+        case 0x20: return KEY_LEFT;   /* A */
+        case 0x22: return KEY_RIGHT;  /* D */
+        case 0x40: return KEY_FIRE;   /* space */
+        case 0x44: return KEY_FIRE;   /* return */
+        case 0x50: return KEY_FIRE;   /* F1 */
+        case 0x45: return KEY_ESC;    /* escape */
+    }
+    return 0;
+}
 
 void input_key_down(UWORD code)
 {
-    switch (code) {
-        case 0x4C: key_state |= KEY_UP;    break;  /* cursor up */
-        case 0x4D: key_state |= KEY_DOWN;  break;  /* cursor down */
-        case 0x4F: key_state |= KEY_LEFT;  break;  /* cursor left */
-        case 0x4E: key_state |= KEY_RIGHT; break;  /* cursor right */
-        case 0x11: key_state |= KEY_UP;    break;  /* W */
-        case 0x21: key_state |= KEY_DOWN;  break;  /* S */
-        case 0x20: key_state |= KEY_LEFT;  break;  /* A */
-        case 0x22: key_state |= KEY_RIGHT; break;  /* D */
-        case 0x40: key_state |= KEY_FIRE;  break;  /* space */
-        case 0x44: key_state |= KEY_FIRE;  break;  /* return */
-        case 0x50: key_state |= KEY_FIRE;  break;  /* F1 */
-        case 0x45: key_state |= KEY_ESC;   break;  /* escape */
-    }
+    if (code < MAX_RAWKEYS && keycode_to_action(code))
+        key_down[code] = 1;
 }
 
 void input_key_up(UWORD code)
 {
-    switch (code) {
-        case 0x4C: key_state &= ~KEY_UP;    break;
-        case 0x4D: key_state &= ~KEY_DOWN;  break;
-        case 0x4F: key_state &= ~KEY_LEFT;  break;
-        case 0x4E: key_state &= ~KEY_RIGHT; break;
-        case 0x11: key_state &= ~KEY_UP;    break;
-        case 0x21: key_state &= ~KEY_DOWN;  break;
-        case 0x20: key_state &= ~KEY_LEFT;  break;
-        case 0x22: key_state &= ~KEY_RIGHT; break;
-        case 0x40: key_state &= ~KEY_FIRE;  break;
-        case 0x44: key_state &= ~KEY_FIRE;  break;
-        case 0x50: key_state &= ~KEY_FIRE;  break;
-        case 0x45: key_state &= ~KEY_ESC;   break;
-    }
+    if (code < MAX_RAWKEYS)
+        key_down[code] = 0;
 }
 
 void input_reset(void)
 {
-    key_state = 0;
+    WORD i;
+    for (i = 0; i < MAX_RAWKEYS; i++) key_down[i] = 0;
 }
 
 void input_read(InputState *input)
 {
     UWORD joy;
-    UWORD combined = key_state;
+    UWORD combined = 0;
+    WORD i;
+
+    /* Combine every currently-held key. Releasing one alias mustn't
+     * cancel an action still held by another. */
+    for (i = 0; i < MAX_RAWKEYS; i++) {
+        if (key_down[i]) combined |= keycode_to_action((UWORD)i);
+    }
 
     /* Joystick port 2 (JOY1DAT) */
     joy = custom.joy1dat;

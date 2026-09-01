@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * render.c - 3D wireframe rendering, HUD, title screen for Ace Pilot
  */

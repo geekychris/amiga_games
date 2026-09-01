@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * draw.c - Rendering: player, guests, items, HUD, screens
  */

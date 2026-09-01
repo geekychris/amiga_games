@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Lunar Rider - Sound system
  * Direct Paula hardware access for SFX and music.

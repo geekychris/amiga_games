@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Level 3: "Rooftop" - Outdoor, hard
  * 150 tiles wide x 14 tiles tall

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * aga3d - AGA 256-colour 3D demo, mouse-controlled, switchable resolution
  *

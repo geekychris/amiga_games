@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * Jump Quest - Graphics System
  * Screen setup, double buffering, tile drawing
@@ -91,9 +94,14 @@ void gfx_cleanup(void) {
 }
 
 void gfx_swap(void) {
-    /* Display the back buffer */
-    current_buf ^= 1;
-    ChangeScreenBuffer(gameScreen, sb[current_buf]);
+    int next_buf = current_buf ^ 1;
+
+    /* Attempt the buffer swap first; don't advance state on failure. */
+    if (!ChangeScreenBuffer(gameScreen, sb[next_buf])) {
+        return;
+    }
+
+    current_buf = next_buf;
 
     /* Wait for safe to draw */
     WaitPort(dbufport);

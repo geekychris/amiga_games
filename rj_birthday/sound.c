@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * sound.c - Sound effect synthesis for RJ's Birthday Bash
  * Uses ptplayer for playback via SFX structures

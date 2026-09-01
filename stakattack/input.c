@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * input.c - Keyboard and joystick input for StakAttack
  * Simple IDCMP + joystick reading.
@@ -56,18 +59,22 @@ UWORD input_read(void)
     UWORD result = key_held;
     UWORD joy;
 
-    /* Read joystick port 2 (JOY1DAT) — digital decoding:
-     *   Right: low byte = 0x02   Left: low byte = 0x01
-     *   Down:  high byte = 0x02  Up:   high byte = 0x01
+    /* Read joystick port 2 (JOY1DAT) using Amiga quadrature semantics:
+     *   Right = bit 1
+     *   Left  = bit 1 XOR bit 0
+     *   Down  = bit 9
+     *   Up    = bit 9 XOR bit 8
      */
     joy = custom.joy1dat;
     {
-        UWORD h = joy & 3;
-        UWORD v = (joy >> 8) & 3;
-        if (h == 2) result |= INPUT_RIGHT;
-        if (h == 1) result |= INPUT_LEFT;
-        if (v == 2) result |= INPUT_DOWN;
-        if (v == 1) result |= INPUT_UP;
+        UWORD b0 = (joy >> 0) & 1;
+        UWORD b1 = (joy >> 1) & 1;
+        UWORD b8 = (joy >> 8) & 1;
+        UWORD b9 = (joy >> 9) & 1;
+        if (b1)      result |= INPUT_RIGHT;
+        if (b1 ^ b0) result |= INPUT_LEFT;
+        if (b9)      result |= INPUT_DOWN;
+        if (b9 ^ b8) result |= INPUT_UP;
     }
 
     /* Fire button */

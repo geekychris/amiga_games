@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * DOT_CHASE - Game logic
  * Ghost AI, movement, collision, scoring

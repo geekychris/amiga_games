@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include <exec/types.h>
 #include <intuition/intuition.h>
 #include <intuition/screens.h>
@@ -121,15 +124,27 @@ static void draw_bands(struct RastPort *rp)
     }
 }
 
+/* Copy src into resultBuf, bounded by bufSize. Always NUL-terminates when bufSize>0. */
+static void hook_reply(char *resultBuf, int bufSize, const char *src)
+{
+    int n;
+    if (bufSize <= 0) return;
+    n = (int)strlen(src);
+    if (n > bufSize - 1) n = bufSize - 1;
+    memcpy(resultBuf, src, n);
+    resultBuf[n] = '\0';
+}
+
 /* Hook: randomize frequencies */
 static int hook_randomize(const char *args, char *resultBuf, int bufSize)
 {
+    char tmp[96];
     red_freq = (LONG)(simple_rand() % 10) + 1;
     green_freq = (LONG)(simple_rand() % 10) + 1;
     blue_freq = (LONG)(simple_rand() % 10) + 1;
-    sprintf(resultBuf, "Randomized: r=%ld g=%ld b=%ld",
+    sprintf(tmp, "Randomized: r=%ld g=%ld b=%ld",
             (long)red_freq, (long)green_freq, (long)blue_freq);
-    resultBuf[bufSize - 1] = '\0';
+    hook_reply(resultBuf, bufSize, tmp);
     return 0;
 }
 
@@ -139,8 +154,7 @@ static struct Screen *g_scr = NULL;
 static int hook_screen_to_back(const char *args, char *resultBuf, int bufSize)
 {
     if (g_scr) ScreenToBack(g_scr);
-    strncpy(resultBuf, "Screen sent to back", bufSize - 1);
-    resultBuf[bufSize - 1] = '\0';
+    hook_reply(resultBuf, bufSize, "Screen sent to back");
     return 0;
 }
 
@@ -148,8 +162,7 @@ static int hook_screen_to_back(const char *args, char *resultBuf, int bufSize)
 static int hook_screen_to_front(const char *args, char *resultBuf, int bufSize)
 {
     if (g_scr) ScreenToFront(g_scr);
-    strncpy(resultBuf, "Screen brought to front", bufSize - 1);
-    resultBuf[bufSize - 1] = '\0';
+    hook_reply(resultBuf, bufSize, "Screen brought to front");
     return 0;
 }
 
@@ -162,8 +175,7 @@ static int hook_reset(const char *args, char *resultBuf, int bufSize)
     green_freq = 5;
     blue_freq = 7;
     brightness = 15;
-    strncpy(resultBuf, "Reset to defaults", bufSize - 1);
-    resultBuf[bufSize - 1] = '\0';
+    hook_reply(resultBuf, bufSize, "Reset to defaults");
     return 0;
 }
 
@@ -175,6 +187,7 @@ int main(void)
     struct RastPort *rp;
     struct ViewPort *vp;
     ULONG class;
+    UWORD code;
     BOOL running = TRUE;
 
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((CONST_STRPTR)"intuition.library", 36);
@@ -210,9 +223,11 @@ int main(void)
     ab_register_hook("to_back", "Send screen to back", hook_screen_to_back);
     ab_register_hook("to_front", "Bring screen to front", hook_screen_to_front);
 
-    /* Register palette memory region for inspection */
-    ab_register_memregion("palette_rgb", pal_r, sizeof(pal_r) + sizeof(pal_g) + sizeof(pal_b),
-                          "Palette data: 16 R, 16 G, 16 B values");
+    /* Register palette memory regions for inspection (each channel separately,
+     * since pal_r/pal_g/pal_b are not guaranteed contiguous in memory) */
+    ab_register_memregion("palette_r", pal_r, sizeof(pal_r), "Palette red channel (16 bytes)");
+    ab_register_memregion("palette_g", pal_g, sizeof(pal_g), "Palette green channel (16 bytes)");
+    ab_register_memregion("palette_b", pal_b, sizeof(pal_b), "Palette blue channel (16 bytes)");
 
     /* Initialize sine table */
     init_sine_table();
@@ -273,8 +288,12 @@ int main(void)
         /* Check for window messages */
         while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort))) {
             class = msg->Class;
+            code = msg->Code;
             ReplyMsg((struct Message *)msg);
             if (class == IDCMP_CLOSEWINDOW) {
+                running = FALSE;
+            } else if (class == IDCMP_RAWKEY && code == 0x45) {
+                /* Escape pressed */
                 running = FALSE;
             }
         }

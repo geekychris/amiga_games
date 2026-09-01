@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * http.h — minimal HTTP/1.1 client optimised for Ollama.
  *
