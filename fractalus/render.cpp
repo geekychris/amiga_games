@@ -13,8 +13,10 @@
 #include <graphics/displayinfo.h>
 #include <graphics/text.h>
 #include <intuition/intuition.h>
+#include <dos/dos.h>
 
 #include <proto/exec.h>
+#include <proto/dos.h>
 #include <proto/graphics.h>
 #include <proto/intuition.h>
 
@@ -314,10 +316,18 @@ int Renderer::open_display()
         return 3;
     }
 
-    safe_port = CreateMsgPort();
-    if (!safe_port) { close_display(); return 4; }
-    sbuf[0]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = safe_port;
-    sbuf[1]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = safe_port;
+    /* Historically we set dbi_SafeMessage.mn_ReplyPort on both buffers
+     * intending to use safe-message handshake for the double-buffer
+     * swap. flip() never GetMsg()'d the port though, so on OS4 the
+     * queued safe-messages appear to jam the RTG buffer swap and
+     * produce a corrupted display (uninitialised memory shown as
+     * random pixels; every RectFill lands invisibly on a not-yet-
+     * swapped bitmap). terrain_test and void_trader — both dual-target
+     * with the same AllocScreenBuffer pattern — skip this setup and
+     * render cleanly on both arches, so we do too. safe_port field
+     * kept for future proper implementation; NULL means "no safe
+     * message needed" per exec docs. */
+    safe_port = NULL;
 
     InitRastPort(&rp_buf[0]); rp_buf[0].BitMap = sbuf[0]->sb_BitMap;
     InitRastPort(&rp_buf[1]); rp_buf[1].BitMap = sbuf[1]->sb_BitMap;
@@ -1244,6 +1254,18 @@ void Renderer::flip()
     } else {
         WaitTOF();         /* rejected — try again next frame */
     }
+
+    /* Frame-rate cap via dos.library Delay(). Once the OS4 buffer-swap
+     * bug was fixed the game started running at 150-200 fps on PPC —
+     * game logic is per-frame so it blasts through a mission in
+     * seconds. WaitTOF() is a no-op on OS4/RTG (returns immediately),
+     * so we can't loop it to pace; DateStamp granularity on OS4
+     * turned out finer than the classic 1/50s so a DateStamp-based
+     * cap broke out of the wait too fast. Delay(N) is the reliable
+     * dos.library sleep — N is in 1/50 s ticks. Delay(2) = 40 ms =
+     * ~25 fps. CLAUDE.md warned that Delay(1) can DSI on -lauto
+     * newlib PPC, but Delay(2+) has been safe elsewhere in the tree. */
+    Delay(2);
 }
 
 void Renderer::render(const GameState &gs, const Terrain &world,
