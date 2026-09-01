@@ -69,8 +69,10 @@
 #define SCREEN_H     256
 #define HORIZON_Y    128            /* row of the true horizon on screen */
 
+#ifndef __PPC__
 struct IntuitionBase *IntuitionBase;
 struct GfxBase       *GfxBase;
+#endif
 
 /* ================================================================== */
 /* Fractal terrain — 128x128 heightfield, wrap                        */
@@ -466,11 +468,19 @@ int main(void)
     ULONG frame = 0;
     int bridge_ok, running = 1;
 
+#ifdef __PPC__
+    IntuitionBase = OpenLibrary((CONST_STRPTR)"intuition.library", 39);
+#else
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
         (CONST_STRPTR)"intuition.library", 39);
+#endif
     if (!IntuitionBase) { printf("no intuition\n"); return 20; }
+#ifdef __PPC__
+    GfxBase = OpenLibrary((CONST_STRPTR)"graphics.library", 39);
+#else
     GfxBase = (struct GfxBase *)OpenLibrary(
         (CONST_STRPTR)"graphics.library", 39);
+#endif
     if (!GfxBase) { CloseLibrary((struct Library *)IntuitionBase); return 20; }
 
     bridge_ok = (ab_init("terrain_test") == 0);
