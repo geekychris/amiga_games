@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #include "game.h"
 #include "terrain.h"
 #include "pilots.h"

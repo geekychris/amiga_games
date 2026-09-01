@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef FRACTALUS_GAME_H
 #define FRACTALUS_GAME_H
 
@@ -52,12 +55,18 @@ enum GameMode {
 #define FUEL_DRAIN_FLYING    1       /* fuel units drained per N frames */
 #define FUEL_DRAIN_FRAMES    6       /* -> 1000 fuel / (25fps / 6) = ~240s */
 
-/* Global game state, allocated in main.cpp. */
+/* Global game state, allocated in main.cpp.
+ *
+ * Note: rescue_state / mode / running are LONG (not UBYTE / UWORD) so the
+ * bridge can register them as AB_TYPE_I32 without a size mismatch — the
+ * previous UBYTE registration read four bytes across adjacent struct
+ * fields and returned garbage over the wire. The couple of extra bytes
+ * per GameState is a rounding error. */
 struct GameState {
     ShipState ship;
     ULONG     tick;
     ULONG     seed;
-    UWORD     running;
+    LONG      running;
 
     /* HUD / gauges */
     LONG      fuel;              /* 0..1000 */
@@ -67,12 +76,12 @@ struct GameState {
     LONG      score;
 
     /* Rescue sequence. */
-    UBYTE     rescue_state;      /* RescueState */
+    LONG      rescue_state;      /* RescueState */
     UWORD     state_timer;       /* frames remaining in current state */
     LONG      current_pilot;     /* -1 or index into PilotList */
 
     /* Mission. */
-    UBYTE     mode;              /* GameMode */
+    LONG      mode;              /* GameMode */
     UBYTE     restart_pressed;   /* edge-detect SPACE in end screens */
 };
 

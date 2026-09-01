@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 #ifndef FRACTALUS_RENDER_H
 #define FRACTALUS_RENDER_H
 

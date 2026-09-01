@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins
+
 /*
  * fractalus — Amiga homage to Rescue on Fractalus (Lucasfilm, 1985).
  *
@@ -36,9 +39,13 @@ extern "C" {
 #include "sfx.h"
 #include "modplay.h"
 
-/* Amiga library bases — declared in render.cpp as extern. */
+/* Amiga library bases — declared in render.cpp as extern.
+ * On OS4 PPC, <proto/{intuition,graphics}.h> already extern these as
+ * struct Library *, so gate the app-owned defs out for that build. */
+#ifndef __PPC__
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase       *GfxBase       = NULL;
+#endif
 
 /*
  * Ask gcc's amiga startup for a fatter stack — Terrain::heights is 16 KB
@@ -87,6 +94,12 @@ static void apply_key(UWORD code)
     UWORD raw      = code & 0x7F;
     UWORD bit = 0;
 
+    /* Debug: every raw key the game window receives. If SPACE presses at
+     * the QEMU / OS4 window don't start the mission, this line shows
+     * whether IDCMP_RAWKEY is even delivering the event and what code
+     * OS4 assigned to it. Cheap when quiet, invaluable when broken. */
+    AB_I("apply_key: raw=0x%02lx %s", (long)raw, released ? "UP" : "DOWN");
+
     switch (raw) {
     /* Turn (yaw) */
     case RK_A: case RK_LEFT:  bit = INPUT_LEFT;   break;
@@ -123,11 +136,22 @@ int main(void)
     Combat    &combat   = g_combat;
     Sfx       &sfx      = g_sfx;
 
+    /* On OS4 the library bases are typed struct Library by the proto
+     * headers; on 68k they're the specific struct types. Gate the cast
+     * so both arches compile. */
+#ifdef __PPC__
+    IntuitionBase = OpenLibrary((CONST_STRPTR)"intuition.library", 39);
+#else
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
                         (CONST_STRPTR)"intuition.library", 39);
+#endif
     if (!IntuitionBase) { printf("no intuition\n"); return 20; }
+#ifdef __PPC__
+    GfxBase = OpenLibrary((CONST_STRPTR)"graphics.library", 39);
+#else
     GfxBase = (struct GfxBase *)OpenLibrary(
                   (CONST_STRPTR)"graphics.library", 39);
+#endif
     if (!GfxBase) {
         CloseLibrary((struct Library *)IntuitionBase);
         return 20;
@@ -149,9 +173,12 @@ int main(void)
         ab_register_var("ship_speed",     AB_TYPE_I32, &g_state.ship.speed);
         ab_register_var("fuel",           AB_TYPE_I32, &g_state.fuel);
         ab_register_var("shield",         AB_TYPE_I32, &g_state.shield);
-        ab_register_var("seed",           AB_TYPE_I32, (LONG *)&g_state.seed);
-        ab_register_var("running",        AB_TYPE_I32, (LONG *)&g_state.running);
-        ab_register_var("rescue_state",   AB_TYPE_I32, (LONG *)&g_state.rescue_state);
+        ab_register_var("seed",           AB_TYPE_U32, &g_state.seed);
+        /* GameState.running/rescue_state/mode are now LONG (see comment in
+         * game.h) — safe to register as I32 without alias garbage. */
+        ab_register_var("running",        AB_TYPE_I32, &g_state.running);
+        ab_register_var("rescue_state",   AB_TYPE_I32, &g_state.rescue_state);
+        ab_register_var("mode",           AB_TYPE_I32, &g_state.mode);
         ab_register_var("pilots_saved",   AB_TYPE_I32, &g_state.pilots_rescued);
         ab_register_var("pilots_lost",    AB_TYPE_I32, &g_state.pilots_lost);
         ab_register_var("score",          AB_TYPE_I32, &g_state.score);
@@ -260,17 +287,20 @@ int main(void)
         }
         if (!g_state.running) break;
 
-        /* Poll bridge before AND after render — the raycaster can chew
-         * hundreds of ms per frame, and one-poll-per-frame lets the
-         * host's command timeouts fire while we're mid-scanline. */
+        /* Bridge polling: TWO per frame — once before game.tick (drains
+         * queued host commands into the client's state) and once after
+         * render (flushes replies + heartbeat back). Was three per frame
+         * plus per-phase ab_perf_section_* which chewed too much bridge
+         * bandwidth on PPC and pinned FPS to ~1. But dropping to a
+         * single poll after render starved the bridge queue and hung
+         * the client after ~60 frames — the OS4 daemon needs a mid-
+         * frame drain to keep queued commands from backing up.
+         * Perf tracing is off by default; re-enable if you can accept
+         * the extra bridge traffic while profiling. */
         if (bridge_ok) ab_poll();
 
-        if (bridge_ok) ab_perf_frame_start();
-
         UBYTE prev_mode = g_state.mode;
-        if (bridge_ok) ab_perf_section_start("game_tick");
         game.tick(input_flags);
-        if (bridge_ok) ab_perf_section_end("game_tick");
         /* Music silences when a mission ends — score screen shouldn't
          * fight either song. Title music resumes on end-screen -> title
          * transition (handled at reset_world time). */
@@ -306,15 +336,12 @@ int main(void)
             modplay_start_song(MODPLAY_SONG_GAME);   /* metal for combat */
         }
 
-        if (bridge_ok) ab_poll();
-
-        if (bridge_ok) ab_perf_section_start("render");
         renderer.render(g_state, terrain, pilots, combat);
-        if (bridge_ok) ab_perf_section_end("render");
-
-        if (bridge_ok) ab_perf_frame_end();
 
         g_frame_count++;
+        /* Single bridge poll per frame — see comment above the game.tick
+         * call for the rationale. Handles pending var reads/writes,
+         * hook calls, and drains the reply queue. */
         if (bridge_ok) ab_poll();
         modplay_tick();      /* one music tick per frame (VBlank-ish) */
         sfx.tick();
