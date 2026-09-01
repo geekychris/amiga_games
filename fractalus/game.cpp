@@ -215,13 +215,25 @@ void Game::update_rescue(UWORD in)
 
 void Game::tick(UWORD in)
 {
-    /* Non-PLAYING modes (TITLE, WIN, LOSE): freeze the world, tick a
+    /* ATTRACT mode: synthesise steady input so the ship flies itself
+     * in a slow clockwise arc over the terrain, and pin shield so
+     * enemy fire never ends the demo. Rest of the play body below
+     * runs unchanged. Main.cpp bounces us back to GM_TITLE on any
+     * real keypress. */
+    if (gs->mode == GM_ATTRACT) {
+        in = INPUT_THRUST | INPUT_RIGHT;
+        gs->shield = 1000;
+    }
+
+    /* Non-active modes (TITLE, WIN, LOSE): freeze the world, tick a
      * timer for animations, and edge-detect the start/restart key.
      *   TITLE       SPACE begins a new mission (fire is the natural
      *               "go" key on the title screen)
      *   WIN / LOSE  RETURN begins a new mission
-     * Main.cpp watches the same flag to trigger reset_world. */
-    if (gs->mode != GM_PLAYING) {
+     * Main.cpp watches the same flag to trigger reset_world.
+     * (GM_ATTRACT is deliberately NOT in this early-return set — it
+     * falls through to the play body so terrain/ship keep updating.) */
+    if (gs->mode != GM_PLAYING && gs->mode != GM_ATTRACT) {
         if (gs->state_timer < 65535) gs->state_timer++;
         UWORD go = (gs->mode == GM_TITLE)
             ? (in & INPUT_FIRE)      /* SPACE starts from title */
@@ -275,26 +287,29 @@ void Game::tick(UWORD in)
         if (gs->fuel < 0) gs->fuel = 0;
     }
 
-    /* Mission end conditions — checked once per tick. Score bonus for
-     * remaining fuel + shield rewards efficient play. */
-    if (gs->pilots_rescued >= MISSION_WIN_PILOTS) {
-        gs->score += gs->fuel + gs->shield;
-        gs->mode = GM_WIN;
-        gs->state_timer = 0;
-        gs->restart_pressed = 0;
-        AB_I("MISSION COMPLETE — rescued %ld/%ld, score %ld",
-             (long)gs->pilots_rescued, (long)MISSION_WIN_PILOTS,
-             (long)gs->score);
-    } else if (gs->shield <= 0) {
-        gs->mode = GM_LOSE;
-        gs->state_timer = 0;
-        gs->restart_pressed = 0;
-        AB_I("SHIELD FAILURE — score %ld", (long)gs->score);
-    } else if (gs->fuel <= 0) {
-        gs->mode = GM_LOSE;
-        gs->state_timer = 0;
-        gs->restart_pressed = 0;
-        AB_I("FUEL EXHAUSTED — score %ld", (long)gs->score);
+    /* Mission end conditions — GM_PLAYING only. ATTRACT never ends
+     * from within game logic; it exits only on real player input,
+     * which main.cpp handles by setting mode back to GM_TITLE. */
+    if (gs->mode == GM_PLAYING) {
+        if (gs->pilots_rescued >= MISSION_WIN_PILOTS) {
+            gs->score += gs->fuel + gs->shield;
+            gs->mode = GM_WIN;
+            gs->state_timer = 0;
+            gs->restart_pressed = 0;
+            AB_I("MISSION COMPLETE — rescued %ld/%ld, score %ld",
+                 (long)gs->pilots_rescued, (long)MISSION_WIN_PILOTS,
+                 (long)gs->score);
+        } else if (gs->shield <= 0) {
+            gs->mode = GM_LOSE;
+            gs->state_timer = 0;
+            gs->restart_pressed = 0;
+            AB_I("SHIELD FAILURE — score %ld", (long)gs->score);
+        } else if (gs->fuel <= 0) {
+            gs->mode = GM_LOSE;
+            gs->state_timer = 0;
+            gs->restart_pressed = 0;
+            AB_I("FUEL EXHAUSTED — score %ld", (long)gs->score);
+        }
     }
 
     gs->tick++;

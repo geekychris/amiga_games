@@ -368,22 +368,66 @@ int main(void)
             modplay_stop();
         }
 
+        /* Edge-detect keypresses (this-frame ^ prev). Used below so
+         * a SPACE that broke us out of ATTRACT doesn't ALSO immediately
+         * fire title_go on the same held press — the user has to
+         * release and press again to launch a mission. Same guard also
+         * covers title_go / end_go against spurious level-triggered
+         * restarts when a key was already down at mode transition. */
+        static UWORD prev_input_flags = 0;
+        UWORD input_edge = input_flags & ~prev_input_flags;
+
+        /* ATTRACT (idle demo) transitions:
+         *   TITLE, no input for ATTRACT_IDLE_FRAMES  -> GM_ATTRACT
+         *   ATTRACT, any real keypress (edge)        -> GM_TITLE
+         *
+         * On the ATTRACT break we also zero input_flags so title_go
+         * (still evaluated below) can't fire on the same frame — the
+         * player just wanted out of the demo, not to launch a mission. */
+        static UWORD attract_idle = 0;
+        const UWORD ATTRACT_IDLE_FRAMES = 150;   /* ~5 sec at 30 fps */
+        if (g_state.mode == GM_TITLE) {
+            if (input_flags == 0) {
+                if (attract_idle < 65535) attract_idle++;
+                if (attract_idle >= ATTRACT_IDLE_FRAMES) {
+                    ULONG demo_seed =
+                        g_state.seed * 1103515245UL + 12345UL;
+                    if (bridge_ok) AB_I("attract: idle -> demo");
+                    reset_world(demo_seed);
+                    g_state.mode = GM_ATTRACT;
+                    attract_idle = 0;
+                }
+            } else {
+                attract_idle = 0;
+            }
+        } else if (g_state.mode == GM_ATTRACT) {
+            if (input_edge != 0) {
+                if (bridge_ok) AB_I("attract: input -> title");
+                g_state.mode = GM_TITLE;
+                g_state.state_timer = 0;
+                attract_idle = 0;
+                input_flags = 0;
+                input_edge = 0;
+            }
+        }
+
         /* End-screen restart: after the mission has ended, if SPACE is
          * pressed AND the end screen has been showing for >30 ticks
          * (so a mid-airlock fire doesn't accidentally restart), regen
          * the world from a fresh seed. */
-        /* Start / restart triggers:
+        /* Start / restart triggers — all use input_edge so a key that
+         * was already held during a mode change doesn't count:
          *   TITLE      : SPACE (INPUT_FIRE) — the "go" key
          *   WIN/LOSE   : RETURN (INPUT_RESTART)
          *   any mode   : force_restart bridge var
          * Debounced: state_timer > 30 avoids accidental double-fires. */
         UWORD title_go =
             (g_state.mode == GM_TITLE
-             && (input_flags & INPUT_FIRE)
+             && (input_edge & INPUT_FIRE)
              && g_state.state_timer > 15);
         UWORD end_go =
             ((g_state.mode == GM_WIN || g_state.mode == GM_LOSE)
-             && (input_flags & INPUT_RESTART)
+             && (input_edge & INPUT_RESTART)
              && g_state.state_timer > 30);
         if (title_go || end_go || g_force_restart) {
             ULONG next_seed = g_state.seed * 1103515245UL + 12345UL;
@@ -395,6 +439,8 @@ int main(void)
             g_force_restart = 0;
             modplay_start_song(MODPLAY_SONG_GAME);   /* metal for combat */
         }
+
+        prev_input_flags = input_flags;
 
         renderer.render(g_state, terrain, pilots, combat);
 
