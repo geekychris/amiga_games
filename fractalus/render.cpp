@@ -1195,7 +1195,14 @@ void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
 {
     /* Title screen and end screens win over any in-progress rescue. */
     if (gs.mode == GM_TITLE) { draw_title_screen(rp, gs); return; }
-    if (gs.mode != GM_PLAYING) { draw_end_screen(rp, gs); return; }
+    /* GM_ATTRACT renders like GM_PLAYING (in-flight view, no overlay).
+     * Without this gate the "mode != PLAYING" fall-through drew the
+     * end-screen box during a demo — which showed "SHIELDS DESTROYED"
+     * even with shield=1000 because end_screen defaults to the LOSE
+     * variant for any non-WIN mode. */
+    if (gs.mode != GM_PLAYING && gs.mode != GM_ATTRACT) {
+        draw_end_screen(rp, gs); return;
+    }
 
     if (gs.rescue_state == RS_FLYING) return;
 
