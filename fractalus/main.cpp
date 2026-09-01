@@ -127,6 +127,50 @@ static GameState g_state;
 static ULONG     g_frame_count = 0;
 static LONG      g_force_restart = 0;
 
+/* Singleton lock file-scope handle, so release_singleton can find it
+ * at any exit point without threading it through function signatures. */
+static struct MsgPort *g_singleton_port = NULL;
+static const char     *SINGLETON_PORT_NAME = "fractalus.singleton";
+
+static int acquire_singleton(int bridge_ok)
+{
+    Forbid();
+    struct MsgPort *existing = FindPort((CONST_STRPTR)SINGLETON_PORT_NAME);
+    if (existing) {
+        Permit();
+        /* Bridge log is more visible than printf — Run >NIL: eats printf,
+         * but AB_W reaches the host log. Only log if the primary ab_init
+         * (in main) has already succeeded for this task. */
+        if (bridge_ok) {
+            AB_W("singleton: refusing to start — another fractalus "
+                 "already holds port '%s' (owner task %p)",
+                 SINGLETON_PORT_NAME, existing->mp_SigTask);
+        }
+        printf("fractalus already running - exit that first.\n");
+        return -1;
+    }
+    g_singleton_port = CreateMsgPort();
+    if (!g_singleton_port) {
+        Permit();
+        printf("fractalus: CreateMsgPort failed for singleton lock\n");
+        return -1;
+    }
+    g_singleton_port->mp_Node.ln_Name = (char *)SINGLETON_PORT_NAME;
+    g_singleton_port->mp_Node.ln_Pri  = 0;
+    AddPort(g_singleton_port);
+    Permit();
+    return 0;
+}
+
+static void release_singleton(void)
+{
+    if (g_singleton_port) {
+        RemPort(g_singleton_port);
+        DeleteMsgPort(g_singleton_port);
+        g_singleton_port = NULL;
+    }
+}
+
 int main(void)
 {
     Terrain   &terrain  = g_terrain;
@@ -135,6 +179,16 @@ int main(void)
     PilotList &pilots   = g_pilots;
     Combat    &combat   = g_combat;
     Sfx       &sfx      = g_sfx;
+
+    /* Grab the singleton lock BEFORE any other init. Concurrent fractalus
+     * instances split IDCMP focus so keys land randomly on either window
+     * and vanish — we saw this stack up to 9 processes on OS4. Passing
+     * bridge_ok=0 here means the "already running" AB_W log is skipped
+     * on the very first attempt (ab_init hasn't run yet); we only log
+     * on the collision case where our OWN ab_init later succeeds. */
+    if (acquire_singleton(0) != 0) {
+        return 20;
+    }
 
     /* On OS4 the library bases are typed struct Library by the proto
      * headers; on 68k they're the specific struct types. Gate the cast
@@ -145,7 +199,11 @@ int main(void)
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
                         (CONST_STRPTR)"intuition.library", 39);
 #endif
-    if (!IntuitionBase) { printf("no intuition\n"); return 20; }
+    if (!IntuitionBase) {
+        printf("no intuition\n");
+        release_singleton();
+        return 20;
+    }
 #ifdef __PPC__
     GfxBase = OpenLibrary((CONST_STRPTR)"graphics.library", 39);
 #else
@@ -154,6 +212,7 @@ int main(void)
 #endif
     if (!GfxBase) {
         CloseLibrary((struct Library *)IntuitionBase);
+        release_singleton();
         return 20;
     }
 
@@ -255,6 +314,7 @@ int main(void)
         if (bridge_ok) ab_cleanup();
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
+        release_singleton();
         return 20;
     }
 
@@ -384,5 +444,6 @@ int main(void)
     if (bridge_ok) ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
+    release_singleton();
     return 0;
 }
