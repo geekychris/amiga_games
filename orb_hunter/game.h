@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 /*
  * Orb Hunter - Game definitions
  * A exploration-platformer side-scrolling exploration game for Amiga

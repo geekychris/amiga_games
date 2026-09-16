@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 #ifndef BALLBLAZER_SOUND_H
 #define BALLBLAZER_SOUND_H
 

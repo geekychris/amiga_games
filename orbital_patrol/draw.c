@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 /*
  * Orbital Patrol - All rendering
  * Terrain, entities, scanner, HUD, title/gameover screens
