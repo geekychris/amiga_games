@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Chris Collins
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
  * Minimal MOD-style music player with heavy metal track generator.

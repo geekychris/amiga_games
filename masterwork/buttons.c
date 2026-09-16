@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Chris Collins
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
  * buttons.c - clickable button bar along the bottom of the window.

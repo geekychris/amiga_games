@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Chris Collins
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
  * game.h - Game types and logic for Ace Pilot

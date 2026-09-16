@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Chris Collins
+# Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 CC = m68k-amigaos-gcc
 CFLAGS = -noixemul -O0 -m68020 -Wall -I../../amiga-bridge/include
