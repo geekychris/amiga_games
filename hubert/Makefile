@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Chris Collins
+# Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 # hubert — build both the m68k binary and the host-side unit tests.
 #

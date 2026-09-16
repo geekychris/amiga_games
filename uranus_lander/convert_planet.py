@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Chris Collins
+# Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 """Convert uranus.png to Amiga planar bitmap C header."""
 from PIL import Image

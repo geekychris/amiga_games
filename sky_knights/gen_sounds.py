@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Chris Collins
+# Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 """Generate raw 8-bit signed PCM sound effects for Sky Knights (11025 Hz mono)"""
 import struct
