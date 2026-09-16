@@ -2,9 +2,11 @@
 ; Run this once from Amiga Shell:
 ;   Execute AK2:Dev/install-bridge.script
 
-; Add to User-Startup if not already there
-Search S:User-Startup "amiga-bridge" QUIET
+; Add to User-Startup if not already there. Use a unique marker so
+; unrelated mentions of "amiga-bridge" don't defeat the idempotency check.
+Search S:User-Startup ";AMIGABRIDGE-INSTALL-V1" QUIET
 IF WARN
+  Echo ";AMIGABRIDGE-INSTALL-V1" >>S:User-Startup
   Echo "Run >NIL: AK2:Dev/amiga-bridge" >>S:User-Startup
   Echo "AmigaBridge added to User-Startup"
 ELSE

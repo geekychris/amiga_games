@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 /*
  * Uranus Lander - Sound effects
  * Procedurally generated samples in chip RAM, played via ptplayer

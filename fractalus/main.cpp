@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 /*
  * fractalus — Amiga homage to Rescue on Fractalus (Lucasfilm, 1985).
  *
@@ -36,9 +39,13 @@ extern "C" {
 #include "sfx.h"
 #include "modplay.h"
 
-/* Amiga library bases — declared in render.cpp as extern. */
+/* Amiga library bases — declared in render.cpp as extern.
+ * On OS4 PPC, <proto/{intuition,graphics}.h> already extern these as
+ * struct Library *, so gate the app-owned defs out for that build. */
+#ifndef __PPC__
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase       *GfxBase       = NULL;
+#endif
 
 /*
  * Ask gcc's amiga startup for a fatter stack — Terrain::heights is 16 KB
@@ -87,6 +94,12 @@ static void apply_key(UWORD code)
     UWORD raw      = code & 0x7F;
     UWORD bit = 0;
 
+    /* Debug: every raw key the game window receives. If SPACE presses at
+     * the QEMU / OS4 window don't start the mission, this line shows
+     * whether IDCMP_RAWKEY is even delivering the event and what code
+     * OS4 assigned to it. Cheap when quiet, invaluable when broken. */
+    AB_I("apply_key: raw=0x%02lx %s", (long)raw, released ? "UP" : "DOWN");
+
     switch (raw) {
     /* Turn (yaw) */
     case RK_A: case RK_LEFT:  bit = INPUT_LEFT;   break;
@@ -114,6 +127,50 @@ static GameState g_state;
 static ULONG     g_frame_count = 0;
 static LONG      g_force_restart = 0;
 
+/* Singleton lock file-scope handle, so release_singleton can find it
+ * at any exit point without threading it through function signatures. */
+static struct MsgPort *g_singleton_port = NULL;
+static const char     *SINGLETON_PORT_NAME = "fractalus.singleton";
+
+static int acquire_singleton(int bridge_ok)
+{
+    Forbid();
+    struct MsgPort *existing = FindPort((CONST_STRPTR)SINGLETON_PORT_NAME);
+    if (existing) {
+        Permit();
+        /* Bridge log is more visible than printf — Run >NIL: eats printf,
+         * but AB_W reaches the host log. Only log if the primary ab_init
+         * (in main) has already succeeded for this task. */
+        if (bridge_ok) {
+            AB_W("singleton: refusing to start — another fractalus "
+                 "already holds port '%s' (owner task %p)",
+                 SINGLETON_PORT_NAME, existing->mp_SigTask);
+        }
+        printf("fractalus already running - exit that first.\n");
+        return -1;
+    }
+    g_singleton_port = CreateMsgPort();
+    if (!g_singleton_port) {
+        Permit();
+        printf("fractalus: CreateMsgPort failed for singleton lock\n");
+        return -1;
+    }
+    g_singleton_port->mp_Node.ln_Name = (char *)SINGLETON_PORT_NAME;
+    g_singleton_port->mp_Node.ln_Pri  = 0;
+    AddPort(g_singleton_port);
+    Permit();
+    return 0;
+}
+
+static void release_singleton(void)
+{
+    if (g_singleton_port) {
+        RemPort(g_singleton_port);
+        DeleteMsgPort(g_singleton_port);
+        g_singleton_port = NULL;
+    }
+}
+
 int main(void)
 {
     Terrain   &terrain  = g_terrain;
@@ -123,13 +180,39 @@ int main(void)
     Combat    &combat   = g_combat;
     Sfx       &sfx      = g_sfx;
 
+    /* Grab the singleton lock BEFORE any other init. Concurrent fractalus
+     * instances split IDCMP focus so keys land randomly on either window
+     * and vanish — we saw this stack up to 9 processes on OS4. Passing
+     * bridge_ok=0 here means the "already running" AB_W log is skipped
+     * on the very first attempt (ab_init hasn't run yet); we only log
+     * on the collision case where our OWN ab_init later succeeds. */
+    if (acquire_singleton(0) != 0) {
+        return 20;
+    }
+
+    /* On OS4 the library bases are typed struct Library by the proto
+     * headers; on 68k they're the specific struct types. Gate the cast
+     * so both arches compile. */
+#ifdef __PPC__
+    IntuitionBase = OpenLibrary((CONST_STRPTR)"intuition.library", 39);
+#else
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
                         (CONST_STRPTR)"intuition.library", 39);
-    if (!IntuitionBase) { printf("no intuition\n"); return 20; }
+#endif
+    if (!IntuitionBase) {
+        printf("no intuition\n");
+        release_singleton();
+        return 20;
+    }
+#ifdef __PPC__
+    GfxBase = OpenLibrary((CONST_STRPTR)"graphics.library", 39);
+#else
     GfxBase = (struct GfxBase *)OpenLibrary(
                   (CONST_STRPTR)"graphics.library", 39);
+#endif
     if (!GfxBase) {
         CloseLibrary((struct Library *)IntuitionBase);
+        release_singleton();
         return 20;
     }
 
@@ -149,9 +232,12 @@ int main(void)
         ab_register_var("ship_speed",     AB_TYPE_I32, &g_state.ship.speed);
         ab_register_var("fuel",           AB_TYPE_I32, &g_state.fuel);
         ab_register_var("shield",         AB_TYPE_I32, &g_state.shield);
-        ab_register_var("seed",           AB_TYPE_I32, (LONG *)&g_state.seed);
-        ab_register_var("running",        AB_TYPE_I32, (LONG *)&g_state.running);
-        ab_register_var("rescue_state",   AB_TYPE_I32, (LONG *)&g_state.rescue_state);
+        ab_register_var("seed",           AB_TYPE_U32, &g_state.seed);
+        /* GameState.running/rescue_state/mode are now LONG (see comment in
+         * game.h) — safe to register as I32 without alias garbage. */
+        ab_register_var("running",        AB_TYPE_I32, &g_state.running);
+        ab_register_var("rescue_state",   AB_TYPE_I32, &g_state.rescue_state);
+        ab_register_var("mode",           AB_TYPE_I32, &g_state.mode);
         ab_register_var("pilots_saved",   AB_TYPE_I32, &g_state.pilots_rescued);
         ab_register_var("pilots_lost",    AB_TYPE_I32, &g_state.pilots_lost);
         ab_register_var("score",          AB_TYPE_I32, &g_state.score);
@@ -228,6 +314,7 @@ int main(void)
         if (bridge_ok) ab_cleanup();
         CloseLibrary((struct Library *)GfxBase);
         CloseLibrary((struct Library *)IntuitionBase);
+        release_singleton();
         return 20;
     }
 
@@ -260,17 +347,20 @@ int main(void)
         }
         if (!g_state.running) break;
 
-        /* Poll bridge before AND after render — the raycaster can chew
-         * hundreds of ms per frame, and one-poll-per-frame lets the
-         * host's command timeouts fire while we're mid-scanline. */
+        /* Bridge polling: TWO per frame — once before game.tick (drains
+         * queued host commands into the client's state) and once after
+         * render (flushes replies + heartbeat back). Was three per frame
+         * plus per-phase ab_perf_section_* which chewed too much bridge
+         * bandwidth on PPC and pinned FPS to ~1. But dropping to a
+         * single poll after render starved the bridge queue and hung
+         * the client after ~60 frames — the OS4 daemon needs a mid-
+         * frame drain to keep queued commands from backing up.
+         * Perf tracing is off by default; re-enable if you can accept
+         * the extra bridge traffic while profiling. */
         if (bridge_ok) ab_poll();
 
-        if (bridge_ok) ab_perf_frame_start();
-
         UBYTE prev_mode = g_state.mode;
-        if (bridge_ok) ab_perf_section_start("game_tick");
         game.tick(input_flags);
-        if (bridge_ok) ab_perf_section_end("game_tick");
         /* Music silences when a mission ends — score screen shouldn't
          * fight either song. Title music resumes on end-screen -> title
          * transition (handled at reset_world time). */
@@ -278,22 +368,66 @@ int main(void)
             modplay_stop();
         }
 
+        /* Edge-detect keypresses (this-frame ^ prev). Used below so
+         * a SPACE that broke us out of ATTRACT doesn't ALSO immediately
+         * fire title_go on the same held press — the user has to
+         * release and press again to launch a mission. Same guard also
+         * covers title_go / end_go against spurious level-triggered
+         * restarts when a key was already down at mode transition. */
+        static UWORD prev_input_flags = 0;
+        UWORD input_edge = input_flags & ~prev_input_flags;
+
+        /* ATTRACT (idle demo) transitions:
+         *   TITLE, no input for ATTRACT_IDLE_FRAMES  -> GM_ATTRACT
+         *   ATTRACT, any real keypress (edge)        -> GM_TITLE
+         *
+         * On the ATTRACT break we also zero input_flags so title_go
+         * (still evaluated below) can't fire on the same frame — the
+         * player just wanted out of the demo, not to launch a mission. */
+        static UWORD attract_idle = 0;
+        const UWORD ATTRACT_IDLE_FRAMES = 150;   /* ~5 sec at 30 fps */
+        if (g_state.mode == GM_TITLE) {
+            if (input_flags == 0) {
+                if (attract_idle < 65535) attract_idle++;
+                if (attract_idle >= ATTRACT_IDLE_FRAMES) {
+                    ULONG demo_seed =
+                        g_state.seed * 1103515245UL + 12345UL;
+                    if (bridge_ok) AB_I("attract: idle -> demo");
+                    reset_world(demo_seed);
+                    g_state.mode = GM_ATTRACT;
+                    attract_idle = 0;
+                }
+            } else {
+                attract_idle = 0;
+            }
+        } else if (g_state.mode == GM_ATTRACT) {
+            if (input_edge != 0) {
+                if (bridge_ok) AB_I("attract: input -> title");
+                g_state.mode = GM_TITLE;
+                g_state.state_timer = 0;
+                attract_idle = 0;
+                input_flags = 0;
+                input_edge = 0;
+            }
+        }
+
         /* End-screen restart: after the mission has ended, if SPACE is
          * pressed AND the end screen has been showing for >30 ticks
          * (so a mid-airlock fire doesn't accidentally restart), regen
          * the world from a fresh seed. */
-        /* Start / restart triggers:
+        /* Start / restart triggers — all use input_edge so a key that
+         * was already held during a mode change doesn't count:
          *   TITLE      : SPACE (INPUT_FIRE) — the "go" key
          *   WIN/LOSE   : RETURN (INPUT_RESTART)
          *   any mode   : force_restart bridge var
          * Debounced: state_timer > 30 avoids accidental double-fires. */
         UWORD title_go =
             (g_state.mode == GM_TITLE
-             && (input_flags & INPUT_FIRE)
+             && (input_edge & INPUT_FIRE)
              && g_state.state_timer > 15);
         UWORD end_go =
             ((g_state.mode == GM_WIN || g_state.mode == GM_LOSE)
-             && (input_flags & INPUT_RESTART)
+             && (input_edge & INPUT_RESTART)
              && g_state.state_timer > 30);
         if (title_go || end_go || g_force_restart) {
             ULONG next_seed = g_state.seed * 1103515245UL + 12345UL;
@@ -306,15 +440,14 @@ int main(void)
             modplay_start_song(MODPLAY_SONG_GAME);   /* metal for combat */
         }
 
-        if (bridge_ok) ab_poll();
+        prev_input_flags = input_flags;
 
-        if (bridge_ok) ab_perf_section_start("render");
         renderer.render(g_state, terrain, pilots, combat);
-        if (bridge_ok) ab_perf_section_end("render");
-
-        if (bridge_ok) ab_perf_frame_end();
 
         g_frame_count++;
+        /* Single bridge poll per frame — see comment above the game.tick
+         * call for the rationale. Handles pending var reads/writes,
+         * hook calls, and drains the reply queue. */
         if (bridge_ok) ab_poll();
         modplay_tick();      /* one music tick per frame (VBlank-ish) */
         sfx.tick();
@@ -357,5 +490,6 @@ int main(void)
     if (bridge_ok) ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
+    release_singleton();
     return 0;
 }

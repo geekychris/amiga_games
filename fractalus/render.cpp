@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 #include "render.h"
 #include "terrain.h"
 #include "game.h"
@@ -10,8 +13,10 @@
 #include <graphics/displayinfo.h>
 #include <graphics/text.h>
 #include <intuition/intuition.h>
+#include <dos/dos.h>
 
 #include <proto/exec.h>
+#include <proto/dos.h>
 #include <proto/graphics.h>
 #include <proto/intuition.h>
 
@@ -22,31 +27,38 @@ extern "C" {
 #include "bridge_client.h"
 }
 
+#ifndef __PPC__
 extern struct IntuitionBase *IntuitionBase;
 extern struct GfxBase       *GfxBase;
+#endif
 
 /* ------------------------------------------------------------------
- * Direct-to-bitplane terrain fill.
+ * Terrain / rect fill primitives.
  *
- * graphics.library RectFill for a 4-pixel-wide vertical stripe costs
- * ~700us per call; the actual blitter work is a fraction of that,
- * the rest is graphics.library overhead per call (SetAPen +
- * dispatch). Per-frame render was ~700 calls x 700us = 490ms.
- *
- * Our terrain stripes are 8 pixels wide (COL_STEP=8) and byte-aligned
- * (R_VIEW_X = 16). At 8bpp planar that's exactly one byte per plane
- * per row, no masking. Writing the bytes ourselves is ~250ns per
- * stripe row (8 plane writes) — 100-200x faster than RectFill.
- *
+ * 68k (AGA): direct-to-bitplane. graphics.library RectFill for a
+ * 4-pixel-wide vertical stripe costs ~700us per call; the actual
+ * blitter work is a fraction of that, the rest is graphics.library
+ * overhead per call (SetAPen + dispatch). Per-frame render was ~700
+ * calls x 700us = 490ms. Our stripes are 8 pixels wide (COL_STEP=8)
+ * and byte-aligned (R_VIEW_X = 16). At 8bpp planar that's exactly
+ * one byte per plane per row, no masking — writing the bytes
+ * ourselves is ~250ns per stripe row, 100-200x faster than RectFill.
  * Safety: only ever called while drawing to the OFF-screen buffer,
  * so display DMA can't race us. A WaitBlit() at the start of
  * draw_terrain fences any in-flight blitter ops from draw_sky.
+ *
+ * PPC (OS4 / sam460ex): no chip RAM, no accessible bitplanes on the
+ * RTG bitmap. Fall back to RectFill via graphics.library — slower
+ * but portable. `snapshot_planes` stashes the RastPort so fill_*
+ * can issue commands against it without a taller interface change.
  * ------------------------------------------------------------------ */
+#ifndef __PPC__
 static UBYTE *g_plane[8];
 static int    g_plane_bpr;
 
-static void snapshot_planes(struct BitMap *bm)
+static void snapshot_planes(struct RastPort *rp)
 {
+    struct BitMap *bm = rp->BitMap;
     int p;
     for (p = 0; p < 8 && p < bm->Depth; p++) g_plane[p] = bm->Planes[p];
     g_plane_bpr = bm->BytesPerRow;
@@ -91,6 +103,47 @@ static inline void fill_rect_bytes(int x1, int x2, int y1, int y2, UBYTE pen)
         }
     }
 }
+#else  /* __PPC__ */
+/* graphics.library RectFill fallback for OS4/RTG. Same interface as the
+ * 68k bitplane path so all callers stay portable. One micro-optimisation
+ * — SetAPen elision — caches the last pen written to the RastPort and
+ * skips redundant re-sets. Even on OS4 that's a real per-call save
+ * because graphics.library still does pen bookkeeping every time. */
+static struct RastPort *g_fill_rp = 0;
+static LONG g_last_pen = -1;
+
+/* Adjacent-column batching was tried here and hung the game on OS4 —
+ * likely a state ordering bug between phases. Left out until we can
+ * profile it in isolation. Naive one-RectFill-per-strip is what runs
+ * in production. */
+static inline void ppc_batch_flush(void) { /* no-op stub */ }
+
+static void snapshot_planes(struct RastPort *rp)
+{
+    g_fill_rp = rp;
+    g_last_pen = -1;   /* pen state is per-RastPort — reset on rebind. */
+}
+
+static inline void fill_strip8(int x, int y0, int y1, UBYTE pen)
+{
+    if (!g_fill_rp) return;
+    if (g_last_pen != (LONG)pen) {
+        SetAPen(g_fill_rp, (ULONG)pen);
+        g_last_pen = pen;
+    }
+    RectFill(g_fill_rp, x, y0, x + 7, y1);
+}
+
+static inline void fill_rect_bytes(int x1, int x2, int y1, int y2, UBYTE pen)
+{
+    if (!g_fill_rp) return;
+    if (g_last_pen != (LONG)pen) {
+        SetAPen(g_fill_rp, (ULONG)pen);
+        g_last_pen = pen;
+    }
+    RectFill(g_fill_rp, x1, y1, x2, y2);
+}
+#endif
 
 /*
  * Runtime bench mask — bit toggles let us disable individual render
@@ -263,10 +316,18 @@ int Renderer::open_display()
         return 3;
     }
 
-    safe_port = CreateMsgPort();
-    if (!safe_port) { close_display(); return 4; }
-    sbuf[0]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = safe_port;
-    sbuf[1]->sb_DBufInfo->dbi_SafeMessage.mn_ReplyPort = safe_port;
+    /* Historically we set dbi_SafeMessage.mn_ReplyPort on both buffers
+     * intending to use safe-message handshake for the double-buffer
+     * swap. flip() never GetMsg()'d the port though, so on OS4 the
+     * queued safe-messages appear to jam the RTG buffer swap and
+     * produce a corrupted display (uninitialised memory shown as
+     * random pixels; every RectFill lands invisibly on a not-yet-
+     * swapped bitmap). terrain_test and void_trader — both dual-target
+     * with the same AllocScreenBuffer pattern — skip this setup and
+     * render cleanly on both arches, so we do too. safe_port field
+     * kept for future proper implementation; NULL means "no safe
+     * message needed" per exec docs. */
+    safe_port = NULL;
 
     InitRastPort(&rp_buf[0]); rp_buf[0].BitMap = sbuf[0]->sb_BitMap;
     InitRastPort(&rp_buf[1]); rp_buf[1].BitMap = sbuf[1]->sb_BitMap;
@@ -310,7 +371,7 @@ void Renderer::draw_sky(struct RastPort *rp)
      * = bytes 2..37 (36 bytes wide) which is 8-aligned both ends,
      * so memset-per-row nails it. Saves ~20 ms/frame vs 32 RectFills. */
     WaitBlit();
-    snapshot_planes(rp->BitMap);
+    snapshot_planes(rp);
     for (int i = 0; i < PAL_SKY_COUNT; i++) {
         int y0 = R_VIEW_Y + (i * R_VIEW_H) / PAL_SKY_COUNT;
         int y1 = R_VIEW_Y + ((i + 1) * R_VIEW_H) / PAL_SKY_COUNT - 1;
@@ -375,7 +436,7 @@ void Renderer::draw_terrain(struct RastPort *rp, const GameState &gs,
      * WaitBlit fences the sky's in-flight blitter ops so we don't
      * race the blitter writing to the same plane bytes. */
     WaitBlit();
-    snapshot_planes(rp->BitMap);
+    snapshot_planes(rp);
 
     for (int col = 0; col < R_VIEW_W; col += R_COL_STEP) {
         LONG dcol    = (LONG)col - (R_VIEW_W >> 1);
@@ -433,7 +494,7 @@ void Renderer::draw_cockpit(struct RastPort *rp, const GameState &)
      * highlight border still uses the blitter Line mode via
      * Move/Draw where the byte-alignment win doesn't matter. */
     WaitBlit();
-    snapshot_planes(rp->BitMap);
+    snapshot_planes(rp);
     /* Left pillar (0..15) and right pillar (304..319) — 2 bytes wide each. */
     fill_rect_bytes(0,             R_VIEW_X - 1,   0, R_SCREEN_H - 1,
                     (UBYTE)(PAL_COCKPIT_BASE + 3));
@@ -1134,7 +1195,14 @@ void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
 {
     /* Title screen and end screens win over any in-progress rescue. */
     if (gs.mode == GM_TITLE) { draw_title_screen(rp, gs); return; }
-    if (gs.mode != GM_PLAYING) { draw_end_screen(rp, gs); return; }
+    /* GM_ATTRACT renders like GM_PLAYING (in-flight view, no overlay).
+     * Without this gate the "mode != PLAYING" fall-through drew the
+     * end-screen box during a demo — which showed "SHIELDS DESTROYED"
+     * even with shield=1000 because end_screen defaults to the LOSE
+     * variant for any non-WIN mode. */
+    if (gs.mode != GM_PLAYING && gs.mode != GM_ATTRACT) {
+        draw_end_screen(rp, gs); return;
+    }
 
     if (gs.rescue_state == RS_FLYING) return;
 
@@ -1179,6 +1247,12 @@ void Renderer::flip()
      * doesn't chase a half-written bitplane. Render time is currently
      * far longer than a vblank so the previously-displayed buffer is
      * guaranteed safe to reuse — no safe-message dance needed. */
+#ifdef __PPC__
+    /* PPC fill_strip8 batches consecutive same-pen strips; drain the
+     * pending batch before we swap so the last drawn column actually
+     * lands on the buffer we're about to display. */
+    ppc_batch_flush();
+#endif
     WaitBlit();
     if (ChangeScreenBuffer(screen, sbuf[cur_buf])) {
         WaitTOF();
@@ -1187,6 +1261,20 @@ void Renderer::flip()
     } else {
         WaitTOF();         /* rejected — try again next frame */
     }
+
+    /* Frame-rate cap intentionally NOT applied here.
+     *
+     * We tried Delay(2) — even though CLAUDE.md's warning was
+     * specifically about Delay(1), the tighter cap wedges the game
+     * on OS4 too (confirmed: game freezes on the frame after the
+     * first Delay(2) call; no DSI logged but the main loop stops
+     * ticking). WaitTOF() on OS4/RTG returns immediately so a
+     * WaitTOF loop can't pace either. DateStamp cap was defeated
+     * by finer-than-20ms tick resolution on OS4.
+     *
+     * Result: PPC runs at 150-200 fps and gameplay is fast.
+     * Follow-up: timer.device IORequest with an explicit 40 ms
+     * TR_ADDREQUEST is the reliable path — schedule that. */
 }
 
 void Renderer::render(const GameState &gs, const Terrain &world,
@@ -1195,29 +1283,27 @@ void Renderer::render(const GameState &gs, const Terrain &world,
     struct RastPort *rp = &rp_buf[cur_buf];
     rp->BitMap = sbuf[cur_buf]->sb_BitMap;
 
-    ab_perf_section_start("sky");
+    /* Per-section ab_perf_* calls removed — each one round-tripped a
+     * bridge message inside the render loop, which on PPC (RectFill
+     * fallback) pushed frame time from render+draw into render+draw+bridge
+     * and pinned FPS to ~1. Re-add locally when profiling. */
     if (g_bench_mask & BENCH_SKY) {
         SetAPen(rp, 0);
         RectFill(rp, 0, 0, R_SCREEN_W - 1, R_SCREEN_H - 1);
     } else {
         draw_sky(rp);
     }
-    ab_perf_section_end("sky");
 
     if (gs.rescue_state == RS_FLYING) {
-        ab_perf_section_start("terrain");
         if (g_bench_mask & BENCH_TERRAIN) {
             SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 4 * 8));
             RectFill(rp, R_VIEW_X, R_HORIZON_Y, R_VIEW_X2, R_VIEW_Y2);
         } else {
             draw_terrain(rp, gs, world);
         }
-        ab_perf_section_end("terrain");
 
-        ab_perf_section_start("sprites");
         if (!(g_bench_mask & BENCH_SPRITES))
             draw_sprites(rp, gs, combat, pilots);
-        ab_perf_section_end("sprites");
     } else {
         SetAPen(rp, (UBYTE)(PAL_TERRAIN_BASE + 7));
         if (R_HORIZON_Y + 1 <= R_VIEW_Y2)
@@ -1225,14 +1311,10 @@ void Renderer::render(const GameState &gs, const Terrain &world,
                          R_VIEW_X2, R_VIEW_Y2);
     }
 
-    ab_perf_section_start("cockpit_hud");
     draw_overlay(rp, gs);
     if (!(g_bench_mask & BENCH_COCKPIT)) draw_cockpit(rp, gs);
     if (!(g_bench_mask & BENCH_HUD))     draw_hud(rp, gs, pilots);
-    ab_perf_section_end("cockpit_hud");
 
-    ab_perf_section_start("flip");
     if (!(g_bench_mask & BENCH_FLIP)) flip();
     else                              WaitTOF();
-    ab_perf_section_end("flip");
 }

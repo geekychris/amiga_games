@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 /*
  * Lunar Rider - Game logic
  * Scrolling, physics, collision, terrain generation, enemies, checkpoints

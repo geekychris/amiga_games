@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 /*
  * Pea Shooter Blast - Game definitions
  * A side-scrolling tank arcade game for Amiga

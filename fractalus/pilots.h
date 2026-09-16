@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
 #ifndef FRACTALUS_PILOTS_H
 #define FRACTALUS_PILOTS_H
 
