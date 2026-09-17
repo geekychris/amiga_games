@@ -2,9 +2,8 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
- * miner-meteor — clean-room single-screen tile platformer, dual-target
- * (classic 68k + PPC OS4). No copyrighted asset / code from the games
- * it's inspired by; mechanics only. See README.md.
+ * miner-meteor — clean-room single-screen tile platformer.
+ * Classic 68k build only for now (see Makefile ARCH= for PPC scaffolding).
  *
  * Controls (rawkey codes):
  *   LEFT / RIGHT   walk
@@ -28,10 +27,11 @@
 #include <proto/graphics.h>
 #include <proto/dos.h>
 
-#include <stdio.h>
 #include <string.h>
 
+extern "C" {
 #include "bridge_client.h"
+}
 #include "game.h"
 #include "render.h"
 #include "audio.h"
@@ -56,99 +56,26 @@ ULONG __stack = 65536;
 #define RK_A       0x20
 #define RK_D       0x22
 
-/* Input handler port + IO. We tap input.device to sniff RAW_KEY events
- * across the whole system — matches the pattern used by fractalus and
- * void_trader. This is polite: we don't consume events, we just watch. */
-static struct MsgPort    *input_port  = NULL;
-static struct IOStdReq   *input_req   = NULL;
-static struct Interrupt   input_int;
-static UBYTE              key_state[128];   /* 1 = held */
+/* Bit-per-key state built from IDCMP_RAWKEY events. */
+static UBYTE key_state[128];
 
-/* Called from input.device interrupt context. Keep it tiny + reentrant. */
-static struct InputEvent *__saveds __asm input_handler(
-    register __a0 struct InputEvent *events,
-    register __a1 APTR /*userdata*/)
+/* Update key_state from an IDCMP_RAWKEY code. Bit 7 (0x80) = key-up. */
+static void apply_key(UWORD code)
 {
-    for (struct InputEvent *e = events; e; e = e->ie_NextEvent) {
-        if (e->ie_Class == IECLASS_RAWKEY) {
-            UBYTE code = e->ie_Code & 0x7F;
-            UBYTE up   = (e->ie_Code & IECODE_UP_PREFIX) ? 1 : 0;
-            key_state[code] = up ? 0 : 1;
-        }
-    }
-    return events;
+    UBYTE raw = (UBYTE)(code & 0x7F);
+    UBYTE up  = (code & 0x80) ? 1 : 0;
+    key_state[raw] = up ? 0 : 1;
 }
-
-#ifdef __PPC__
-/* PPC has no register-argument __asm syntax — use a plain hook instead.
- * The full input-hook setup is a follow-up on OS4; for now we poll
- * keys via a stubbed reader that reads nothing. Movement is still
- * exercised via the bridge (see the "input_flags" register_var). */
-static UBYTE ppc_input_flags = 0;
-#endif
 
 static UBYTE read_input_flags(void)
 {
-#ifdef __PPC__
-    /* Bridge-driven; ppc_input_flags is written via ab_hook. */
-    return ppc_input_flags;
-#else
     UBYTE f = 0;
-    if (key_state[RK_LEFT]  || key_state[RK_A]) f |= INPUT_LEFT;
-    if (key_state[RK_RIGHT] || key_state[RK_D]) f |= INPUT_RIGHT;
-    if (key_state[RK_SPACE] || key_state[RK_UP]) f |= INPUT_JUMP;
-    if (key_state[RK_SPACE]) f |= INPUT_START;
+    if (key_state[RK_LEFT]  || key_state[RK_A])     f |= INPUT_LEFT;
+    if (key_state[RK_RIGHT] || key_state[RK_D])     f |= INPUT_RIGHT;
+    if (key_state[RK_SPACE] || key_state[RK_UP])    f |= INPUT_JUMP;
+    if (key_state[RK_SPACE])                        f |= INPUT_START;
     return f;
-#endif
 }
-
-#ifdef __PPC__
-static LONG hook_input(const char *args)
-{
-    /* args = "flags" — decimal integer. */
-    if (!args) return 0;
-    ppc_input_flags = (UBYTE)atoi(args);
-    return 0;
-}
-#endif
-
-#ifndef __PPC__
-static LONG open_input_device(void)
-{
-    input_port = CreateMsgPort();
-    if (!input_port) return 1;
-    input_req = (struct IOStdReq *)CreateIORequest(input_port, sizeof(struct IOStdReq));
-    if (!input_req) return 2;
-    if (OpenDevice((STRPTR)"input.device", 0, (struct IORequest *)input_req, 0)) return 3;
-
-    input_int.is_Node.ln_Type = NT_INTERRUPT;
-    input_int.is_Node.ln_Pri  = 51;                         /* above default keymap */
-    input_int.is_Node.ln_Name = (STRPTR)"miner-meteor-input";
-    input_int.is_Data         = NULL;
-    input_int.is_Code         = (void (*)())input_handler;
-
-    input_req->io_Command = IND_ADDHANDLER;
-    input_req->io_Data    = (APTR)&input_int;
-    DoIO((struct IORequest *)input_req);
-    return 0;
-}
-
-static void close_input_device(void)
-{
-    if (input_req) {
-        input_req->io_Command = IND_REMHANDLER;
-        input_req->io_Data    = (APTR)&input_int;
-        DoIO((struct IORequest *)input_req);
-        CloseDevice((struct IORequest *)input_req);
-        DeleteIORequest((struct IORequest *)input_req);
-        input_req = NULL;
-    }
-    if (input_port) {
-        DeleteMsgPort(input_port);
-        input_port = NULL;
-    }
-}
-#endif
 
 int main(int argc, char *argv[])
 {
@@ -161,7 +88,7 @@ int main(int argc, char *argv[])
 #endif
 
     if (ab_init((char *)"miner-meteor")) {
-        /* Bridge unavailable — game still runs, just uninstrumented. */
+        /* Bridge unavailable — game still runs, uninstrumented. */
     }
 
     if (render_open() != 0) {
@@ -169,7 +96,30 @@ int main(int argc, char *argv[])
         return 20;
     }
 
-    /* Bridge instrumentation. */
+    /* Open a borderless backdrop window on the screen so we can
+     * receive IDCMP_RAWKEY. The screen belongs to render.cpp; we ask
+     * it for a pointer. */
+    extern struct Screen *render_get_screen(void);
+    struct Screen *scr = render_get_screen();
+    struct Window *win = NULL;
+    if (scr) {
+        win = OpenWindowTags(NULL,
+            WA_CustomScreen, (ULONG)scr,
+            WA_Left, 0, WA_Top, 0,
+            WA_Width,  (ULONG)SCREEN_W,
+            WA_Height, (ULONG)SCREEN_H,
+            WA_Borderless, TRUE,
+            WA_Backdrop,   TRUE,
+            WA_Activate,   TRUE,
+            WA_IDCMP,      IDCMP_RAWKEY,
+            TAG_DONE);
+    }
+    if (!win) {
+        AB_E("input: OpenWindow failed");
+        render_close();
+        return 21;
+    }
+
     GameState state;
     memset(&state, 0, sizeof(state));
 
@@ -183,14 +133,6 @@ int main(int argc, char *argv[])
     ab_register_var((char *)"air",            AB_TYPE_I32, &state.air);
     ab_register_var((char *)"keys_remaining", AB_TYPE_I32, &state.keys_remaining);
 
-#ifdef __PPC__
-    ab_register_hook((char *)"input", (char *)"input_flags integer", hook_input);
-#else
-    if (open_input_device() != 0) {
-        AB_E("input.device: open failed");
-    }
-#endif
-
     audio_init();
 
     AB_I("miner-meteor: entering main loop");
@@ -201,22 +143,37 @@ int main(int argc, char *argv[])
     while (running) {
         ab_poll();
 
+        /* Drain all IDCMP messages first so the input state is up to
+         * date for this frame. */
+        struct IntuiMessage *msg;
+        while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort))) {
+            UWORD  code = msg->Code;
+            ULONG  cls  = msg->Class;
+            ReplyMsg((struct Message *)msg);
+            if (cls == IDCMP_RAWKEY) {
+                if ((code & 0x7F) == RK_ESC) { running = 0; break; }
+                apply_key(code);
+            }
+        }
+        if (!running) break;
+
+        /* SIGBREAKF_CTRL_C = clean quit request from the bridge. */
+        if (SetSignal(0L, 0L) & SIGBREAKF_CTRL_C) break;
+
         UBYTE input = read_input_flags();
         UBYTE edge  = input & ~prev_input;
         prev_input  = input;
 
-        /* SPACE is JUMP during play + START on title / end screens.
-         * Only pass INPUT_START on rising edge so the same press
-         * doesn't repeatedly re-start the game frame after frame. */
+        /* SPACE is JUMP during play and START on the title / end
+         * screens. INPUT_START only fires on rising edge — otherwise
+         * a held SPACE re-triggers the state transition every frame. */
         UBYTE tick_input = (UBYTE)(input & (INPUT_LEFT | INPUT_RIGHT | INPUT_JUMP));
         if (edge & INPUT_START) tick_input |= INPUT_START;
 
         game.tick(tick_input);
 
-        /* SFX edges. */
-        if ((edge & INPUT_JUMP) && state.player.on_ground == 0) sfx_jump();
+        if (edge & INPUT_JUMP) sfx_jump();
 
-        /* Draw. */
         if (state.mode == GM_TITLE) {
             render_title(state);
         } else if (state.mode == GM_WIN || state.mode == GM_LOSE) {
@@ -227,27 +184,14 @@ int main(int argc, char *argv[])
 
         ab_poll();
 
-        /* Simple frame cap: WaitTOF gives 50Hz on classic PAL; on OS4
-         * WaitTOF is a no-op on some RTG boards. Our tick counter is
-         * still deterministic per-frame, so gameplay speed varies but
-         * mechanics stay correct. Real timer-based cap is a follow-up. */
+        /* 50 Hz classic PAL frame cap. */
         WaitTOF();
-
-#ifndef __PPC__
-        /* ESC to quit on classic (interrupt handler already captured it). */
-        if (key_state[RK_ESC]) running = 0;
-#else
-        /* On PPC quit via bridge STOP; the daemon delivers SIGBREAKF_CTRL_C. */
-        if (SetSignal(0, SIGBREAKF_CTRL_C) & SIGBREAKF_CTRL_C) running = 0;
-#endif
     }
 
     AB_I("miner-meteor: shutting down");
     audio_shutdown();
+    if (win) CloseWindow(win);
     render_close();
-#ifndef __PPC__
-    close_input_device();
-#endif
     ab_cleanup();
 
 #ifndef __PPC__

@@ -2,7 +2,9 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 #include "audio.h"
+extern "C" {
 #include "bridge_client.h"
+}
 
 /*
  * Stub audio. Every trigger goes to the bridge log so the host can

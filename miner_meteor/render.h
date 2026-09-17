@@ -15,6 +15,10 @@ struct GameState;
 LONG render_open(void);
 void render_close(void);
 
+/* Expose the screen so main.cpp can OpenWindow on top of it for
+ * IDCMP_RAWKEY delivery. */
+struct Screen *render_get_screen(void);
+
 /* Draw a single frame into the back buffer, then flip. */
 void render_frame(const GameState &gs);
 
