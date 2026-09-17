@@ -3,6 +3,7 @@
 
 #include "render.h"
 #include "game.h"
+#include "tilesheet_data.h"
 
 #include <exec/types.h>
 #include <exec/memory.h>
@@ -51,6 +52,18 @@ extern struct GfxBase       *GfxBase;
 static struct Screen         *scr;
 static struct DrawInfo       *drawinfo;
 static struct RastPort       *rp;
+
+/* Temp bitmap + rastport for WritePixelArray8 — the graphics.library
+ * chunky->planar helper needs a scratch bitmap that's at least as wide
+ * as any pixel array we hand it, and 2 rows deep. Sizing it to
+ * SCREEN_W handles every possible blit including full-width HUD strip. */
+static struct BitMap         *tmp_bm  = NULL;
+static struct RastPort        tmp_rp;
+
+/* Chunky staging buffer for tile draws that need per-pixel modification
+ * (dimmed collapse tiles, blinking exit outlines) — memcpy the sheet
+ * tile in, mutate in place, then WritePixelArray8 out. */
+static UBYTE                  scratch_tile[TILE_H][TILE_W];
 
 /* 16-entry palette in (r,g,b) 8-bit-per-channel; scaled to 32-bit on
  * classic via LoadRGB32 and passed directly to OS4's SetRGB32. */
@@ -107,6 +120,16 @@ LONG render_open(void)
     rp = &scr->RastPort;
     install_palette();
 
+    /* Scratch bitmap for WritePixelArray8 — 1-plane deep, SCREEN_W
+     * wide, 2 rows tall. */
+    tmp_bm = AllocBitMap(SCREEN_W, 2, 1, BMF_CLEAR, NULL);
+    if (!tmp_bm) {
+        CloseScreen(scr); scr = NULL;
+        return 2;
+    }
+    InitRastPort(&tmp_rp);
+    tmp_rp.BitMap = tmp_bm;
+
     SetAPen(rp, 0);
     RectFill(rp, 0, 0, SCREEN_W - 1, SCREEN_H - 1);
     return 0;
@@ -114,7 +137,41 @@ LONG render_open(void)
 
 void render_close(void)
 {
-    if (scr) { CloseScreen(scr); scr = NULL; }
+    if (tmp_bm) { FreeBitMap(tmp_bm); tmp_bm = NULL; }
+    if (scr)    { CloseScreen(scr);   scr    = NULL; }
+}
+
+/* Blit one 16x16 tile from the baked tilesheet to (dest_x, dest_y).
+ * WritePixelArray8 takes an inclusive stop (x_stop / y_stop). */
+static inline void blit_sheet_tile(LONG dest_x, LONG dest_y,
+                                   LONG sheet_row, LONG sheet_col)
+{
+    /* WritePixelArray8's array param wants row-major chunky UBYTE. Our
+     * tilesheet_data is already laid out that way per-tile. */
+    WritePixelArray8(rp,
+        (ULONG)dest_x, (ULONG)dest_y,
+        (ULONG)(dest_x + TILE_W - 1), (ULONG)(dest_y + TILE_H - 1),
+        (UBYTE *)&tilesheet_data[sheet_row][sheet_col][0][0],
+        &tmp_rp);
+}
+
+/* Same, but from the mutable scratch buffer (used for tiles that get
+ * per-frame recolouring). */
+static inline void blit_scratch_tile(LONG dest_x, LONG dest_y)
+{
+    WritePixelArray8(rp,
+        (ULONG)dest_x, (ULONG)dest_y,
+        (ULONG)(dest_x + TILE_W - 1), (ULONG)(dest_y + TILE_H - 1),
+        (UBYTE *)&scratch_tile[0][0],
+        &tmp_rp);
+}
+
+/* Copy a sheet tile into the scratch buffer so we can recolour it. */
+static inline void load_scratch_from_sheet(LONG sheet_row, LONG sheet_col)
+{
+    memcpy(scratch_tile,
+           &tilesheet_data[sheet_row][sheet_col][0][0],
+           sizeof(scratch_tile));
 }
 
 static inline void fill_tile(LONG col, LONG row, UBYTE pen)
@@ -138,111 +195,126 @@ void render_text(LONG x, LONG y, UBYTE pen, const char *text)
     Text(rp, (STRPTR)text, (LONG)strlen(text));
 }
 
+/*
+ * Sheet layout — must match tools/bake_tilesheet.py.
+ * Row / column indexes into the 8x20 tile-sheet grid.
+ */
+enum {
+    SR_TERRAIN     = 0,   /* row 0: terrain tiles */
+    SR_DECOR       = 1,   /* row 1: exit + decoration */
+    SR_PLAYER_R    = 2,   /* row 2: player facing right, 8 walk frames */
+    SR_PLAYER_L    = 3,   /* row 3: player facing left */
+    SR_PLAYER_POSE = 4,   /* row 4: jump / fall / death / climb */
+    SR_GUARDIAN_A  = 5,
+    SR_GUARDIAN_B  = 6,
+    SR_GUARDIAN_C  = 7,
+};
+enum {
+    /* Terrain-row columns. */
+    SC_EMPTY       = 0,
+    SC_SOLID_A     = 1,
+    SC_SOLID_B     = 2,
+    SC_COLLAPSE    = 3,
+    SC_CONV_L      = 4,
+    SC_CONV_R      = 5,
+    SC_HAZARD      = 6,
+    SC_KEY         = 7,
+    /* Decor-row columns. */
+    SC_EXIT_LOCKED = 0,
+    SC_EXIT_OPEN   = 1,
+    /* Player special-pose columns. */
+    SC_POSE_JUMP   = 0,
+    SC_POSE_FALL   = 1,
+    SC_POSE_DEATH  = 2,
+    SC_POSE_CLIMB  = 3,
+};
+
 static void draw_tile(LONG col, LONG row, const TileState &t, ULONG tick,
                       LONG keys_remaining)
 {
+    LONG x = col * TILE_W;
+    LONG y = row * TILE_H;
     switch (t.kind) {
         case T_EMPTY:
-            fill_tile(col, row, 0);
+            blit_sheet_tile(x, y, SR_TERRAIN, SC_EMPTY);
             break;
         case T_SOLID:
-            /* Alternating brick pattern — brick / brown chequer per column. */
-            fill_tile(col, row, ((col + row) & 1) ? 2 : 3);
+            /* Chequer between the two solid variants for texture. */
+            blit_sheet_tile(x, y, SR_TERRAIN,
+                            ((col + row) & 1) ? SC_SOLID_A : SC_SOLID_B);
             break;
-        case T_KEY: {
-            fill_tile(col, row, 0);
-            LONG x = col * TILE_W, y = row * TILE_H;
-            fill_rect(x + 5,  y + 2, 6, 6, 6);        /* head */
-            fill_rect(x + 7,  y + 8, 2, 6, 6);        /* shaft */
-            fill_rect(x + 9,  y + 10, 3, 2, 6);       /* tooth */
+        case T_KEY:
+            blit_sheet_tile(x, y, SR_TERRAIN, SC_KEY);
             break;
-        }
-        case T_EXIT: {
-            fill_tile(col, row, 0);
-            LONG x = col * TILE_W, y = row * TILE_H;
-            /* Bright green + blinking outline when all keys collected;
-             * dim + dark when still locked so the player has a visual
-             * cue for objective progress. */
-            UBYTE pen = (keys_remaining == 0)
-                ? (UBYTE)(((tick / 6) & 1) ? 7 : 13)
-                : 15;
-            fill_rect(x + 2, y + 2, 12, 12, pen);
-            fill_rect(x + 5, y + 6,  6,  8, 0);
+        case T_EXIT:
+            /* Two sheet variants so the player has clear visual feedback
+             * on objective progress; blink the unlocked variant with the
+             * empty tile every 6 frames for a soft glow effect. */
+            if (keys_remaining == 0) {
+                blit_sheet_tile(x, y, SR_DECOR,
+                                ((tick / 6) & 1) ? SC_EXIT_OPEN : SC_EXIT_LOCKED);
+            } else {
+                blit_sheet_tile(x, y, SR_DECOR, SC_EXIT_LOCKED);
+            }
             break;
-        }
-        case T_COLLAPSE: {
-            /* Brown crumbling look; darker as timer counts down. */
-            UBYTE pen = (t.timer == 0 || t.timer > COLLAPSE_FRAMES / 2) ? 3 : 15;
-            fill_tile(col, row, pen);
-            LONG x = col * TILE_W, y = row * TILE_H;
-            /* Faint cracks. */
-            SetAPen(rp, 15);
-            Move(rp, x + 2,  y + 4); Draw(rp, x + 13, y + 6);
-            Move(rp, x + 3,  y + 11); Draw(rp, x + 12, y + 13);
+        case T_COLLAPSE:
+            /* Recolour to darker on the second half of the collapse
+             * timer — swap palette index 3 (brown) with 15 (dim) in the
+             * scratch tile. */
+            load_scratch_from_sheet(SR_TERRAIN, SC_COLLAPSE);
+            if (t.timer > 0 && t.timer <= COLLAPSE_FRAMES / 2) {
+                for (LONG py = 0; py < TILE_H; py++) {
+                    for (LONG px = 0; px < TILE_W; px++) {
+                        if (scratch_tile[py][px] == 3) scratch_tile[py][px] = 15;
+                    }
+                }
+            }
+            blit_scratch_tile(x, y);
             break;
-        }
         case T_CONV_L:
-        case T_CONV_R: {
-            LONG x = col * TILE_W, y = row * TILE_H;
-            /* Yellow band with dark cleats that shift each frame in
-             * the push direction — the classic conveyor "movement". */
-            fill_rect(x, y + 4, TILE_W, 8, 6);
-            SetAPen(rp, 8);
-            LONG shift = (t.kind == T_CONV_R)
-                ? (LONG)((tick / 2) % 4)
-                : (LONG)(3 - ((tick / 2) % 4));
-            for (LONG i = 0; i < 4; i++) {
-                LONG cx = x + shift + i * 4;
-                RectFill(rp, cx, y + 6, cx + 1, y + 9);
-            }
+            blit_sheet_tile(x, y, SR_TERRAIN, SC_CONV_L);
             break;
-        }
-        case T_HAZARD: {
-            LONG x = col * TILE_W, y = row * TILE_H;
-            fill_tile(col, row, 0);
-            SetAPen(rp, 8);
-            /* Zig-zag spikes. */
-            for (LONG i = 0; i < 4; i++) {
-                LONG sx = x + i * 4;
-                RectFill(rp, sx, y + 12, sx + 3, y + 15);
-                RectFill(rp, sx + 1, y + 8,  sx + 2, y + 11);
-                RectFill(rp, sx + 1, y + 5,  sx + 2, y + 7);
-            }
+        case T_CONV_R:
+            blit_sheet_tile(x, y, SR_TERRAIN, SC_CONV_R);
             break;
-        }
+        case T_HAZARD:
+            blit_sheet_tile(x, y, SR_TERRAIN, SC_HAZARD);
+            break;
         default:
-            fill_tile(col, row, 0);
+            blit_sheet_tile(x, y, SR_TERRAIN, SC_EMPTY);
             break;
     }
 }
 
 static void draw_player(const Player &p)
 {
-    /* Body: bright-red 12x14 with a smaller orange "helmet" strip.
-     * Facing direction shown by a small dark eye offset either way. */
-    fill_rect(p.x + 2, p.y + 2, 12, 12, 9);       /* body */
-    fill_rect(p.x + 2, p.y + 2, 12, 4,  10);      /* helmet stripe */
-    LONG eye_x = (p.facing) ? p.x + 10 : p.x + 4;
-    fill_rect(eye_x, p.y + 4, 2, 2, 0);           /* eye */
-    /* Feet indicator flickers per animation frame. */
-    if (p.frame & 1) {
-        fill_rect(p.x + 3, p.y + 14, 3, 2, 8);
+    /* Pick the appropriate sheet frame:
+     *   - airborne: jump if rising, fall if descending
+     *   - grounded: walk cycle by direction, indexed by frame&3
+     */
+    LONG row, col;
+    if (!p.on_ground) {
+        row = SR_PLAYER_POSE;
+        col = (p.vy < 0) ? SC_POSE_JUMP : SC_POSE_FALL;
     } else {
-        fill_rect(p.x + 10, p.y + 14, 3, 2, 8);
+        row = p.facing ? SR_PLAYER_R : SR_PLAYER_L;
+        col = p.frame & 7;
     }
+    blit_sheet_tile(p.x, p.y, row, col);
 }
 
 static void draw_guardian(const Guardian &G)
 {
     if (!G.alive) return;
-    /* 14x14 body of the given colour with a "face" strip. */
-    fill_rect(G.x + 1, G.y + 1, 14, 14, G.colour ? G.colour : 4);
-    fill_rect(G.x + 3, G.y + 4, 3, 2, 0);
-    fill_rect(G.x + 10, G.y + 4, 3, 2, 0);
-    fill_rect(G.x + 4, G.y + 10, 8, 1, 0);
-    /* Twitchy antenna. */
-    LONG a = (G.frame >> 2) & 1;
-    fill_rect(G.x + 7, G.y - 1 + a, 2, 2, G.colour ? G.colour : 4);
+    /* Guardian colour selects sheet row; frame selects animation phase. */
+    LONG row;
+    switch (G.colour) {
+        case 5: row = SR_GUARDIAN_B; break;
+        case 6: row = SR_GUARDIAN_C; break;
+        default: row = SR_GUARDIAN_A; break;
+    }
+    LONG col = (G.frame >> 2) & 7;   /* animation phase */
+    blit_sheet_tile(G.x, G.y, row, col);
 }
 
 static void draw_hud(const GameState &gs)

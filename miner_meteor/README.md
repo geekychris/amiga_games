@@ -73,6 +73,25 @@ watch state live from the web UI (or `amiga_get_var`):
 - `level` — current cavern index (0-based)
 - `lives`, `score`, `air`, `keys_remaining`
 
+## Tile sheet
+
+Sprite + tile art lives in `art/tilesheet.png` — a 320×128 sheet
+laid out as a 20 × 8 grid of 16×16 tiles (rows: terrain / decor /
+player-right / player-left / player-pose / guardian-A / guardian-B /
+guardian-C). Regenerate the C-baked data from the PNG with:
+
+```sh
+python3 tools/bake_tilesheet.py
+```
+
+The script downsamples the PNG to 320×128 with nearest-neighbour, snaps
+every pixel to the 16-colour palette, and emits `tilesheet_data.{h,cpp}`
+(checked in so builds work without Python). `render.cpp` blits each
+tile to the screen with `WritePixelArray8`, using a small 320×2 scratch
+bitmap for the graphics.library chunky-to-planar conversion.
+
+To swap in updated art: replace the PNG, re-run the bake, rebuild.
+
 ## Follow-up work
 
 Deliberately out of scope for the initial cut, all tracked in code comments:
@@ -82,18 +101,19 @@ Deliberately out of scope for the initial cut, all tracked in code comments:
    death / levelwin) matches the pattern from `void_trader/{modplay,sfx}.c`.
 2. **20+ cavern pack.** Six starter levels ship here; authoring the rest is
    pure content work.
-3. **Sprite art.** Player + guardians + tiles are drawn as coloured
-   rectangles. Swap in 16×16 sprite blits (e.g. from a ChatGPT-generated
-   tile sheet, then hand-touched) for real 8-bit charm.
-4. **AGA palette variant.** Palette is 16 entries at the top of the 8bpp
+3. **AGA palette variant.** Palette is 16 entries at the top of the 8bpp
    AGA slot table; changing palette per cavern (`palette_variant` in
    `LevelSpec`) is defined in data but not yet honoured at draw time.
-5. **Frame-rate cap.** Currently `WaitTOF()` — matches classic PAL @ 50Hz
+4. **Frame-rate cap.** Currently `WaitTOF()` — matches classic PAL @ 50Hz
    fine; on OS4 RTG a timer.device-based cap is needed (same lesson as
    fractalus).
-6. **PPC OS4 build.** Scaffolded (`__PPC__` guards, input via bridge hook)
+5. **PPC OS4 build.** Scaffolded (`__PPC__` guards, input via bridge hook)
    but not tested. Building against `walkero/amigagccondocker:os4-gcc11`
    should Just Work; input needs a full input-hook rewrite for OS4.
+6. **Sprite art pass.** The bake script produces palette-mapped tiles
+   from the source PNG — good baseline, but a hand-clean pass in
+   Aseprite / Piskel snapping colours to the 16-slot palette is worth
+   doing for full 8-bit crispness. Re-run the bake after.
 
 ## License
 
