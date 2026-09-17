@@ -77,28 +77,18 @@ static void apply_key(UWORD code)
 
 /* Decode joystick port 1 into INPUT_ bits.
  *
- * JOY1DAT quadrature encoding (per HRM):
- *   bit 1     = right
- *   bit 1 ^ bit 0 = left
- *   bit 9     = down
- *   bit 9 ^ bit 8 = up
+ * Fire button: CIA-A PRA bit 7, active low.
  *
- * FS-UAE by default maps arrow keys to joystick port 1, so any user
- * running under FS-UAE with default input maps gets joystick "for
- * free" via the arrow keys — plus a real USB joystick if one's
- * attached. On classic hardware, this reads the actual DE9 port. */
+ * Joystick direction decode is INTENTIONALLY DISABLED for now — the
+ * naive quadrature read (bit 1 = right, bit 1 XOR bit 0 = left) trips
+ * false LEFT positives at rest under FS-UAE, giving the appearance of
+ * a stuck stick. Under FS-UAE, arrow keys already reach us as
+ * IDCMP_RAWKEY events too, so cursor-key play works via the keyboard
+ * path; real-hardware joystick is a follow-up (needs debouncing +
+ * per-frame edge detect + potgo/potinp priming). */
 static UBYTE read_joystick_flags(void)
 {
     UBYTE f = 0;
-    UWORD joy = custom.joy1dat;
-    UWORD b0 = (joy >> 0) & 1;
-    UWORD b1 = (joy >> 1) & 1;
-    UWORD b8 = (joy >> 8) & 1;
-    UWORD b9 = (joy >> 9) & 1;
-    if (b1)      f |= INPUT_RIGHT;
-    if (b1 ^ b0) f |= INPUT_LEFT;
-    if (b9 ^ b8) f |= INPUT_JUMP;    /* stick up  = jump */
-    /* Fire button — CIA-A PRA bit 7, active low. Jump AND start. */
     if (!(ciaa.ciapra & 0x80)) {
         f |= INPUT_JUMP;
         f |= INPUT_START;
@@ -114,7 +104,7 @@ static UBYTE read_input_flags(void)
     if (key_state[RK_RIGHT] || key_state[RK_D])     f |= INPUT_RIGHT;
     if (key_state[RK_SPACE] || key_state[RK_UP])    f |= INPUT_JUMP;
     if (key_state[RK_SPACE])                        f |= INPUT_START;
-    /* Joystick OR'd on top — either input source works. */
+    /* Joystick fire button only (see comment on read_joystick_flags). */
     f |= read_joystick_flags();
     return f;
 }
@@ -223,6 +213,9 @@ int main(int argc, char *argv[])
         } else {
             render_frame(state);
         }
+        /* Flip the freshly-drawn back buffer onto the display —
+         * eliminates the single-buffer clear/redraw flicker. */
+        render_flip();
 
         ab_poll();
 

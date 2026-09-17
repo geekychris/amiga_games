@@ -53,16 +53,16 @@ static struct Screen         *scr;
 static struct DrawInfo       *drawinfo;
 static struct RastPort       *rp;
 
-/* Temp bitmap + rastport for WritePixelArray8 — the graphics.library
- * chunky->planar helper needs a scratch bitmap that's at least as wide
- * as any pixel array we hand it, and 2 rows deep. Sizing it to
- * SCREEN_W handles every possible blit including full-width HUD strip. */
-static struct BitMap         *tmp_bm  = NULL;
-static struct RastPort        tmp_rp;
+/* Double-buffering. Two ScreenBuffers + two RastPorts; we draw into
+ * the "back" one while the display shows the "front", then flip via
+ * ChangeScreenBuffer at VBlank. Kills the single-buffer flicker where
+ * mid-frame clears made the character (and everything else) strobe. */
+static struct ScreenBuffer   *sbuf[2];
+static struct RastPort        rp_buf[2];
+static UWORD                  cur_buf = 1;
 
-/* Chunky staging buffer for tile draws that need per-pixel modification
- * (dimmed collapse tiles, blinking exit outlines) — memcpy the sheet
- * tile in, mutate in place, then WritePixelArray8 out. */
+/* Chunky staging buffer for tiles that need per-pixel recolouring
+ * (collapse tile dim-down). */
 static UBYTE                  scratch_tile[TILE_H][TILE_W];
 
 /* 16-entry palette in (r,g,b) 8-bit-per-channel; scaled to 32-bit on
@@ -117,31 +117,53 @@ LONG render_open(void)
         SA_Quiet,       TRUE,
         TAG_END);
     if (!scr) return 1;
-    rp = &scr->RastPort;
     install_palette();
 
-    /* Scratch bitmap for WritePixelArray8. Per graphics.library docs
-     * the temp bitmap must match the pixel-array width AND depth of
-     * the destination. Our tiles are 16 px wide but we also emit
-     * full-width HUD rectangles; size for the wider of the two.
-     * Depth 8 matches the destination screen. */
-    tmp_bm = AllocBitMap(SCREEN_W, TILE_H, 8, BMF_CLEAR, NULL);
-    if (!tmp_bm) {
-        CloseScreen(scr); scr = NULL;
-        return 2;
-    }
-    InitRastPort(&tmp_rp);
-    tmp_rp.BitMap = tmp_bm;
+    /* Double-buffered draw setup. sbuf[0] wraps the screen's live
+     * BitMap; sbuf[1] is a freshly-allocated matching BitMap we can
+     * scribble into off-screen. */
+    sbuf[0] = AllocScreenBuffer(scr, NULL, SB_SCREEN_BITMAP);
+    sbuf[1] = AllocScreenBuffer(scr, NULL, 0);
+    if (!sbuf[0] || !sbuf[1]) { CloseScreen(scr); scr = NULL; return 2; }
 
-    SetAPen(rp, 0);
-    RectFill(rp, 0, 0, SCREEN_W - 1, SCREEN_H - 1);
+    InitRastPort(&rp_buf[0]); rp_buf[0].BitMap = sbuf[0]->sb_BitMap;
+    InitRastPort(&rp_buf[1]); rp_buf[1].BitMap = sbuf[1]->sb_BitMap;
+
+    cur_buf = 1;
+    rp = &rp_buf[cur_buf];
+
+    /* Clear both buffers to black up front so the first flip doesn't
+     * show garbage. */
+    for (int i = 0; i < 2; i++) {
+        SetAPen(&rp_buf[i], 0);
+        RectFill(&rp_buf[i], 0, 0, SCREEN_W - 1, SCREEN_H - 1);
+    }
     return 0;
 }
 
 void render_close(void)
 {
-    if (tmp_bm) { FreeBitMap(tmp_bm); tmp_bm = NULL; }
-    if (scr)    { CloseScreen(scr);   scr    = NULL; }
+    if (scr && sbuf[0]) {
+        /* Restore the original screen buffer so CloseScreen frees
+         * the right bitmap. */
+        int tries = 0;
+        while (!ChangeScreenBuffer(scr, sbuf[0]) && ++tries < 5) WaitTOF();
+        WaitTOF(); WaitTOF();
+    }
+    if (sbuf[1]) { FreeScreenBuffer(scr, sbuf[1]); sbuf[1] = NULL; }
+    if (sbuf[0]) { FreeScreenBuffer(scr, sbuf[0]); sbuf[0] = NULL; }
+    if (scr)     { CloseScreen(scr); scr = NULL; }
+}
+
+/* Called by main.cpp after each render_frame / render_title / render_
+ * endscreen call to swap the buffer we just drew into onto the display,
+ * and re-point our writes at the (now off-screen) other buffer. */
+void render_flip(void)
+{
+    if (ChangeScreenBuffer(scr, sbuf[cur_buf])) {
+        cur_buf ^= 1;
+        rp = &rp_buf[cur_buf];
+    }
 }
 
 struct Screen *render_get_screen(void)
