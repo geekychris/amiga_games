@@ -19,8 +19,11 @@ void render_close(void);
  * IDCMP_RAWKEY delivery. */
 struct Screen *render_get_screen(void);
 
-/* Draw a single frame into the back buffer, then flip. */
+/* Draw a single frame into the back buffer. Call render_flip() after
+ * any of render_frame / render_title / render_endscreen to page the
+ * newly-drawn buffer onto the display. */
 void render_frame(const GameState &gs);
+void render_flip(void);
 
 /* Draw title screen overlay. */
 void render_title(const GameState &gs);
