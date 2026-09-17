@@ -120,9 +120,12 @@ LONG render_open(void)
     rp = &scr->RastPort;
     install_palette();
 
-    /* Scratch bitmap for WritePixelArray8 — 1-plane deep, SCREEN_W
-     * wide, 2 rows tall. */
-    tmp_bm = AllocBitMap(SCREEN_W, 2, 1, BMF_CLEAR, NULL);
+    /* Scratch bitmap for WritePixelArray8. Per graphics.library docs
+     * the temp bitmap must match the pixel-array width AND depth of
+     * the destination. Our tiles are 16 px wide but we also emit
+     * full-width HUD rectangles; size for the wider of the two.
+     * Depth 8 matches the destination screen. */
+    tmp_bm = AllocBitMap(SCREEN_W, TILE_H, 8, BMF_CLEAR, NULL);
     if (!tmp_bm) {
         CloseScreen(scr); scr = NULL;
         return 2;
@@ -141,29 +144,46 @@ void render_close(void)
     if (scr)    { CloseScreen(scr);   scr    = NULL; }
 }
 
-/* Blit one 16x16 tile from the baked tilesheet to (dest_x, dest_y).
- * WritePixelArray8 takes an inclusive stop (x_stop / y_stop). */
+struct Screen *render_get_screen(void)
+{
+    return scr;
+}
+
+/* Draw one 16x16 tile from the baked sheet to (dest_x, dest_y) using
+ * per-pen RectFill runs. Groups consecutive same-pen pixels on each
+ * row into a single RectFill — cheap on 68k because horizontal same-
+ * row fills hit the Blitter's fastest path, and the tile data comes
+ * pre-quantized to our 16-slot palette so pen changes tend to cluster
+ * in runs (walls, sky, sprite silhouettes). */
+static void blit_tile_data(LONG dest_x, LONG dest_y,
+                           const UBYTE data[TILE_H][TILE_W])
+{
+    for (LONG py = 0; py < TILE_H; py++) {
+        UBYTE run_pen = data[py][0];
+        LONG  run_start = 0;
+        for (LONG px = 1; px <= TILE_W; px++) {
+            UBYTE p = (px < TILE_W) ? data[py][px] : (UBYTE)(run_pen ^ 1);
+            if (p != run_pen) {
+                SetAPen(rp, run_pen);
+                RectFill(rp,
+                    dest_x + run_start, dest_y + py,
+                    dest_x + px - 1,    dest_y + py);
+                run_pen   = p;
+                run_start = px;
+            }
+        }
+    }
+}
+
 static inline void blit_sheet_tile(LONG dest_x, LONG dest_y,
                                    LONG sheet_row, LONG sheet_col)
 {
-    /* WritePixelArray8's array param wants row-major chunky UBYTE. Our
-     * tilesheet_data is already laid out that way per-tile. */
-    WritePixelArray8(rp,
-        (ULONG)dest_x, (ULONG)dest_y,
-        (ULONG)(dest_x + TILE_W - 1), (ULONG)(dest_y + TILE_H - 1),
-        (UBYTE *)&tilesheet_data[sheet_row][sheet_col][0][0],
-        &tmp_rp);
+    blit_tile_data(dest_x, dest_y, tilesheet_data[sheet_row][sheet_col]);
 }
 
-/* Same, but from the mutable scratch buffer (used for tiles that get
- * per-frame recolouring). */
 static inline void blit_scratch_tile(LONG dest_x, LONG dest_y)
 {
-    WritePixelArray8(rp,
-        (ULONG)dest_x, (ULONG)dest_y,
-        (ULONG)(dest_x + TILE_W - 1), (ULONG)(dest_y + TILE_H - 1),
-        (UBYTE *)&scratch_tile[0][0],
-        &tmp_rp);
+    blit_tile_data(dest_x, dest_y, scratch_tile);
 }
 
 /* Copy a sheet tile into the scratch buffer so we can recolour it. */
