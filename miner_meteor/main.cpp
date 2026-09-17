@@ -21,6 +21,8 @@
 #include <graphics/rastport.h>
 #include <devices/inputevent.h>
 #include <dos/dos.h>
+#include <hardware/custom.h>
+#include <hardware/cia.h>
 
 #include <proto/exec.h>
 #include <proto/intuition.h>
@@ -59,6 +61,12 @@ ULONG __stack = 65536;
 /* Bit-per-key state built from IDCMP_RAWKEY events. */
 static UBYTE key_state[128];
 
+/* Amiga chip regs — used for joystick + fire-button reads. Any Amiga
+ * game convention: joystick port 1 (the "player 1" port, sold as
+ * standard on every stock Amiga) = JOY1DAT; fire = CIA-A PRA bit 7. */
+extern volatile struct Custom custom;
+extern volatile struct CIA    ciaa;
+
 /* Update key_state from an IDCMP_RAWKEY code. Bit 7 (0x80) = key-up. */
 static void apply_key(UWORD code)
 {
@@ -67,13 +75,47 @@ static void apply_key(UWORD code)
     key_state[raw] = up ? 0 : 1;
 }
 
+/* Decode joystick port 1 into INPUT_ bits.
+ *
+ * JOY1DAT quadrature encoding (per HRM):
+ *   bit 1     = right
+ *   bit 1 ^ bit 0 = left
+ *   bit 9     = down
+ *   bit 9 ^ bit 8 = up
+ *
+ * FS-UAE by default maps arrow keys to joystick port 1, so any user
+ * running under FS-UAE with default input maps gets joystick "for
+ * free" via the arrow keys — plus a real USB joystick if one's
+ * attached. On classic hardware, this reads the actual DE9 port. */
+static UBYTE read_joystick_flags(void)
+{
+    UBYTE f = 0;
+    UWORD joy = custom.joy1dat;
+    UWORD b0 = (joy >> 0) & 1;
+    UWORD b1 = (joy >> 1) & 1;
+    UWORD b8 = (joy >> 8) & 1;
+    UWORD b9 = (joy >> 9) & 1;
+    if (b1)      f |= INPUT_RIGHT;
+    if (b1 ^ b0) f |= INPUT_LEFT;
+    if (b9 ^ b8) f |= INPUT_JUMP;    /* stick up  = jump */
+    /* Fire button — CIA-A PRA bit 7, active low. Jump AND start. */
+    if (!(ciaa.ciapra & 0x80)) {
+        f |= INPUT_JUMP;
+        f |= INPUT_START;
+    }
+    return f;
+}
+
 static UBYTE read_input_flags(void)
 {
     UBYTE f = 0;
+    /* Keyboard. */
     if (key_state[RK_LEFT]  || key_state[RK_A])     f |= INPUT_LEFT;
     if (key_state[RK_RIGHT] || key_state[RK_D])     f |= INPUT_RIGHT;
     if (key_state[RK_SPACE] || key_state[RK_UP])    f |= INPUT_JUMP;
     if (key_state[RK_SPACE])                        f |= INPUT_START;
+    /* Joystick OR'd on top — either input source works. */
+    f |= read_joystick_flags();
     return f;
 }
 
