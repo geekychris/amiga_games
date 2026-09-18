@@ -55,3 +55,4 @@
 # macOS
 .DS_Store
 *.dSYM/
+*/emberkeep
