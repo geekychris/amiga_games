@@ -41,16 +41,30 @@ struct GfxBase       *GfxBase;
 
 ULONG __stack = 65536;
 
-#define RK_ESC    0x45
-#define RK_SPACE  0x40
-#define RK_LEFT   0x4F
-#define RK_RIGHT  0x4E
-#define RK_UP     0x4C
-#define RK_DOWN   0x4D
-#define RK_A      0x20
-#define RK_D      0x22
-#define RK_W      0x11
-#define RK_S      0x21
+/* Cursor keys, WASD, IJKL, and numpad 8-4-6-2 all move — the
+ * cursor-key path is often eaten by FS-UAE's default joystick
+ * mapping, so we deliberately offer three redundant letter sets.
+ * ENTER + RETURN + SPACE all also start / restart. */
+#define RK_ESC       0x45
+#define RK_SPACE     0x40
+#define RK_RETURN    0x44
+#define RK_ENTER     0x43     /* numpad Enter */
+#define RK_LEFT      0x4F
+#define RK_RIGHT     0x4E
+#define RK_UP        0x4C
+#define RK_DOWN      0x4D
+#define RK_A         0x20
+#define RK_D         0x22
+#define RK_W         0x11
+#define RK_S         0x21
+#define RK_I         0x17
+#define RK_J         0x26
+#define RK_K         0x27
+#define RK_L         0x28
+#define RK_KP4       0x2D     /* numpad 4 */
+#define RK_KP6       0x2F     /* numpad 6 */
+#define RK_KP8       0x3E     /* numpad 8 */
+#define RK_KP2       0x1E     /* numpad 2 */
 
 static UBYTE key_state[128];
 
@@ -64,11 +78,16 @@ static void apply_key(UWORD code)
 static UBYTE read_input_flags(void)
 {
     UBYTE f = 0;
-    if (key_state[RK_LEFT]  || key_state[RK_A]) f |= INPUT_LEFT;
-    if (key_state[RK_RIGHT] || key_state[RK_D]) f |= INPUT_RIGHT;
-    if (key_state[RK_UP]    || key_state[RK_W]) f |= INPUT_UP;
-    if (key_state[RK_DOWN]  || key_state[RK_S]) f |= INPUT_DOWN;
-    if (key_state[RK_SPACE])                    f |= INPUT_START;
+    if (key_state[RK_LEFT]  || key_state[RK_A] ||
+        key_state[RK_J]     || key_state[RK_KP4])  f |= INPUT_LEFT;
+    if (key_state[RK_RIGHT] || key_state[RK_D] ||
+        key_state[RK_L]     || key_state[RK_KP6])  f |= INPUT_RIGHT;
+    if (key_state[RK_UP]    || key_state[RK_W] ||
+        key_state[RK_I]     || key_state[RK_KP8])  f |= INPUT_UP;
+    if (key_state[RK_DOWN]  || key_state[RK_S] ||
+        key_state[RK_K]     || key_state[RK_KP2])  f |= INPUT_DOWN;
+    if (key_state[RK_SPACE] || key_state[RK_RETURN] ||
+        key_state[RK_ENTER])                        f |= INPUT_START;
     return f;
 }
 
