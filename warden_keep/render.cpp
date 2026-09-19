@@ -163,91 +163,90 @@ static void fill_top_diamond(LONG cx, LONG cy, UBYTE pen)
     }
 }
 
-static void fill_left_face(LONG cx, LONG cy_top, UBYTE pen)
-{
-    /* Left face: parallelogram from (cx - half_w, cy_top) going down-
-     * right. Width = half_w, height = ISO_CUBE_H. Skew: as we descend
-     * one pixel, the top edge drops by ((ISO_TILE_H/2) / half_w) — but
-     * for 32-wide iso that's ~0.5. We draw scanline by scanline. */
-    SetAPen(rp, pen);
-    LONG half_w = ISO_TILE_W / 2;
-    LONG half_h = ISO_TILE_H / 2;
-    for (LONG y = 0; y < ISO_CUBE_H; y++) {
-        /* Bottom-left corner at cy_top + half_h + y, x=cx-half_w
-         * Top-left corner at cy_top - half_h... but the top face
-         * already covers the top. Draw only the "wall" portion. */
-        LONG top_y = cy_top + y;
-        for (LONG px = 0; px < half_w; px++) {
-            LONG line_top_y = cy_top - half_h + ((px * half_h) / half_w);
-            if (top_y >= line_top_y)
-                WritePixel(rp, cx - half_w + px, top_y);
-        }
-    }
-}
-
-static void fill_right_face(LONG cx, LONG cy_top, UBYTE pen)
+/* Left face — the SW-facing parallelogram of a cube whose top-face
+ * centre is at (cx, cy_top_center). Sits below the top diamond,
+ * slanting down-right along the west-to-south edge.
+ *
+ * Top edge (from top diamond's W corner to S corner):
+ *   (cx - half_w, cy_top_center) -> (cx, cy_top_center + half_h)
+ * Bottom edge (same, shifted down by ISO_CUBE_H * stack_h):
+ *   (cx - half_w, cy_top_center + face_h) -> (cx, cy_top_center + half_h + face_h)
+ *
+ * Rendered as one-pixel-wide vertical RectFills per column so the
+ * parallelogram is completely solid — the earlier WritePixel-with-mask
+ * approach was leaving gaps. */
+static void fill_left_face(LONG cx, LONG cy_top_center, LONG face_h, UBYTE pen)
 {
     SetAPen(rp, pen);
     LONG half_w = ISO_TILE_W / 2;
     LONG half_h = ISO_TILE_H / 2;
-    for (LONG y = 0; y < ISO_CUBE_H; y++) {
-        LONG top_y = cy_top + y;
-        for (LONG px = 0; px < half_w; px++) {
-            LONG line_top_y = cy_top + ((px * half_h) / half_w);
-            if (top_y >= line_top_y)
-                WritePixel(rp, cx + px, top_y);
-        }
+    for (LONG col = 0; col < half_w; col++) {
+        LONG x  = cx - half_w + col;
+        LONG y0 = cy_top_center + (col * half_h) / half_w;
+        LONG y1 = y0 + face_h - 1;
+        RectFill(rp, x, y0, x, y1);
     }
 }
 
-/* Draw a full unit cube standing at world (wx, wy, wz=0). Top diamond
- * uses pen_top; left face pen_left; right face pen_right. */
-static void draw_cube(LONG wx, LONG wy, UBYTE pen_top, UBYTE pen_left, UBYTE pen_right)
+/* Right face — the SE-facing parallelogram, mirror of left. */
+static void fill_right_face(LONG cx, LONG cy_top_center, LONG face_h, UBYTE pen)
 {
-    LONG sx, sy;
-    iso_project(wx, wy, 1, &sx, &sy);   /* top of the cube */
+    SetAPen(rp, pen);
+    LONG half_w = ISO_TILE_W / 2;
     LONG half_h = ISO_TILE_H / 2;
-    /* Draw the faces first (behind the top). */
-    fill_left_face(sx, sy + half_h, pen_left);
-    fill_right_face(sx, sy + half_h, pen_right);
-    /* Then the top diamond. */
-    fill_top_diamond(sx, sy, pen_top);
+    for (LONG col = 0; col < half_w; col++) {
+        LONG x  = cx + col;
+        /* Right face's top edge starts at S corner and rises to E
+         * corner as we move right, so y decreases with col. */
+        LONG y0 = cy_top_center + half_h - (col * half_h) / half_w;
+        LONG y1 = y0 + face_h - 1;
+        RectFill(rp, x, y0, x, y1);
+    }
 }
 
-/* Draw a taller cube — stack N unit-cubes vertically. Used for walls
- * so they look room-height, not floor-tile-height. */
+/* Outline a cube's silhouette in a dark pen so faces read as edges,
+ * not blobs. Draws the 6 visible edges of a wireframe cube seen from
+ * the front-right. */
+static void outline_cube(LONG cx, LONG cy_top_center, LONG face_h, UBYTE pen)
+{
+    SetAPen(rp, pen);
+    LONG half_w = ISO_TILE_W / 2;
+    LONG half_h = ISO_TILE_H / 2;
+    /* Top diamond edges. */
+    Move(rp, cx - half_w, cy_top_center);         Draw(rp, cx, cy_top_center - half_h);
+    Move(rp, cx, cy_top_center - half_h);         Draw(rp, cx + half_w, cy_top_center);
+    Move(rp, cx + half_w, cy_top_center);         Draw(rp, cx, cy_top_center + half_h);
+    Move(rp, cx, cy_top_center + half_h);         Draw(rp, cx - half_w, cy_top_center);
+    /* Three vertical drops from the visible top-front corners. */
+    Move(rp, cx - half_w, cy_top_center);         Draw(rp, cx - half_w, cy_top_center + face_h);
+    Move(rp, cx, cy_top_center + half_h);         Draw(rp, cx, cy_top_center + half_h + face_h);
+    Move(rp, cx + half_w, cy_top_center);         Draw(rp, cx + half_w, cy_top_center + face_h);
+    /* Bottom-front edges of the two visible faces. */
+    Move(rp, cx - half_w, cy_top_center + face_h);Draw(rp, cx, cy_top_center + half_h + face_h);
+    Move(rp, cx, cy_top_center + half_h + face_h);Draw(rp, cx + half_w, cy_top_center + face_h);
+}
+
+/* Draw a stacked cube (stack = height in cube units) at world
+ * (wx, wy, wz=0). Faces + top + outline. */
 static void draw_stacked_cube(LONG wx, LONG wy, LONG stack,
-                              UBYTE pen_top, UBYTE pen_left, UBYTE pen_right)
+                              UBYTE pen_top, UBYTE pen_left, UBYTE pen_right,
+                              UBYTE pen_outline)
 {
-    /* Draw faces once at full height, then top diamond at the top. */
     LONG sx, sy;
-    iso_project(wx, wy, stack, &sx, &sy);   /* top face position */
-    LONG half_w = ISO_TILE_W / 2;
-    LONG half_h = ISO_TILE_H / 2;
-
-    /* Extended left face: draw scanline by scanline down to the base. */
-    SetAPen(rp, pen_left);
-    LONG total_h = stack * ISO_CUBE_H;
-    for (LONG y = 0; y < total_h; y++) {
-        LONG top_y = sy + half_h + y;
-        for (LONG px = 0; px < half_w; px++) {
-            LONG line_top_y = sy - half_h + ((px * half_h) / half_w) + half_h;
-            if (top_y >= line_top_y)
-                WritePixel(rp, sx - half_w + px, top_y);
-        }
-    }
-    /* Extended right face. */
-    SetAPen(rp, pen_right);
-    for (LONG y = 0; y < total_h; y++) {
-        LONG top_y = sy + half_h + y;
-        for (LONG px = 0; px < half_w; px++) {
-            LONG line_top_y = sy + ((px * half_h) / half_w) + half_h;
-            if (top_y >= line_top_y)
-                WritePixel(rp, sx + px, top_y);
-        }
-    }
-    /* Top diamond. */
+    iso_project(wx, wy, stack, &sx, &sy);   /* top face centre */
+    LONG face_h = stack * ISO_CUBE_H;
+    fill_left_face(sx, sy, face_h, pen_left);
+    fill_right_face(sx, sy, face_h, pen_right);
     fill_top_diamond(sx, sy, pen_top);
+    outline_cube(sx, sy, face_h, pen_outline);
+}
+
+/* Draw a single unit cube. */
+static void draw_cube(LONG wx, LONG wy,
+                      UBYTE pen_top, UBYTE pen_left, UBYTE pen_right,
+                      UBYTE pen_outline)
+{
+    draw_stacked_cube(wx, wy, 1, pen_top, pen_left, pen_right, pen_outline);
 }
 
 /* Draw a floor tile at wz=0 (flat diamond only). */
@@ -273,11 +272,12 @@ static void draw_floor_tile(LONG wx, LONG wy, UBYTE kind)
  * pixel on top diamond in the facing direction. */
 static void draw_player(const Player &p)
 {
-    /* Two-cube tall pillar in the player accent colour (red). */
-    draw_stacked_cube(p.wx, p.wy, 2, 7, 7, 6);
+    /* Two-cube tall pillar, red body with lit right shoulder for
+     * strong 3D reading. */
+    draw_stacked_cube(p.wx, p.wy, 2, /*top*/6, /*left*/7, /*right*/3, /*outline*/4);
     LONG sx, sy;
     iso_project(p.wx, p.wy, 2, &sx, &sy);
-    SetAPen(rp, 6);
+    SetAPen(rp, 0);
     switch (p.facing) {
         case 0: RectFill(rp, sx - 3, sy - 6, sx + 2, sy - 4); break;
         case 1: RectFill(rp, sx + 3, sy - 2, sx + 7, sy + 1); break;
@@ -361,9 +361,15 @@ void render_frame(const GameState &gs)
         }
         const Prop &o = gs.objects[idx[i]];
         switch (o.kind) {
-            case O_WALL:   draw_stacked_cube(o.wx, o.wy, 3, 2, 1, 3); break;
-            case O_BARREL: draw_cube(o.wx, o.wy, 3, 2, 1); break;
-            case O_JEWEL:  draw_jewel(o); break;
+            case O_WALL:
+                draw_stacked_cube(o.wx, o.wy, 3, /*top*/2, /*left*/1, /*right*/3, /*outline*/4);
+                break;
+            case O_BARREL:
+                draw_cube(o.wx, o.wy, /*top*/3, /*left*/2, /*right*/1, /*outline*/4);
+                break;
+            case O_JEWEL:
+                draw_jewel(o);
+                break;
             default: break;
         }
     }
