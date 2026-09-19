@@ -47,6 +47,10 @@ ULONG __stack = 65536;
 #define RK_RIGHT  0x4E
 #define RK_UP     0x4C
 #define RK_DOWN   0x4D
+#define RK_A      0x20
+#define RK_D      0x22
+#define RK_W      0x11
+#define RK_S      0x21
 
 static UBYTE key_state[128];
 
@@ -60,11 +64,11 @@ static void apply_key(UWORD code)
 static UBYTE read_input_flags(void)
 {
     UBYTE f = 0;
-    if (key_state[RK_LEFT])  f |= INPUT_LEFT;
-    if (key_state[RK_RIGHT]) f |= INPUT_RIGHT;
-    if (key_state[RK_UP])    f |= INPUT_UP;
-    if (key_state[RK_DOWN])  f |= INPUT_DOWN;
-    if (key_state[RK_SPACE]) f |= INPUT_START;
+    if (key_state[RK_LEFT]  || key_state[RK_A]) f |= INPUT_LEFT;
+    if (key_state[RK_RIGHT] || key_state[RK_D]) f |= INPUT_RIGHT;
+    if (key_state[RK_UP]    || key_state[RK_W]) f |= INPUT_UP;
+    if (key_state[RK_DOWN]  || key_state[RK_S]) f |= INPUT_DOWN;
+    if (key_state[RK_SPACE])                    f |= INPUT_START;
     return f;
 }
 
@@ -111,6 +115,13 @@ int main(int argc, char *argv[])
 
     LONG running = 1;
     UBYTE prev_input = 0;
+    /* Auto-repeat state per-direction. Move fires on rising edge, then
+     * again after HOLD_DELAY frames, then every REPEAT_EVERY frames
+     * while the key stays held. Feels responsive without spamming. */
+    #define HOLD_DELAY    12    /* ~0.24s at 50 Hz PAL */
+    #define REPEAT_EVERY   6    /* ~0.12s between repeats */
+    LONG held_frames = 0;
+    UBYTE held_dirs  = 0;
 
     while (running) {
         ab_poll();
@@ -132,9 +143,30 @@ int main(int argc, char *argv[])
         UBYTE edge  = input & ~prev_input;
         prev_input  = input;
 
-        /* Tile-locked: only pass RISING edges of direction keys into
-         * the tick so each press = one step. INPUT_START also edge-only. */
-        UBYTE tick_input = (UBYTE)(edge & (INPUT_LEFT | INPUT_RIGHT | INPUT_UP | INPUT_DOWN | INPUT_START));
+        UBYTE dirs = (UBYTE)(input & (INPUT_LEFT | INPUT_RIGHT | INPUT_UP | INPUT_DOWN));
+        UBYTE tick_input = 0;
+
+        /* Rising edge on any direction fires immediately + starts the
+         * auto-repeat clock. Held key repeats after HOLD_DELAY and then
+         * every REPEAT_EVERY frames. Releasing all directions resets. */
+        UBYTE edge_dirs = (UBYTE)(edge & (INPUT_LEFT | INPUT_RIGHT | INPUT_UP | INPUT_DOWN));
+        if (edge_dirs) {
+            tick_input |= edge_dirs;
+            held_dirs = dirs;
+            held_frames = 0;
+        } else if (dirs && dirs == held_dirs) {
+            held_frames++;
+            if (held_frames == HOLD_DELAY ||
+                (held_frames > HOLD_DELAY &&
+                 ((held_frames - HOLD_DELAY) % REPEAT_EVERY) == 0)) {
+                tick_input |= dirs;
+            }
+        } else {
+            held_dirs = dirs;
+            held_frames = 0;
+        }
+
+        if (edge & INPUT_START) tick_input |= INPUT_START;
 
         game.tick(tick_input);
 
