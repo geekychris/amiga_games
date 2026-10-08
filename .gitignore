@@ -55,3 +55,6 @@
 # macOS
 .DS_Store
 *.dSYM/
+*/emberkeep
+*/warden_keep
+*/planet_chomp
