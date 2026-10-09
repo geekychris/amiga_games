@@ -18,7 +18,9 @@
  * Esc quits. Title: up/down choose a keep, Space starts, M music on/off,
  * Q+E a tour of every room of every keep.
  *
- * Usage: spectral_keep [SCALE=n]     (window n x 320x240, default 2)
+ * Usage: spectral_keep [SCALE=n] [FULLSCREEN]
+ *   SCALE=n: window n x 320x240 (default 2); FULLSCREEN: a screen of its own,
+ *   F or F10 switches while playing
  */
 #include <exec/types.h>
 #include <exec/memory.h>
@@ -37,6 +39,7 @@
 #include <stdarg.h>
 #include "bridge_client.h"
 #include "keep.h"
+#include "os4_display.h"
 
 /* room for vox.c's software rasteriser and scene.c's depth-first walk */
 static const char __attribute__((used)) stack_cookie[] = "$STACK:524288";
@@ -342,38 +345,11 @@ static unsigned long long now_us(void)
     return (unsigned long long)tv.Seconds * 1000000ULL + tv.Microseconds;
 }
 
-/* ---- the frame to the window, scaled up O times ---- */
-
-static unsigned long *out;
-static int O, outw, outh;
-
-static void present(struct Window *win)
-{
-    int y, x, k;
-    if (O == 1) {
-        WritePixelArray((uint8 *)frame, 0, 0, SW * 4, PIXF_A8R8G8B8, win->RPort, 0, 0, SW, SH);
-        return;
-    }
-    for (y = 0; y < SH; y++) {
-        const unsigned long *src = frame + y * SW;
-        unsigned long *dst = out + (size_t)y * O * outw;
-        if (O == 2)
-            for (x = 0; x < SW; x++) { dst[0] = dst[1] = src[x]; dst += 2; }
-        else
-            for (x = 0; x < SW; x++)
-                for (k = 0; k < O; k++) *dst++ = src[x];
-        for (k = 1; k < O; k++)
-            memcpy(out + ((size_t)y * O + k) * outw, out + (size_t)y * O * outw, (size_t)outw * 4);
-    }
-    WritePixelArray((uint8 *)out, 0, 0, outw * 4, PIXF_A8R8G8B8, win->RPort, 0, 0, outw, outh);
-}
-
 /* ---- main ---- */
 
 int main(int argc, char **argv)
 {
-    struct Window *win = 0;
-    int scale = 2, bridge, rc = 0, i;
+    int scale = 2, full = 0, O, bridge, rc = 0, i;
     long frames = 0, fps_frames = 0, fps10 = 0, steps_done = 0, cels = 0;
     long cur_state = 0, cur_lives = 0, cur_relics = 0, cur_keys = 0, px = 0, py = 0, pz = 0;
     char room_id[16] = "-";
@@ -381,32 +357,27 @@ int main(int argc, char **argv)
 
     for (i = 1; i < argc; i++) {
         if (strncasecmp(argv[i], "SCALE=", 6) == 0) scale = atoi(argv[i] + 6);
-        else if (strcmp(argv[i], "?") == 0) { printf("Usage: spectral_keep [SCALE=n]\n"); return 0; }
+        else if (strcasecmp(argv[i], "FULLSCREEN") == 0) full = 1;
+        else if (strcmp(argv[i], "?") == 0) { printf("Usage: spectral_keep [SCALE=n] [FULLSCREEN]\n"); return 0; }
     }
     if (scale < 1) scale = 1;
     if (scale > 4) scale = 4;
     O = scale;
-    outw = SW * O;
-    outh = SH * O;
     bridge = ab_init("KEEP") == 0;
     scene_fb = frame;
-    if (O > 1 && !(out = (unsigned long *)malloc((size_t)outw * outh * 4))) { rc = 20; goto done; }
     if (!timer_open()) { printf("spectral_keep: no timer.device\n"); rc = 20; goto done; }
 
-    win = OpenWindowTags(NULL,
-                         WA_Title, (ULONG)"Spectral Keep",
-                         WA_InnerWidth, outw, WA_InnerHeight, outh,
-                         WA_DragBar, TRUE, WA_DepthGadget, TRUE, WA_CloseGadget, TRUE,
-                         WA_Activate, TRUE, WA_RMBTrap, TRUE, WA_GimmeZeroZero, TRUE,
-                         WA_IDCMP, IDCMP_RAWKEY | IDCMP_CLOSEWINDOW | IDCMP_INACTIVEWINDOW,
-                         TAG_DONE);
-    if (!win) { printf("spectral_keep: can't open a %ldx%ld window\n", (long)outw, (long)outh); rc = 20; goto done; }
+    if (!disp_open("Spectral Keep", SW, SH, O, full)) {
+        printf("spectral_keep: can't open a window or screen\n");
+        rc = 20;
+        goto done;
+    }
 
     /* something to look at while the sprites are drawn */
     fill(0, 0, SW - 1, SH - 1, PEN_BLACK);
     big(100, "SPECTRAL KEEP", INK_YELLOW);
     glyphs(160 - 4 * 10, 140, "LOADING...", INK_WHITE, -1, 1);
-    present(win);
+    disp_present(frame);
 
     scene_init();
     if (!vox_init()) { AB_E("no memory for sprites"); rc = 20; goto done; }
@@ -428,7 +399,7 @@ int main(int argc, char **argv)
         ab_register_hook("hold", "hold a pad button for N frames: e.g. RIGHT 50", hk_hold);
         ab_register_hook("quit", "quit the game", hk_quit);
     }
-    AB_I("ready %ldx%ld sound=%ld keeps=%ld", (long)outw, (long)outh, (long)snd_available(), (long)keep_nlevels);
+    AB_I("ready %ldx%ld sound=%ld keeps=%ld", (long)SW * O, (long)SH * O, (long)snd_available(), (long)keep_nlevels);
 
     t_last = t_fps = now_us();
     while (!quit) {
@@ -437,7 +408,7 @@ int main(int argc, char **argv)
         ULONG h, p;
         int steps;
 
-        while ((m = (struct IntuiMessage *)GetMsg(win->UserPort)) != 0) {
+        while ((m = (struct IntuiMessage *)GetMsg(disp_window()->UserPort)) != 0) {
             ULONG cls = m->Class;
             UWORD code = m->Code, qual = m->Qualifier;
             ReplyMsg((struct Message *)m);
@@ -445,6 +416,11 @@ int main(int argc, char **argv)
             else if (cls == IDCMP_INACTIVEWINDOW) held = 0;
             else if (cls == IDCMP_RAWKEY) {
                 if (code == 0x45) { quit = 1; quit_why = "Esc"; }
+                else if (code == DISP_KEY_F || code == DISP_KEY_F10) {
+                    if (!disp_toggle()) { quit = 1; quit_why = "no display"; }
+                    AB_I("display: %s", disp_fullscreen() ? "full screen" : "window");
+                    break;                                         /* the old window's port is gone */
+                }
                 else if (code & IECODE_UP_PREFIX) held &= ~key_bit(code & 0x7F);
                 else if (!(qual & IEQUALIFIER_REPEAT)) {
                     held |= key_bit(code);
@@ -491,7 +467,7 @@ int main(int argc, char **argv)
         else if (G.state == GS_GAMEOVER || G.state == GS_VICTORY) hud_end_screen();
         else hud_play();
         t2 = now_us();
-        present(win);
+        disp_present(frame);
         t3 = now_us();
         snd_update();
         prof[0] += t1 - t0; prof[1] += t2 - t1; prof[2] += t3 - t2;
@@ -522,9 +498,8 @@ int main(int argc, char **argv)
     AB_I("quit (%s) after %ld frames", quit_why, frames);
 done:
     snd_exit();
-    if (win) CloseWindow(win);
+    disp_close();
     timer_close();
-    free(out);
     if (bridge) ab_cleanup();
     return rc;
 }

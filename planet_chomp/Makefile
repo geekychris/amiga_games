@@ -18,7 +18,7 @@ CFLAGS  = -mcrt=newlib -O2 -mcpu=440fp -Wall -Wno-unused-function \
 LDFLAGS = -mcrt=newlib -L$(MESA)/lib -lOSMesa -lm -lauto
 
 TARGET = planet_chomp
-SRCS   = main_os4.c game.c maze.c sprites.c sfx_ahi.c gl_render.c
+SRCS   = main_os4.c game.c maze.c sprites.c sfx_ahi.c gl_render.c os4_display.c
 # the bridge client is compiled in, so the shared ../../amiga-bridge/libbridge.a
 # (which may be a 68k build) is left alone
 BRIDGE = ../../amiga-bridge/client/bridge_client.c
@@ -49,6 +49,7 @@ maze.o:      maze.c pc.h
 sprites.o:   sprites.c pc.h sprites.h
 sfx_ahi.o:   sfx_ahi.c sfx.h
 gl_render.o: gl_render.c pc.h gl_render.h
+os4_display.o: os4_display.c os4_display.h
 
 clean:
 	rm -f *.o $(TARGET)
