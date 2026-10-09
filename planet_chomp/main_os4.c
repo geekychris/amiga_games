@@ -366,6 +366,7 @@ static void hiscore_save(void)
 
 static ULONG keys_held, keys_pressed, inject_held, inject_pressed;
 static int   inject_frames, quit;
+static const char *quit_why = "";
 
 static ULONG key_bit(UWORD code)
 {
@@ -408,6 +409,7 @@ static int hk_quit(const char *args, char *res, int len)
     (void)args;
     snprintf(res, len, "quitting");
     quit = 1;
+    quit_why = "bridge";
     return 0;
 }
 
@@ -541,12 +543,12 @@ int main(int argc, char **argv)
             ULONG cls = m->Class;
             UWORD code = m->Code, qual = m->Qualifier;
             ReplyMsg((struct Message *)m);
-            if (cls == IDCMP_CLOSEWINDOW) quit = 1;
+            if (cls == IDCMP_CLOSEWINDOW) { quit = 1; quit_why = "close gadget"; }
             else if (cls == IDCMP_INACTIVEWINDOW) keys_held = 0;
             else if (cls == IDCMP_RAWKEY) {
-                if (code == 0x45) quit = 1;                        /* Esc */
+                if (code == 0x45) { quit = 1; quit_why = "Esc"; }  /* Esc */
                 else if (code == DISP_KEY_F || code == DISP_KEY_F10) {
-                    if (!disp_toggle()) quit = 1;
+                    if (!disp_toggle()) { quit = 1; quit_why = "no display"; }
                     AB_I("display: %s", disp_fullscreen() ? "full screen" : "window");
                     break;                                         /* the old window's port is gone */
                 }
@@ -557,7 +559,7 @@ int main(int argc, char **argv)
                 }
             }
         }
-        if (SetSignal(0, SIGBREAKF_CTRL_C) & SIGBREAKF_CTRL_C) quit = 1;
+        if (SetSignal(0, SIGBREAKF_CTRL_C) & SIGBREAKF_CTRL_C) { quit = 1; quit_why = "Ctrl-C"; }
         if (bridge) ab_poll();
         if (quit) break;
 
@@ -628,6 +630,7 @@ int main(int argc, char **argv)
         }
     }
     if (g.hiscore > saved_hi) hiscore_save();
+    AB_I("quit (%s) after %ld frames", quit_why, frames);
 done:
     sfx_exit();
     disp_close();

@@ -60,3 +60,9 @@
 */planet_chomp
 */rolling_steel
 */spectral_keep
+
+# 3DO ports: 68k binaries, per-arch objects, the rtgmodes test tool
+*/*_68k
+*/obj68k/
+*/objppc/
+spectral_keep/tools/rtgmodes
