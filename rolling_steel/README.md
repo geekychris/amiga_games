@@ -34,10 +34,17 @@ Best times per course and the best full run are kept in
 `PROGDIR:rollingsteel.prog`.
 
 ```
-rolling_steel [SCALE=n] [HIRES]
-  SCALE=n   window is n x 320x240 (default 2: 640x480)
-  HIRES     render at 640x480 instead of doubling 320x240
+rolling_steel [SCALE=n] [HIRES] [FULLSCREEN]
+  SCALE=n     window is n x 320x240 (default 2: 640x480)
+  HIRES       render at 640x480 instead of doubling 320x240
+  FULLSCREEN  a screen of its own (640x480, the picture at 2x)
 ```
+
+**Full screen:** add `FULLSCREEN` to open a screen of the game's own. F or
+F10 switches between window and full screen while playing. The screen is
+the smallest RTG mode that shows the frame at 2x (32-bit, else 16-bit),
+with the picture centred and the mouse pointer hidden. This is
+`os4_display.c`, shared by all three OS4 ports.
 
 ## Files
 
@@ -46,6 +53,7 @@ rolling_steel [SCALE=n] [HIRES]
 | `game.c`, `game.h`, `phys.c`, `course.c`, `rs.h` | the 3DO code, unchanged: rules, clock, medals, ghost, autopilot; the marble's physics; the course loader |
 | `render.c` | the 3DO renderer with its output changed. The orthographic camera, cell culling, per-frame vertex cache, lighting and depth fog are as before. Each corner now carries its depth, and the faces go to OpenGL instead of the cel engine |
 | `glcels.c` | the cel engine's job in OpenGL: opaque faces batched into one `glDrawArrays`, sphere sprites as textured quads, and the 3DO pixel-processor modes (shadow, ghost, additive flash, HUD boxes) as blending |
+| `os4_display.c` | window or full screen, integer scaling, the blit (the same file in all three OS4 ports) |
 | `main_os4.c` | window, keyboard as two pads, 50 Hz logic clock, the HUD (drawn into the frame once GL has finished), data loading, best times |
 | `sound_ahi.c` | the music themes, effects and speed-pitched rolling rumble through ahi.device; music and rumble loop gaplessly as linked request pairs |
 | `game_os4.h` | force-included into `game.c`: renames its static `kill()`, which clashes with newlib's |

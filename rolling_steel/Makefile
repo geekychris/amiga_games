@@ -18,7 +18,7 @@ CFLAGS  = -mcrt=newlib -O2 -mcpu=440fp -Wall -Wno-unused-function \
 LDFLAGS = -mcrt=newlib -L$(MESA)/lib -lOSMesa -lm -lauto
 
 TARGET = rolling_steel
-SRCS   = main_os4.c game.c phys.c course.c render.c glcels.c sound_ahi.c
+SRCS   = main_os4.c game.c phys.c course.c render.c glcels.c sound_ahi.c os4_display.c
 # the bridge client is compiled in, so the shared ../../amiga-bridge/libbridge.a
 # (which may be a 68k build) is left alone
 BRIDGE = ../../amiga-bridge/client/bridge_client.c
