@@ -12,9 +12,10 @@
  * waits for the next junction), Q/E or Z/X spin the view, C whole
  * planet, P pause, Space or Return start, Esc quits.
  *
- * Usage: planet_chomp [SCALE=n] [HIRES]
- *   SCALE=n  window is n x 320x256 (default 2)
- *   HIRES    render the 3D at 640x512 instead of upscaling 320x256
+ * Usage: planet_chomp [SCALE=n] [HIRES] [FULLSCREEN]
+ *   SCALE=n     window is n x 320x256 (default 2)
+ *   HIRES       render the 3D at 640x512 instead of upscaling 320x256
+ *   FULLSCREEN  a screen of its own; F or F10 switches while playing
  */
 #include <exec/types.h>
 #include <exec/memory.h>
@@ -38,6 +39,7 @@
 #include "sfx.h"
 #include "sprites.h"
 #include "gl_render.h"
+#include "os4_display.h"
 
 /* Mesa's software rasteriser keeps whole spans on the stack (one
  * function alone takes ~390 KB), far beyond a shell's default stack */
@@ -448,42 +450,17 @@ static unsigned long long now_us(void)
     return (unsigned long long)tv.Seconds * 1000000ULL + tv.Microseconds;
 }
 
-/* ---- the frame to the window, scaled up O times ---- */
-
-static unsigned char *out;
-static int O, outw, outh;
-
-static void present(struct Window *win)
-{
-    int y, x, k;
-    if (O == 1) {
-        WritePixelArray(fb, 0, 0, FW * 4, PIXF_A8R8G8B8, win->RPort, 0, 0, FW, FH);
-        return;
-    }
-    for (y = 0; y < FH; y++) {
-        const ULONG *src = (const ULONG *)(fb + (size_t)y * FW * 4);
-        ULONG *dst = (ULONG *)(out + (size_t)y * O * outw * 4);
-        if (O == 2)
-            for (x = 0; x < FW; x++) { dst[0] = dst[1] = src[x]; dst += 2; }
-        else
-            for (x = 0; x < FW; x++)
-                for (k = 0; k < O; k++) *dst++ = src[x];
-        for (k = 1; k < O; k++)
-            memcpy(out + ((size_t)y * O + k) * outw * 4, out + (size_t)y * O * outw * 4, (size_t)outw * 4);
-    }
-    WritePixelArray(out, 0, 0, outw * 4, PIXF_A8R8G8B8, win->RPort, 0, 0, outw, outh);
-}
-
 /* ---- main ---- */
 
-static int parse_args(int argc, char **argv, int *scale, int *hires)
+static int parse_args(int argc, char **argv, int *scale, int *hires, int *full)
 {
     int i;
     for (i = 1; i < argc; i++) {
         if (strncasecmp(argv[i], "SCALE=", 6) == 0) *scale = atoi(argv[i] + 6);
         else if (strcasecmp(argv[i], "HIRES") == 0) *hires = 1;
+        else if (strcasecmp(argv[i], "FULLSCREEN") == 0) *full = 1;
         else if (strcasecmp(argv[i], "?") == 0) {
-            printf("Usage: planet_chomp [SCALE=n] [HIRES]\n");
+            printf("Usage: planet_chomp [SCALE=n] [HIRES] [FULLSCREEN]\n");
             return 0;
         }
     }
@@ -494,8 +471,7 @@ static int parse_args(int argc, char **argv, int *scale, int *hires)
 
 int main(int argc, char **argv)
 {
-    struct Window *win = 0;
-    int scale = 2, hires = 0, bridge;
+    int scale = 2, hires = 0, full = 0, O, bridge;
     long saved_hi = 0, frames = 0, steps_done = 0;
     int last_state = -1, rc = 0;
     unsigned long long t_last, acc = 0, t_fps;
@@ -503,7 +479,7 @@ int main(int argc, char **argv)
     long dbg_walls = 0, dbg_prims = 0;
     unsigned long long tp0, tp1, tp2, tp3, tp4;
 
-    if (!parse_args(argc, argv, &scale, &hires)) return 0;
+    if (!parse_args(argc, argv, &scale, &hires, &full)) return 0;
     bridge = ab_init("PLANET") == 0;
     S = (hires && scale >= 2) ? 2 : 1;
     O = scale / S;
@@ -512,27 +488,21 @@ int main(int argc, char **argv)
     fb = gl_pixels();
     FW = LOGICAL_W * S;
     FH = LOGICAL_H * S;
-    outw = FW * O;
-    outh = FH * O;
-    if (O > 1 && !(out = (unsigned char *)malloc((size_t)outw * outh * 4))) { rc = 20; goto done; }
     if (!timer_open()) { printf("planet_chomp: no timer.device\n"); rc = 20; goto done; }
     if (!font_init()) AB_W("topaz 8 not available: no HUD text");
 
-    win = OpenWindowTags(NULL,
-                         WA_Title, (ULONG)"Planet Chomp",
-                         WA_InnerWidth, outw, WA_InnerHeight, outh,
-                         WA_DragBar, TRUE, WA_DepthGadget, TRUE, WA_CloseGadget, TRUE,
-                         WA_Activate, TRUE, WA_RMBTrap, TRUE, WA_GimmeZeroZero, TRUE,
-                         WA_IDCMP, IDCMP_RAWKEY | IDCMP_CLOSEWINDOW | IDCMP_INACTIVEWINDOW,
-                         TAG_DONE);
-    if (!win) { printf("planet_chomp: can't open a %ldx%ld window\n", (long)outw, (long)outh); rc = 20; goto done; }
+    if (!disp_open("Planet Chomp", FW, FH, O, full)) {
+        printf("planet_chomp: can't open a window or screen\n");
+        rc = 20;
+        goto done;
+    }
 
     /* something to look at while the sounds and sprites are made */
     memset(fb, 0, (size_t)FW * FH * 4);
     fill(0, 0, LOGICAL_W - 1, LOGICAL_H - 1, P_BAR_BG);
     big(100, "PLANET CHOMP", 3, P_YELLOW);
     ctext(146, "LOADING...", P_DIM);
-    present(win);
+    disp_present(fb);
 
     if (!sprites_init()) { AB_E("no memory for sprites"); rc = 20; goto done; }
     tex_key_id = tex_key;
@@ -556,7 +526,7 @@ int main(int argc, char **argv)
         ab_register_hook("press", "hold a pad button: UP DOWN LEFT RIGHT A C P L R", hk_press);
         ab_register_hook("quit", "quit the game", hk_quit);
     }
-    AB_I("ready %s %ldx%ld gl=%ldx%ld sound=%ld walls=%ld", gl_renderer_name(), (long)outw, (long)outh,
+    AB_I("ready %s %ldx%ld gl=%ldx%ld sound=%ld walls=%ld", gl_renderer_name(), (long)FW * O, (long)FH * O,
          (long)FW, (long)FH, (long)sfx_available(), (long)mz_nwalls);
 
     rd_clock = now_us;
@@ -567,7 +537,7 @@ int main(int argc, char **argv)
         int steps, nspr, flags = 0;
         unsigned long long t;
 
-        while ((m = (struct IntuiMessage *)GetMsg(win->UserPort)) != 0) {
+        while ((m = (struct IntuiMessage *)GetMsg(disp_window()->UserPort)) != 0) {
             ULONG cls = m->Class;
             UWORD code = m->Code, qual = m->Qualifier;
             ReplyMsg((struct Message *)m);
@@ -575,6 +545,11 @@ int main(int argc, char **argv)
             else if (cls == IDCMP_INACTIVEWINDOW) keys_held = 0;
             else if (cls == IDCMP_RAWKEY) {
                 if (code == 0x45) quit = 1;                        /* Esc */
+                else if (code == DISP_KEY_F || code == DISP_KEY_F10) {
+                    if (!disp_toggle()) quit = 1;
+                    AB_I("display: %s", disp_fullscreen() ? "full screen" : "window");
+                    break;                                         /* the old window's port is gone */
+                }
                 else if (code & IECODE_UP_PREFIX) keys_held &= ~key_bit(code & 0x7F);
                 else if (!(qual & IEQUALIFIER_REPEAT)) {
                     keys_held |= key_bit(code);
@@ -622,7 +597,7 @@ int main(int argc, char **argv)
         }
         tp3 = now_us();
 
-        present(win);
+        disp_present(fb);
         tp4 = now_us();
         prof[0] += tp1 - tp0; prof[1] += tp2 - tp1; prof[2] += tp3 - tp2; prof[3] += tp4 - tp3;
         sfx_update();
@@ -655,9 +630,8 @@ int main(int argc, char **argv)
     if (g.hiscore > saved_hi) hiscore_save();
 done:
     sfx_exit();
-    if (win) CloseWindow(win);
+    disp_close();
     timer_close();
-    free(out);
     gl_close();
     if (bridge) ab_cleanup();
     return rc;

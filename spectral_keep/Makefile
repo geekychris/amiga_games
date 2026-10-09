@@ -13,7 +13,7 @@ CFLAGS  = -mcrt=newlib -O2 -mcpu=440fp -Wall -Wno-unused-function \
 LDFLAGS = -mcrt=newlib -lauto
 
 TARGET = spectral_keep
-SRCS   = main_os4.c game.c room.c world.c levels.c vox.c font.c textures.c scene.c sound_ahi.c
+SRCS   = main_os4.c game.c room.c world.c levels.c vox.c font.c textures.c scene.c sound_ahi.c os4_display.c
 # the bridge client is compiled in, so the shared ../../amiga-bridge/libbridge.a
 # (which may be a 68k build) is left alone
 BRIDGE = ../../amiga-bridge/client/bridge_client.c
