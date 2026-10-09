@@ -20,6 +20,9 @@
  * composed once per room and copied each frame, then the items are drawn
  * over it in the same order as before. The pixel-processor effects
  * (shadows, the panel's shade, the flash) are done per pixel.
+ *
+ * The frame is A R G B on AmigaOS 4, and 15-bit RGB (the sprites' own
+ * format, so no conversion) on the classic 68k build (SCENE_RGB15).
  */
 #include <string.h>
 #include "keep.h"
@@ -32,9 +35,28 @@ int scene_ox, scene_oy, scene_ncels;
 
 #define SW 320
 #define SH 240
-unsigned long *scene_fb;            /* main_os4.c's frame: A R G B, SW x SH */
-static unsigned long bgbuf[SW * SH];  /* the room's floor and walls, made once per room */
+#ifdef SCENE_RGB15
+typedef unsigned short Pix;
+#define PIX_OF(c)    ((Pix)(c))
+#define PIX_HALF(v)  ((Pix)(((v) >> 1) & 0x3DEF))
+#define PIX_R(v)     (((v) >> 10) & 31)
+#define PIX_G(v)     (((v) >> 5) & 31)
+#define PIX_B(v)     ((v) & 31)
+#define PIX_RGB(r, g, b) ((Pix)(((r) << 10) | ((g) << 5) | (b)))
+#define PIX_MAX      31
+#else
+typedef unsigned long Pix;
+#define PIX_OF(c)    rgb_of[(c) & 0x7FFF]
+#define PIX_HALF(v)  (0xFF000000UL | (((v) >> 1) & 0x7F7F7FUL))
+#define PIX_R(v)     (((v) >> 16) & 255)
+#define PIX_G(v)     (((v) >> 8) & 255)
+#define PIX_B(v)     ((v) & 255)
+#define PIX_RGB(r, g, b) (0xFF000000UL | ((unsigned long)(r) << 16) | ((unsigned long)(g) << 8) | (unsigned long)(b))
+#define PIX_MAX      255
 static unsigned long rgb_of[32768];   /* 3DO 15-bit RGB -> A R G B */
+#endif
+Pix *scene_fb;                        /* the main program's frame, SW x SH */
+static Pix bgbuf[SW * SH];            /* the room's floor and walls, made once per room */
 static int npool;
 
 enum { I_BLOCK, I_SPIKES, I_GATE, I_THRONE, I_ACTOR, I_LIFT, I_PICKUP };
@@ -61,7 +83,7 @@ static int nsedge, ndedge;
 
 static void forget_cel(Sprite *s) { s->ccb = 0; }
 
-static void blit(unsigned long *dst, Sprite *s, long x, long y, int pixc)
+static void blit(Pix *dst, Sprite *s, long x, long y, int pixc)
 {
     int w = s->w, h = s->h, i, j, i0 = 0, j0 = 0, i1 = w, j1 = h;
     if (!s->pix || w <= 0) return;
@@ -71,13 +93,13 @@ static void blit(unsigned long *dst, Sprite *s, long x, long y, int pixc)
     if (y + h > SH) j1 = (int)(SH - y);
     for (j = j0; j < j1; j++) {
         const unsigned short *src = s->pix + j * w;
-        unsigned long *row = dst + (y + j) * SW + x;
+        Pix *row = dst + (y + j) * SW + x;
         if (pixc == PIXC_SHADOW) {
             for (i = i0; i < i1; i++)
-                if (src[i]) row[i] = 0xFF000000UL | ((row[i] >> 1) & 0x7F7F7FUL);
+                if (src[i]) row[i] = PIX_HALF(row[i]);
         } else {
             for (i = i0; i < i1; i++)
-                if (src[i]) row[i] = rgb_of[src[i] & 0x7FFF];
+                if (src[i]) row[i] = PIX_OF(src[i]);
         }
     }
 }
@@ -93,37 +115,39 @@ static void emit(Sprite *s, long x, long y, int pixc)
 /* darken a band to k/8 (the status panel: 3/8) */
 static void shade_rect(int y0, int y1, int k)
 {
-    unsigned long *p = scene_fb + y0 * SW, *e = scene_fb + (y1 + 1) * SW;
+    Pix *p = scene_fb + y0 * SW, *e = scene_fb + (y1 + 1) * SW;
     for (; p < e; p++) {
-        unsigned long v = *p;
-        unsigned long r = ((v >> 16) & 255) * k >> 3, g = ((v >> 8) & 255) * k >> 3, b = (v & 255) * k >> 3;
-        *p = 0xFF000000UL | (r << 16) | (g << 8) | b;
+        Pix v = *p;
+        *p = PIX_RGB(PIX_R(v) * k >> 3, PIX_G(v) * k >> 3, PIX_B(v) * k >> 3);
     }
 }
 
 /* fb * 7/8 + colour / 2, the colour being a third of the ink: a flash */
 static void flash(unsigned short q)
 {
-    unsigned long c = rgb_of[q & 0x7FFF];
-    unsigned long cr = ((c >> 16) & 255) >> 1, cg = ((c >> 8) & 255) >> 1, cb = (c & 255) >> 1;
-    unsigned long *p = scene_fb, *e = scene_fb + SW * SH;
+    Pix c = PIX_OF(q);
+    unsigned long cr = PIX_R(c) >> 1, cg = PIX_G(c) >> 1, cb = PIX_B(c) >> 1;
+    Pix *p = scene_fb, *e = scene_fb + SW * SH;
     for (; p < e; p++) {
-        unsigned long v = *p, r, g, b;
-        r = (((v >> 16) & 255) * 7 >> 3) + cr; if (r > 255) r = 255;
-        g = (((v >> 8) & 255) * 7 >> 3) + cg;  if (g > 255) g = 255;
-        b = ((v & 255) * 7 >> 3) + cb;          if (b > 255) b = 255;
-        *p = 0xFF000000UL | (r << 16) | (g << 8) | b;
+        Pix v = *p;
+        unsigned long r, g, b;
+        r = (PIX_R(v) * 7 >> 3) + cr; if (r > PIX_MAX) r = PIX_MAX;
+        g = (PIX_G(v) * 7 >> 3) + cg; if (g > PIX_MAX) g = PIX_MAX;
+        b = (PIX_B(v) * 7 >> 3) + cb; if (b > PIX_MAX) b = PIX_MAX;
+        *p = PIX_RGB(r, g, b);
     }
 }
 
 void scene_init(void)
 {
+#ifndef SCENE_RGB15
     int i;
     for (i = 0; i < 32768; i++) {
         int r = (i >> 10) & 31, g = (i >> 5) & 31, b = i & 31;
         rgb_of[i] = 0xFF000000UL | ((unsigned long)((r << 3) | (r >> 2)) << 16) |
                     ((unsigned long)((g << 3) | (g >> 2)) << 8) | (unsigned long)((b << 3) | (b >> 2));
     }
+#endif
 }
 
 /* ---- projection ---- */
@@ -180,7 +204,7 @@ static void background(void)
 {
     const KRoom *r = R.room;
     int x, y, z, k, door[2], lo[2], hi[2];
-    unsigned long bgc = rgb_of[((18 >> 3) << 10) | ((19 >> 3) << 5) | (26 >> 3)];   /* the camera's (0.07, 0.075, 0.1) */
+    Pix bgc = PIX_OF(((18 >> 3) << 10) | ((19 >> 3) << 5) | (26 >> 3));   /* the camera's (0.07, 0.075, 0.1) */
     for (k = 0; k < SW * SH; k++) bgbuf[k] = bgc;
     door[0] = lv_has_door(R.level, R.ridx, SIDE_N);
     door[1] = lv_has_door(R.level, R.ridx, SIDE_E);
@@ -374,8 +398,8 @@ void *scene_frame(int show_player, int panel, int flash_ink)
     {
         /* a plain loop: newlib's memcpy() left most of this 300 KB copy
          * undone under QEMU (aligned, not overlapping; smaller copies work) */
-        const unsigned long *src = bgbuf;
-        unsigned long *dst = scene_fb, *end = scene_fb + SW * SH;
+        const Pix *src = bgbuf;
+        Pix *dst = scene_fb, *end = scene_fb + SW * SH;
         while (dst < end) *dst++ = *src++;
     }
     show_player_flag = show_player;

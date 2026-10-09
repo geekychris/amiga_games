@@ -6,7 +6,7 @@ turn the tables. Ported from the 3DO version
 (`3do_dev/projects/planet_chomp`), which was itself rebuilt from the Unity
 game [geekychris/planet-chomp](https://github.com/geekychris/planet-chomp).
 
-AmigaOS 4.1 PPC only (QEMU sam460ex or real hardware). The 3D goes
+AmigaOS 4.1 PPC (QEMU sam460ex or real hardware), and classic 68k AmigaOS 3.x (see below). The 3D goes
 through **Mesa 7.8.2's software rasteriser (OSMesa)**, built for OS4 by
 `third_party/mesa-os4/`, so it needs no Warp3D driver or 3D card.
 
@@ -64,14 +64,56 @@ is `PLANET`:
 - hooks: `press <UP|DOWN|LEFT|RIGHT|A|C|P|L|R>` (holds a pad button for a few frames), `quit`
 - every 5 s it logs fps and milliseconds per frame for logic, each GL stage, HUD and blit
 
+## Classic 68k version (AmigaOS 3.x)
+
+`make ARCH=m68k` (or `scripts/build-example-68k.sh planet_chomp`) builds
+`planet_chomp_68k` for a 68020 or better with AGA or an RTG card. No 3D
+library or FPU is needed. It runs the 3DO version's own code, which was
+written for a CPU with no FPU and uses integer maths throughout:
+`render_cel.c` is the 3DO renderer, whose flat quads and scaled sprites ("cels") `softcel.c` draws in software, and `sfx_paula.c` is the 3DO sound code. The 3DO's 240-line display is stretched onto the 320 x 256 frame, as its layer did.
+
+The frame is 15-bit RGB, the 3DO's own pixel format, so sprites and
+textures need no conversion. `amiga68k.c` puts it on screen in one of
+three ways:
+
+- **RTG window** on an RTG Workbench, scaled up (Picasso96 `p96WritePixelArray`)
+- **RTG screen** of its own, with `FULLSCREEN`; F or F10 switches between the two
+- **AGA screen**, 320 x 256 with 8 bitplanes: a 256-colour palette fitted to
+  the colours on screen (refreshed every few seconds, no dithering),
+  converted chunky-to-planar and double buffered. This is the
+  default when the Workbench isn't RTG; `AGA` forces it.
+
+Sound is the 3DO code on the real Paula. Samples are in chip RAM, the
+four channels are claimed from audio.device, and the 3DO's 50 Hz
+audio tick runs from the main loop (`paula.h`, `paula68k.c`).
+
+```
+planet_chomp_68k [SCALE=n] [FULLSCREEN] [AGA]
+```
+
+Copy `planet_chomp_68k` somewhere and run it, e.g. into the folder FS-UAE
+mounts as `DH2:` (`deploy_dir` in devbench.toml).
+
+Input: the keyboard as on OS4, and the joystick in port 1 (fire = start /
+jump). FS-UAE puts that joystick on the cursor keys unless told otherwise,
+which is why the arrows work through it.
+
+On FS-UAE's 68060 (no JIT) through AGA, it runs at about 19 fps.
+
+The 68k build doesn't link amiga.lib. Its `sprintf` would replace
+libnix's, and amiga.lib's `%d` reads a 16-bit WORD, which the 3DO
+code's `%d` would trip over. Paula's registers come from `$DFF000`
+directly.
+
 ## Performance notes (QEMU sam460ex)
 
 About 35-40 fps at 320x256 (the 3DO version manages about 14). Two
 things made the difference:
 
 - **QEMU emulates the PPC FPU in software**, so every vertex and
-  triangle set-up in Mesa is expensive. The planet is a 49-vertex
-  silhouette fan, not a sphere mesh. Walls share their corners through
+  triangle set-up in Mesa is expensive. The planet is a silhouette fan of six
+  rings (about 150 vertices), not a sphere mesh. Its chords must hug the
+  surface, because their depth is what hides spooks round the far side. Walls share their corners through
   `glDrawElements` (6 vertices for the two faces you can see), and their
   float copies are made once per maze. Crumbs are points, sorted into
   bins by size.
