@@ -7,10 +7,11 @@ Example projects and games for the [AmigaBridge](https://github.com/geekychris/a
 
 ## What's in here
 
-Three flavours of project:
+Four flavours of project:
 
 - **Demos** — `boing_ball`, `starfield`, `plasma`, `bouncing_ball`, `aga3d`, `sfx_player`.
 - **Games** — `dot_chase`, `stakattack`, `orb_hunter`, `bullion_dash`, `nova_defense`, `orbital_patrol`, `pea_shooter_blast`, `frank_the_frog`, `rock_blaster`, `sky_knights`, `ace_pilot`, `lunar_rider`, `uranus_lander`, `jump_quest`, `rj_birthday`, `hubert`, and more.
+- **AmigaOS 4.1 (PPC) OpenGL games** — `planet_chomp` (Pac-Man on a tiny sphere) and `rolling_steel` (the marble racer), both ported from their 3DO versions. They render through software Mesa (OSMesa), built by the parent repo's `third_party/mesa-os4/build.sh`, and build with `scripts/build-example-ppc.sh <name>`. These two are PPC-only, not m68k; each has a README.
 - **Tools / tests** — `hello_world`, `debug_test`, `test_example`, `test_new_features`, `memory_monitor`, `system_monitor`, `disk_benchmark`, `symbol_demo`, `game_of_life`, `arexx_test`, `shell_proxy`, `launcher`.
 
 All titles here are original — no commercial trademarks are used in code, on-screen text, or filenames. See [`.coderabbit.yaml`](.coderabbit.yaml) for the trademark-screening rules applied to every PR.
