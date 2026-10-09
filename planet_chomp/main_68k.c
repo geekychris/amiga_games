@@ -1,34 +1,27 @@
 /*
- * PLANET CHOMP - AmigaOS 4 version of geekychris/planet-chomp, by way of
- * the 3DO version (3do_dev/projects/planet_chomp).
+ * PLANET CHOMP - classic Amiga (68020+, AmigaOS 3.x) version, from the 3DO
+ * version (3do-dev/projects/planet_chomp) like the AmigaOS 4 one.
  *
- * The rules (game.c), maze (maze.c), sprite textures (sprites.c) and
- * synthesised sounds are the 3DO code unchanged; the 3DO cel renderer is
- * replaced by OpenGL through Mesa's software rasteriser (gl_render.c),
- * and the HUD is drawn straight into the GL frame here before one
- * WritePixelArray() puts it in the window. Logic at 50 steps/s.
+ * Same game code; the 3DO renderer unchanged (render_cel.c) with its cels
+ * drawn by the CPU (softcel.c), and the 3DO's synthesised sounds on the
+ * real Paula (sfx_paula.c). The frame is 320 x 256 (the 3DO's 240-line
+ * display stretched onto it, as its layer did) and goes to an RTG window
+ * or screen, or an AGA screen (amiga68k.c).
  *
- * Keys: arrows / WASD / keypad steer (relative to the screen; a turn
- * waits for the next junction), Q/E or Z/X spin the view, C whole
- * planet, P pause, Space or Return start, Esc quits.
+ * Keys: arrows / WASD / keypad steer, Q/E or Z/X spin the view, C whole
+ * planet, P pause, Space start, Esc quit; F or F10 window / full screen.
  *
- * Usage: planet_chomp [SCALE=n] [HIRES] [FULLSCREEN]
- *   SCALE=n     window is n x 320x256 (default 2)
- *   HIRES       render the 3D at 640x512 instead of upscaling 320x256
- *   FULLSCREEN  a screen of its own; F or F10 switches while playing
+ * Usage: planet_chomp_68k [SCALE=n] [FULLSCREEN] [AGA]
  */
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <intuition/intuition.h>
 #include <graphics/text.h>
-#include <graphics/gfx.h>
-#include <devices/timer.h>
 #include <devices/inputevent.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/intuition.h>
 #include <proto/graphics.h>
-#include <proto/timer.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,12 +31,14 @@
 #include "game.h"
 #include "sfx.h"
 #include "sprites.h"
-#include "gl_render.h"
-#include "os4_display.h"
+#include "amiga68k.h"
+#include "paula.h"
+#include "softcel.h"
 
-/* Mesa's software rasteriser keeps whole spans on the stack (one
- * function alone takes ~390 KB), far beyond a shell's default stack */
-static const char __attribute__((used)) stack_cookie[] = "$STACK:2097152";
+#define LOGICAL_W 320
+#define LOGICAL_H 256
+
+unsigned long __stack = 65536;
 
 enum { P_WHITE = 1, P_DIM, P_YELLOW, P_GOLD, P_RED, P_PINK, P_CYAN, P_ORANGE, P_RING, P_RINGDIM,
        P_FRIGHT, P_EYES, P_BAR_BG, P_COUNT };
@@ -54,21 +49,20 @@ static const ULONG pen_rgb[P_COUNT] = {
 
 /* ---- the frame buffer the HUD draws into (logical 320 x 256 coordinates) ---- */
 
-static unsigned char *fb;          /* ARGB, LOGICAL_W*S x LOGICAL_H*S */
-static int S, FW, FH;
+static UWORD pen15[P_COUNT];       /* the pens in 15-bit RGB; the frame is fb (amiga68k.c) */
 
 static void fill(int x0, int y0, int x1, int y1, int pen)    /* inclusive, logical */
 {
-    ULONG c = 0xFF000000UL | pen_rgb[pen];
+    UWORD c = pen15[pen];
     int x, y;
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > LOGICAL_W - 1) x1 = LOGICAL_W - 1;
     if (y1 > LOGICAL_H - 1) y1 = LOGICAL_H - 1;
     if (x0 > x1 || y0 > y1) return;
-    for (y = y0 * S; y < (y1 + 1) * S; y++) {
-        ULONG *row = (ULONG *)(fb + (size_t)y * FW * 4);
-        for (x = x0 * S; x < (x1 + 1) * S; x++) row[x] = c;
+    for (y = y0; y <= y1; y++) {
+        UWORD *row = fb + (long)y * LOGICAL_W;
+        for (x = x0; x <= x1; x++) row[x] = c;
     }
 }
 
@@ -263,7 +257,7 @@ static int build_sprites(void)
 /* ---- screens ---- */
 
 static long fps10;
-static unsigned long long prof[4];      /* us: logic, gl, hud, blit */
+static unsigned long long prof[4];      /* us: logic, draw, hud, blit */
 
 static void hud_play(void)
 {
@@ -294,7 +288,7 @@ static void hud_play(void)
         long x, y;
         if (g.popup[i].age < 0 || !rd_project(g.popup[i].world, &x, &y)) continue;
         sprintf(buf, "%ld", (long)g.popup[i].pts);
-        text((int)(x >> 16) - 4 * (int)strlen(buf), (int)(y >> 16) - 10 - g.popup[i].age / 2, buf, P_CYAN);
+        text((int)(x >> 16) - 4 * (int)strlen(buf), (int)(((y >> 16) * 16) / 15) - 10 - g.popup[i].age / 2, buf, P_CYAN);
     }
     switch (g.state) {
     case GS_READY:
@@ -367,6 +361,7 @@ static void hiscore_save(void)
 static ULONG keys_held, keys_pressed, inject_held, inject_pressed;
 static int   inject_frames, quit;
 static const char *quit_why = "";
+static ULONG joy_held;                   /* the joystick's bits (sys_joystick) */
 
 static ULONG key_bit(UWORD code)
 {
@@ -413,56 +408,17 @@ static int hk_quit(const char *args, char *res, int len)
     return 0;
 }
 
-/* ---- timing ---- */
-
-static struct MsgPort *timer_port;
-static struct TimeRequest *timer_req;
-struct Device *TimerBase;
-struct TimerIFace *ITimer;
-
-static int timer_open(void)
-{
-    timer_port = AllocSysObjectTags(ASOT_PORT, TAG_DONE);
-    if (!timer_port) return 0;
-    timer_req = AllocSysObjectTags(ASOT_IOREQUEST, ASOIOR_ReplyPort, timer_port,
-                                   ASOIOR_Size, sizeof(struct TimeRequest), TAG_DONE);
-    if (!timer_req) return 0;
-    if (OpenDevice((CONST_STRPTR)TIMERNAME, UNIT_MICROHZ, (struct IORequest *)timer_req, 0) != 0) {
-        FreeSysObject(ASOT_IOREQUEST, timer_req);
-        timer_req = 0;
-        return 0;
-    }
-    TimerBase = timer_req->Request.io_Device;
-    ITimer = (struct TimerIFace *)GetInterface((struct Library *)TimerBase, "main", 1, NULL);
-    return ITimer != 0;
-}
-
-static void timer_close(void)
-{
-    if (ITimer) DropInterface((struct Interface *)ITimer);
-    if (TimerBase) CloseDevice((struct IORequest *)timer_req);
-    if (timer_req) FreeSysObject(ASOT_IOREQUEST, timer_req);
-    if (timer_port) FreeSysObject(ASOT_PORT, timer_port);
-}
-
-static unsigned long long now_us(void)
-{
-    struct TimeVal tv;
-    GetUpTime(&tv);
-    return (unsigned long long)tv.Seconds * 1000000ULL + tv.Microseconds;
-}
-
 /* ---- main ---- */
 
-static int parse_args(int argc, char **argv, int *scale, int *hires, int *full)
+static int parse_args(int argc, char **argv, int *scale, int *mode)
 {
     int i;
     for (i = 1; i < argc; i++) {
-        if (strncasecmp(argv[i], "SCALE=", 6) == 0) *scale = atoi(argv[i] + 6);
-        else if (strcasecmp(argv[i], "HIRES") == 0) *hires = 1;
-        else if (strcasecmp(argv[i], "FULLSCREEN") == 0) *full = 1;
-        else if (strcasecmp(argv[i], "?") == 0) {
-            printf("Usage: planet_chomp [SCALE=n] [HIRES] [FULLSCREEN]\n");
+        if (strncmp(argv[i], "SCALE=", 6) == 0 || strncmp(argv[i], "scale=", 6) == 0) *scale = atoi(argv[i] + 6);
+        else if (!strcmp(argv[i], "FULLSCREEN") || !strcmp(argv[i], "fullscreen")) *mode = SYS_RTG_SCREEN;
+        else if (!strcmp(argv[i], "AGA") || !strcmp(argv[i], "aga")) *mode = SYS_AGA;
+        else if (strcmp(argv[i], "?") == 0) {
+            printf("Usage: planet_chomp_68k [SCALE=n] [FULLSCREEN] [AGA]\n");
             return 0;
         }
     }
@@ -473,7 +429,7 @@ static int parse_args(int argc, char **argv, int *scale, int *hires, int *full)
 
 int main(int argc, char **argv)
 {
-    int scale = 2, hires = 0, full = 0, O, bridge;
+    int scale = 2, mode = SYS_AUTO, bridge, i;
     long saved_hi = 0, frames = 0, steps_done = 0;
     int last_state = -1, rc = 0;
     unsigned long long t_last, acc = 0, t_fps;
@@ -481,32 +437,26 @@ int main(int argc, char **argv)
     long dbg_walls = 0, dbg_prims = 0;
     unsigned long long tp0, tp1, tp2, tp3, tp4;
 
-    if (!parse_args(argc, argv, &scale, &hires, &full)) return 0;
+    if (!parse_args(argc, argv, &scale, &mode)) return 0;
     bridge = ab_init("PLANET") == 0;
-    S = (hires && scale >= 2) ? 2 : 1;
-    O = scale / S;
-    if (O < 1) O = 1;
-    if (!gl_open(S)) { printf("planet_chomp: no OpenGL (OSMesa) context\n"); AB_E("gl_open failed"); rc = 20; goto done; }
-    fb = gl_pixels();
-    FW = LOGICAL_W * S;
-    FH = LOGICAL_H * S;
-    if (!timer_open()) { printf("planet_chomp: no timer.device\n"); rc = 20; goto done; }
-    if (!font_init()) AB_W("topaz 8 not available: no HUD text");
-
-    if (!disp_open("Planet Chomp", FW, FH, O, full)) {
+    if (!sys_open("Planet Chomp", LOGICAL_H, scale, mode)) {
         printf("planet_chomp: can't open a window or screen\n");
         rc = 20;
         goto done;
     }
+    sc_setup(fb, LOGICAL_W, LOGICAL_H, 16);            /* 240 display lines onto 256 */
+    for (i = 0; i < P_COUNT; i++)
+        pen15[i] = (UWORD)((((pen_rgb[i] >> 19) & 31) << 10) | (((pen_rgb[i] >> 11) & 31) << 5) | ((pen_rgb[i] >> 3) & 31));
+    if (!timer_open()) { printf("planet_chomp: no timer.device\n"); rc = 20; goto done; }
+    if (!font_init()) AB_W("topaz 8 not available: no HUD text");
 
     /* something to look at while the sounds and sprites are made */
-    memset(fb, 0, (size_t)FW * FH * 4);
     fill(0, 0, LOGICAL_W - 1, LOGICAL_H - 1, P_BAR_BG);
     big(100, "PLANET CHOMP", 3, P_YELLOW);
     ctext(146, "LOADING...", P_DIM);
-    disp_present(fb);
+    sys_present();
 
-    if (!sprites_init()) { AB_E("no memory for sprites"); rc = 20; goto done; }
+    if (!pc_cels_init() || !sprites_init()) { AB_E("no memory for sprites"); rc = 20; goto done; }
     tex_key_id = tex_key;
     if (!sfx_init()) AB_W("no sound (ahi.device unavailable)");
     rd_init();
@@ -528,10 +478,8 @@ int main(int argc, char **argv)
         ab_register_hook("press", "hold a pad button: UP DOWN LEFT RIGHT A C P L R", hk_press);
         ab_register_hook("quit", "quit the game", hk_quit);
     }
-    AB_I("ready %s %ldx%ld gl=%ldx%ld sound=%ld walls=%ld", gl_renderer_name(), (long)FW * O, (long)FH * O,
-         (long)FW, (long)FH, (long)sfx_available(), (long)mz_nwalls);
+    AB_I("ready %s sound=%ld walls=%ld", sys_mode_name(), (long)sfx_available(), (long)mz_nwalls);
 
-    rd_clock = now_us;
     t_last = t_fps = now_us();
     while (!quit) {
         struct IntuiMessage *m;
@@ -539,7 +487,7 @@ int main(int argc, char **argv)
         int steps, nspr, flags = 0;
         unsigned long long t;
 
-        while ((m = (struct IntuiMessage *)GetMsg(disp_window()->UserPort)) != 0) {
+        while ((m = (struct IntuiMessage *)GetMsg(sys_window()->UserPort)) != 0) {
             ULONG cls = m->Class;
             UWORD code = m->Code, qual = m->Qualifier;
             ReplyMsg((struct Message *)m);
@@ -547,9 +495,9 @@ int main(int argc, char **argv)
             else if (cls == IDCMP_INACTIVEWINDOW) keys_held = 0;
             else if (cls == IDCMP_RAWKEY) {
                 if (code == 0x45) { quit = 1; quit_why = "Esc"; }  /* Esc */
-                else if (code == DISP_KEY_F || code == DISP_KEY_F10) {
-                    if (!disp_toggle()) { quit = 1; quit_why = "no display"; }
-                    AB_I("display: %s", disp_fullscreen() ? "full screen" : "window");
+                else if (code == SYS_KEY_F || code == SYS_KEY_F10) {
+                    if (!sys_toggle()) { quit = 1; quit_why = "no display"; }
+                    AB_I("display: %s", sys_mode_name());
                     break;                                         /* the old window's port is gone */
                 }
                 else if (code & IECODE_UP_PREFIX) keys_held &= ~key_bit(code & 0x7F);
@@ -560,6 +508,11 @@ int main(int argc, char **argv)
             }
         }
         if (SetSignal(0, SIGBREAKF_CTRL_C) & SIGBREAKF_CTRL_C) { quit = 1; quit_why = "Ctrl-C"; }
+        {   /* the joystick in port 1 (FS-UAE puts it on the cursor keys) */
+            ULONG j = sys_joystick();
+            keys_pressed |= j & ~joy_held;
+            joy_held = j;
+        }
         if (bridge) ab_poll();
         if (quit) break;
 
@@ -573,7 +526,7 @@ int main(int argc, char **argv)
         if (steps > 8) { steps = 8; acc = 0; }
 
         tp0 = now_us();
-        held = keys_held | keys_pressed | inject_held;
+        held = keys_held | keys_pressed | inject_held | joy_held;
         pressed = keys_pressed | inject_pressed;
         keys_pressed = inject_pressed = 0;
         if (inject_frames > 0 && --inject_frames == 0) inject_held = 0;
@@ -599,7 +552,7 @@ int main(int argc, char **argv)
         }
         tp3 = now_us();
 
-        disp_present(fb);
+        sys_present();
         tp4 = now_us();
         prof[0] += tp1 - tp0; prof[1] += tp2 - tp1; prof[2] += tp3 - tp2; prof[3] += tp4 - tp3;
         sfx_update();
@@ -615,16 +568,11 @@ int main(int argc, char **argv)
         fps_frames++;
         if (t - t_fps >= 5000000ULL) {
             fps10 = (long)(fps_frames * 10000000ULL / (t - t_fps));
-            AB_I("fps=%ld.%ld walls=%ld prims=%ld steps=%ld score=%ld ms/frame logic=%ld gl=%ld hud=%ld blit=%ld",
+            AB_I("fps=%ld.%ld walls=%ld cels=%ld steps=%ld score=%ld ms/frame logic=%ld draw=%ld hud=%ld blit=%ld",
                  fps10 / 10, fps10 % 10, (long)rd_stats_walls, (long)rd_stats_cels, steps_done, g.score,
                  (long)(prof[0] / 1000 / fps_frames), (long)(prof[1] / 1000 / fps_frames),
                  (long)(prof[2] / 1000 / fps_frames), (long)(prof[3] / 1000 / fps_frames));
-            AB_I("gl ms/frame: clear+stars=%ld planet=%ld walls=%ld crumbs=%ld sprites=%ld",
-                 (long)(rd_prof[0] / 1000 / fps_frames), (long)(rd_prof[1] / 1000 / fps_frames),
-                 (long)(rd_prof[2] / 1000 / fps_frames), (long)(rd_prof[3] / 1000 / fps_frames),
-                 (long)(rd_prof[4] / 1000 / fps_frames));
             memset(prof, 0, sizeof(prof));
-            memset(rd_prof, 0, sizeof(rd_prof));
             fps_frames = 0;
             t_fps = t;
         }
@@ -633,9 +581,10 @@ int main(int argc, char **argv)
     AB_I("quit (%s) after %ld frames", quit_why, frames);
 done:
     sfx_exit();
-    disp_close();
+    AB_I("exit: sound closed");
+    sys_close();
+    AB_I("exit: display closed");
     timer_close();
-    gl_close();
     if (bridge) ab_cleanup();
     return rc;
 }

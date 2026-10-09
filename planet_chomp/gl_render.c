@@ -244,43 +244,56 @@ static float lit(F3 n, float amb, float dif)
 
 static void vtx(F3 p) { glVertex3f(p.x, p.y, p.z); }
 
-/* ---- the planet: its silhouette as a fan, lit per vertex ---- */
+/* ---- the planet: its silhouette as a fan of rings, lit per vertex ----
+ *
+ * The rings run from the point nearest the camera out to the horizon, and
+ * the faces between them are chords, a little inside the sphere. Their
+ * depth is what hides things round the far side, so the chords must stay
+ * close to the surface: with too few rings (it had two) a spook just over
+ * the horizon pokes up through the cut-off bulge. Six rings, closer
+ * together toward the horizon, keep the chords within ~0.05 units. */
 
-#define RIM 24
+#define RIM   24
+#define RINGS 6
 
 static void draw_planet(void)
 {
     float d = sqrtf(dot(campos, campos)), c = RADIUS * RADIUS / d, rr = sqrtf(RADIUS * RADIUS - c * c);
     F3 chat = mul(campos, 1.0f / d);
     F3 e1 = norm(sub(right, mul(chat, dot(right, chat)))), e2 = cross(chat, e1);
-    F3 centre = mul(chat, c), top = mul(chat, RADIUS), rim[RIM + 1], mid[RIM + 1];
-    int i;
+    F3 centre = mul(chat, c), top = mul(chat, RADIUS);
+    static F3 ring[RINGS][RIM + 1];
+    static GLubyte col[RINGS][RIM + 1][4];
+    GLubyte ctop[4];
+    int i, k;
     for (i = 0; i <= RIM; i++) {
         float a = 2 * (float)M_PI * (i % RIM) / RIM;
-        rim[i] = add(centre, add(mul(e1, rr * cosf(a)), mul(e2, rr * sinf(a))));
-        mid[i] = mul(norm(add(mul(top, 0.5f), mul(rim[i], 0.5f))), RADIUS);
+        F3 rim = add(centre, add(mul(e1, rr * cosf(a)), mul(e2, rr * sinf(a))));
+        for (k = 0; k < RINGS; k++) {
+            float u = (float)(k + 1) / RINGS, t = 1 - (1 - u) * (1 - u);   /* denser near the rim */
+            F3 p = k == RINGS - 1 ? rim : mul(norm(add(mul(top, 1 - t), mul(rim, t))), RADIUS);
+            float l = lit(mul(p, 1.0f / RADIUS), 0.6f, 0.7f) * (k == RINGS - 1 ? 0.85f : 1.0f);
+            ring[k][i] = p;
+            colour4(col[k][i], 60, 66, 104, l);
+        }
     }
-    /* its depth hides whatever is round the far side: the fan's chords
-     * run just under the surface, so nothing standing on it is cut */
+    colour4(ctop, 60, 66, 104, lit(chat, 0.6f, 0.7f));
     glShadeModel(GL_SMOOTH);
     glBegin(GL_TRIANGLE_FAN);
-    colour(60, 66, 104, lit(chat, 0.6f, 0.7f));
+    glColor4ubv(ctop);
     vtx(top);
-    for (i = 0; i <= RIM; i++) {
-        colour(60, 66, 104, lit(mul(mid[i], 1.0f / RADIUS), 0.6f, 0.7f));
-        vtx(mid[i]);
-    }
+    for (i = 0; i <= RIM; i++) { glColor4ubv(col[0][i]); vtx(ring[0][i]); }
     glEnd();
-    glBegin(GL_QUAD_STRIP);
-    for (i = 0; i <= RIM; i++) {
-        colour(60, 66, 104, lit(mul(mid[i], 1.0f / RADIUS), 0.6f, 0.7f));
-        vtx(mid[i]);
-        colour(60, 66, 104, 0.8f * lit(mul(rim[i], 1.0f / RADIUS), 0.5f, 0.6f));
-        vtx(rim[i]);
+    for (k = 1; k < RINGS; k++) {
+        glBegin(GL_QUAD_STRIP);
+        for (i = 0; i <= RIM; i++) {
+            glColor4ubv(col[k - 1][i]); vtx(ring[k - 1][i]);
+            glColor4ubv(col[k][i]);     vtx(ring[k][i]);
+        }
+        glEnd();
     }
-    glEnd();
     glShadeModel(GL_FLAT);
-    rd_stats_cels += 2 * RIM;
+    rd_stats_cels += RIM * (2 * RINGS - 1);
 }
 
 /* ---- walls: float copies made once per maze; each frame the visible
