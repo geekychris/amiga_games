@@ -17,7 +17,8 @@
  * Title: up/down course, left/right one or two players, C music.
  * Esc quits.
  *
- * Usage: rolling_steel [SCALE=n] [HIRES]
+ * Usage: rolling_steel [SCALE=n] [HIRES] [FULLSCREEN]
+ *   FULLSCREEN: a screen of its own; F or F10 switches while playing
  */
 #include <exec/types.h>
 #include <exec/memory.h>
@@ -38,6 +39,7 @@
 #include "bridge_client.h"
 #include "game.h"
 #include "glcels.h"
+#include "os4_display.h"
 
 /* Mesa's software rasteriser keeps whole spans on the stack */
 static const char __attribute__((used)) stack_cookie[] = "$STACK:2097152";
@@ -454,38 +456,11 @@ static unsigned long long now_us(void)
     return (unsigned long long)tv.Seconds * 1000000ULL + tv.Microseconds;
 }
 
-/* ---- the frame to the window, scaled up O times ---- */
-
-static unsigned char *out;
-static int O, outw, outh;
-
-static void present(struct Window *win)
-{
-    int y, x, k;
-    if (O == 1) {
-        WritePixelArray(fb, 0, 0, FW * 4, PIXF_A8R8G8B8, win->RPort, 0, 0, FW, FH);
-        return;
-    }
-    for (y = 0; y < FH; y++) {
-        const ULONG *src = (const ULONG *)(fb + (size_t)y * FW * 4);
-        ULONG *dst = (ULONG *)(out + (size_t)y * O * outw * 4);
-        if (O == 2)
-            for (x = 0; x < FW; x++) { dst[0] = dst[1] = src[x]; dst += 2; }
-        else
-            for (x = 0; x < FW; x++)
-                for (k = 0; k < O; k++) *dst++ = src[x];
-        for (k = 1; k < O; k++)
-            memcpy(out + ((size_t)y * O + k) * outw * 4, out + (size_t)y * O * outw * 4, (size_t)outw * 4);
-    }
-    WritePixelArray(out, 0, 0, outw * 4, PIXF_A8R8G8B8, win->RPort, 0, 0, outw, outh);
-}
-
 /* ---- main ---- */
 
 int main(int argc, char **argv)
 {
-    struct Window *win = 0;
-    int scale = 2, hires = 0, bridge, rc = 0, i;
+    int scale = 2, hires = 0, full = 0, O, bridge, rc = 0, i;
     long frames = 0, fps_frames = 0, fps10 = 0, steps_done = 0, quads = 0, prims = 0;
     long cur_state = 0, cur_level = 0, time_left = 0, falls = 0;
     unsigned long long t_last, t_fps, acc = 0, prof[4] = { 0, 0, 0, 0 };
@@ -493,7 +468,8 @@ int main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
         if (strncasecmp(argv[i], "SCALE=", 6) == 0) scale = atoi(argv[i] + 6);
         else if (strcasecmp(argv[i], "HIRES") == 0) hires = 1;
-        else if (strcmp(argv[i], "?") == 0) { printf("Usage: rolling_steel [SCALE=n] [HIRES]\n"); return 0; }
+        else if (strcasecmp(argv[i], "FULLSCREEN") == 0) full = 1;
+        else if (strcmp(argv[i], "?") == 0) { printf("Usage: rolling_steel [SCALE=n] [HIRES] [FULLSCREEN]\n"); return 0; }
     }
     if (scale < 1) scale = 1;
     if (scale > 4) scale = 4;
@@ -504,27 +480,21 @@ int main(int argc, char **argv)
     fb = glc_pixels();
     FW = SCREEN_W * S;
     FH = SCREEN_H * S;
-    outw = FW * O;
-    outh = FH * O;
-    if (O > 1 && !(out = (unsigned char *)malloc((size_t)outw * outh * 4))) { rc = 20; goto done; }
     if (!timer_open()) { printf("rolling_steel: no timer.device\n"); rc = 20; goto done; }
     if (!font_init()) AB_W("topaz 8 not available: no HUD text");
 
-    win = OpenWindowTags(NULL,
-                         WA_Title, (ULONG)"Rolling Steel",
-                         WA_InnerWidth, outw, WA_InnerHeight, outh,
-                         WA_DragBar, TRUE, WA_DepthGadget, TRUE, WA_CloseGadget, TRUE,
-                         WA_Activate, TRUE, WA_RMBTrap, TRUE, WA_GimmeZeroZero, TRUE,
-                         WA_IDCMP, IDCMP_RAWKEY | IDCMP_CLOSEWINDOW | IDCMP_INACTIVEWINDOW,
-                         TAG_DONE);
-    if (!win) { printf("rolling_steel: can't open a %ldx%ld window\n", (long)outw, (long)outh); rc = 20; goto done; }
+    if (!disp_open("Rolling Steel", FW, FH, O, full)) {
+        printf("rolling_steel: can't open a window or screen\n");
+        rc = 20;
+        goto done;
+    }
 
     /* something to look at while the courses and sounds load */
     fill(0, 0, SCREEN_W - 1, SCREEN_H - 1, P_SHADOW);
     text_scaled(160 - 13 * 8 + 2, 102, "ROLLING STEEL", 2, P_BAR);
     text_scaled(160 - 13 * 8, 100, "ROLLING STEEL", 2, P_AMBER);
     text_scaled(160 - 4 * 10, 136, "LOADING...", 1, P_DIM);
-    present(win);
+    disp_present(fb);
 
     if (!render_init()) { AB_E("render_init failed"); rc = 20; goto done; }
     if (!snd_init()) AB_W("no sound (ahi.device or data/sfx.raw unavailable)");
@@ -542,7 +512,7 @@ int main(int argc, char **argv)
         ab_register_hook("press2", "hold a pad 2 button", hk_press2);
         ab_register_hook("quit", "quit the game", hk_quit);
     }
-    AB_I("ready %ldx%ld render=%ldx%ld sound=%ld courses=%ld", (long)outw, (long)outh, (long)FW, (long)FH,
+    AB_I("ready %ldx%ld render=%ldx%ld sound=%ld courses=%ld", (long)FW * O, (long)FH * O, (long)FW, (long)FH,
          (long)snd_available(), (long)course_count);
 
     t_last = t_fps = now_us();
@@ -552,7 +522,7 @@ int main(int argc, char **argv)
         ULONG h[2], p[2];
         int steps, pad;
 
-        while ((m = (struct IntuiMessage *)GetMsg(win->UserPort)) != 0) {
+        while ((m = (struct IntuiMessage *)GetMsg(disp_window()->UserPort)) != 0) {
             ULONG cls = m->Class;
             UWORD code = m->Code, qual = m->Qualifier;
             ReplyMsg((struct Message *)m);
@@ -561,6 +531,11 @@ int main(int argc, char **argv)
             else if (cls == IDCMP_RAWKEY) {
                 ULONG b;
                 if (code == 0x45) { quit = 1; quit_why = "Esc"; }
+                else if (code == DISP_KEY_F || code == DISP_KEY_F10) {
+                    if (!disp_toggle()) { quit = 1; quit_why = "no display"; }
+                    AB_I("display: %s", disp_fullscreen() ? "full screen" : "window");
+                    break;                                         /* the old window's port is gone */
+                }
                 else if (code & IECODE_UP_PREFIX) {
                     b = key_bit(code & 0x7F, &pad);
                     held[pad] &= ~b;
@@ -608,7 +583,7 @@ int main(int argc, char **argv)
         render_end();
         t2 = now_us();
         hud_draw();
-        present(win);
+        disp_present(fb);
         t3 = now_us();
         snd_update();
         prof[0] += t1 - t0; prof[1] += t2 - t1; prof[2] += t3 - t2;
@@ -636,9 +611,8 @@ int main(int argc, char **argv)
 done:
     snd_exit();
     course_free();
-    if (win) CloseWindow(win);
+    disp_close();
     timer_close();
-    free(out);
     glc_close();
     if (bridge) ab_cleanup();
     return rc;

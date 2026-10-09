@@ -23,8 +23,16 @@ AmigaOS 4.1 PPC only. It runs at a steady 50 fps on QEMU sam460ex.
 | Title: Q + E together | a tour of every room of every keep |
 
 ```
-spectral_keep [SCALE=n]     window n x 320x240 (default 2: 640x480)
+spectral_keep [SCALE=n] [FULLSCREEN]
+  SCALE=n     window is n x 320x240 (default 2: 640x480)
+  FULLSCREEN  a screen of its own (640x480, the picture at 2x)
 ```
+
+**Full screen:** add `FULLSCREEN` to open a screen of the game's own. F or
+F10 switches between window and full screen while playing. The screen is
+the smallest RTG mode that shows the frame at 2x (32-bit, else 16-bit),
+with the picture centred and the mouse pointer hidden. This is
+`os4_display.c`, shared by all three OS4 ports.
 
 ## Files
 
@@ -32,6 +40,7 @@ spectral_keep [SCALE=n]     window n x 320x240 (default 2: 640x480)
 |---|---|
 | `game.c`, `room.c`, `world.c`, `levels.c`, `vox.c`, `font.c`, `textures.c`, `keep.h` | the 3DO code, unchanged: rules; rooms and actors; physics; the 24 rooms; the software voxel renderer that draws every model into sprites; the game's 8x8 font; the surface textures |
 | `scene.c` | the 3DO room composer with its output changed. The dependency sort over boxes is as before. The cels became a software compositor: the room's walls and floor are composed once per room, copied each frame, and the sprites blitted over them in the same order. Shadows, the panel's shade and the flash are per-pixel versions of the 3DO pixel-processor modes |
+| `os4_display.c` | window or full screen, integer scaling, the blit (the same file in all three OS4 ports) |
 | `main_os4.c` | window, keyboard as the pad, 50 Hz loop, the HUD (Hud.cs) in the game's font, data loading |
 | `sound_ahi.c` | the four music loops and the effects through ahi.device. Music streams in one-second linked chunks, so it loops without a gap and can duck while someone talks |
 | `data/` | the music and effects rendered by the 3DO version's `tools/assets.py` (signed 8-bit, 11050 Hz) |

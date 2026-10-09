@@ -25,10 +25,17 @@ The attract mode starts by itself after 15 s on the title. The high
 score is kept in `PROGDIR:planetchomp.hi`.
 
 ```
-planet_chomp [SCALE=n] [HIRES]
-  SCALE=n   window is n x 320x256 (default 2: 640x512)
-  HIRES     render the 3D at 640x512 instead of doubling 320x256 (~15 fps on QEMU)
+planet_chomp [SCALE=n] [HIRES] [FULLSCREEN]
+  SCALE=n     window is n x 320x256 (default 2: 640x512)
+  HIRES       render the 3D at 640x512 instead of doubling 320x256 (~15 fps on QEMU)
+  FULLSCREEN  a screen of its own (800x600 on QEMU, the picture at 2x)
 ```
+
+**Full screen:** add `FULLSCREEN` to open a screen of the game's own. F or
+F10 switches between window and full screen while playing. The screen is
+the smallest RTG mode that shows the frame at 2x (32-bit, else 16-bit),
+with the picture centred and the mouse pointer hidden. This is
+`os4_display.c`, shared by all three OS4 ports.
 
 ## Files
 
@@ -36,6 +43,7 @@ planet_chomp [SCALE=n] [HIRES]
 |---|---|
 | `game.c`, `game.h`, `maze.c`, `pc.h`, `sprites.c`, `sprites.h` | the 3DO code, unchanged: rules, spook AI, autopilot, sphere maze, sprite textures |
 | `gl_render.c` | replaces the 3DO cel renderer (`render.c` + `cels.c`): same camera, OpenGL through OSMesa |
+| `os4_display.c` | window or full screen, integer scaling, the blit (the same file in all three OS4 ports) |
 | `main_os4.c` | window, keyboard as a pad, 50 Hz logic clock, HUD drawn into the GL frame, blit with `WritePixelArray` |
 | `sfx_ahi.c` | the 3DO's synthesised sounds (`sfx.c`), played through ahi.device instead of Paula |
 | `amiga3do.h` | the pad bits `game.c` expects from the 3DO compatibility layer |
