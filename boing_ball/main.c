@@ -17,6 +17,7 @@
 
 #include <exec/types.h>
 #include <exec/memory.h>
+#include <dos/dos.h>
 #include <intuition/intuition.h>
 #include <intuition/screens.h>
 #include <graphics/gfx.h>
