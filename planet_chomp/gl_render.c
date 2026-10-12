@@ -349,8 +349,8 @@ static void draw_walls(int flash)
             colour4(wall_c[nv + 1], 235, 240, 255, 1);
             colour4(wall_c[nv + 4], 255, 255, 255, 1);
         } else {
-            colour4(wall_c[nv + 1], 50, 80, 220, lit(plus ? wside[i] : mul(wside[i], -1), 0.5f, 0.8f));
-            colour4(wall_c[nv + 4], 130, 180, 255, lit(wmid[i], 0.75f, 0.35f));
+            colour4(wall_c[nv + 1], 158, 92, 41, lit(plus ? wside[i] : mul(wside[i], -1), 0.5f, 0.8f));
+            colour4(wall_c[nv + 4], 255, 199, 115, lit(wmid[i], 0.75f, 0.35f));
         }
         for (k = 0; k < 8; k++) wall_i[ni + k] = (GLushort)(nv + qs[k]);
         nv += 6;
