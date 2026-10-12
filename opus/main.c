@@ -505,7 +505,7 @@ static void handle_click(int mx, int my)
 
 static void handle_key(UWORD raw)
 {
-    /* RAWKEY codes we care about — same set the ballblazer / hello_world
+    /* RAWKEY codes we care about — same set the rotoball / hello_world
      * examples use. bit 0x80 = key up event; only act on key-down. */
     if (raw & 0x80) return;
     int c = raw & 0x7F;

@@ -1,6 +1,6 @@
 # Planet Chomp (AmigaOS 4.1, OpenGL)
 
-A Pac-Man homage on a tiny planet: the maze wraps all the way round a
+A maze chase on a tiny planet: the maze wraps all the way round a
 sphere. Eat every crumb, dodge the four spooks, and grab a golden key to
 turn the tables. Ported from the 3DO version
 (`3do_dev/projects/planet_chomp`), which was itself rebuilt from the Unity

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-# planet_chomp — Pac-Man on a tiny sphere, ported from the 3DO version.
+# planet_chomp — a maze chase on a tiny sphere, ported from the 3DO version.
 #   ARCH=ppc (default)  AmigaOS 4.1, OpenGL through OSMesa
 #                       (../../third_party/mesa-os4/build.sh first):
 #                       scripts/build-example-ppc.sh planet_chomp

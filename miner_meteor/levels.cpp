@@ -7,7 +7,7 @@
  * Six starter caverns. Each demonstrates one or two mechanics
  * introduced by the tile alphabet in levels.h:
  *
- *   L0  Central Cavern      — plain floors + keys (jump / walk baseline)
+ *   L0  First Shaft         — plain floors + keys (jump / walk baseline)
  *   L1  Hazard Bay          — stationary hazards + air pacing
  *   L2  The Escalators      — conveyor belts
  *   L3  Guardian Alley      — patrolling horizontal guardians
@@ -19,7 +19,7 @@
  * already sized for it (NUM_LEVELS is derived at build time).
  */
 
-/* --- Level 0 : Central Cavern -------------------------------------- */
+/* --- Level 0 : First Shaft ----------------------------------------- */
 
 static const char LVL0_TILES[] =
     /* 0         1         2  <- col tens */
@@ -178,7 +178,7 @@ static const GuardianSpec LVL5_GUARDS[] = {
 /* --- Table --------------------------------------------------------- */
 
 const LevelSpec LEVELS[] = {
-    { "CENTRAL CAVERN",   LVL0_TILES, 0, LVL0_GUARDS },
+    { "FIRST SHAFT",      LVL0_TILES, 0, LVL0_GUARDS },
     { "HAZARD BAY",       LVL1_TILES, 1, LVL1_GUARDS },
     { "THE ESCALATORS",   LVL2_TILES, 2, LVL2_GUARDS },
     { "GUARDIAN ALLEY",   LVL3_TILES, 3, LVL3_GUARDS },

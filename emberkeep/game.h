@@ -84,7 +84,7 @@ enum GameMode {
 
 struct GameState {
     /* Widened to LONG for AB_TYPE_I32-safe bridge registration —
-     * same lesson learned in fractalus / miner_meteor. */
+     * same lesson learned in canyon_rescue / miner_meteor. */
     LONG      mode;
     LONG      level_index;
     LONG      lives;
