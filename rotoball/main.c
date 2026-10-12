@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
- * Ballblazer — main loop & display setup.
+ * Rotoball — main loop & display setup.
  *
  * Phase 1 scaffolding: opens a 320x256 5-plane double-buffered
  * screen, splits it into two 128-line panes, and renders each pane
@@ -14,6 +14,7 @@
 
 #include <exec/types.h>
 #include <exec/memory.h>
+#include <dos/dos.h>
 #include <intuition/intuition.h>
 #include <intuition/screens.h>
 #include <graphics/gfx.h>
@@ -29,7 +30,7 @@
 #include <stdio.h>
 
 #include "bridge_client.h"
-#include "ballblazer.h"
+#include "rotoball.h"
 #include "sound.h"
 
 #define VERSION "0.1"
@@ -71,9 +72,9 @@ static void set_palette(struct ViewPort *vp)
     put_rgb(vp, PEN_BALL_DARK, 90,  10,  10);   /* ball terminator */
     put_rgb(vp, PEN_BALL,     220,  40,  30);   /* ball mid red */
     put_rgb(vp, PEN_BALL_HI,  255, 200, 160);   /* ball specular hint */
-    put_rgb(vp, PEN_ROTO_P1,   40, 200, 255);   /* P1 rotofoil body cyan */
-    put_rgb(vp, PEN_ROTO_P2,  255, 180,  40);   /* P2 rotofoil body amber */
-    put_rgb(vp, PEN_ROTO_EDGE, 20,  20,  40);   /* rotofoil outline */
+    put_rgb(vp, PEN_ROTO_P1,   40, 200, 255);   /* P1 skimmer body cyan */
+    put_rgb(vp, PEN_ROTO_P2,  255, 180,  40);   /* P2 skimmer body amber */
+    put_rgb(vp, PEN_ROTO_EDGE, 20,  20,  40);   /* skimmer outline */
     put_rgb(vp, PEN_HUD_BG,    10,  10,  25);
     put_rgb(vp, PEN_HUD_FG,   220, 220, 240);
     put_rgb(vp, PEN_WHITE,    255, 255, 255);
@@ -130,7 +131,7 @@ static void close_display(void)
 }
 
 /* ---- gameplay state ------------------------------------------------ */
-static Rotofoil p1, p2;
+static Skimmer p1, p2;
 static Ball     ball;
 static int p1_score = 0, p2_score = 0;
 static LONG match_frames_left;      /* countdown, 25fps assumption */
@@ -160,14 +161,14 @@ static void init_game(void)
 }
 
 /* Award points when the ball crosses a goal line. Distance from the
- * scoring rotofoil's start position determines the bonus — the
- * classic Ballblazer 1/2/3-point ladder based on how far you had to
+ * scoring skimmer's start position determines the bonus — the
+ * 1/2/3-point ladder based on how far you had to
  * shoot from. Returns nonzero when a goal was scored. */
 static int check_goal(void)
 {
     /* Only free-flying or ball-carrying counts; if ball is carried
      * across the goal line, treat that as scoring too. */
-    Rotofoil *carrier = NULL;
+    Skimmer *carrier = NULL;
     if (ball.carrier == 0) carrier = &p1;
     if (ball.carrier == 1) carrier = &p2;
 
@@ -226,17 +227,17 @@ static LONG atan2_deg(LONG dy, LONG dx)
     return best_a;
 }
 
-/* Rotofoil physics — one Euler step per frame. */
+/* Skimmer physics — one Euler step per frame. */
 #define ACCEL       ((LONG)(ONE / 20))     /* WASD accel per frame */
 #define STRAFE      ((LONG)(ONE / 25))
 #define FRICTION_N  15                     /* keeps 15/16 of velocity */
 #define FRICTION_D  16
 #define V_CAP       (ONE * 2)              /* max 2 world units/frame */
 
-static void update_rotofoil(Rotofoil *r, int fwd, int back, int lft, int rgt,
+static void update_skimmer(Skimmer *r, int fwd, int back, int lft, int rgt,
                             const Ball *b)
 {
-    /* In the original Ballblazer each rotofoil ALWAYS faces its
+    /* In Rotoball each skimmer ALWAYS faces its
      * opponent's goal — P1's angle is fixed at 0 (+X), P2's at 180
      * (-X). No rotation. WASD is direct world-axis movement:
      *   forward = toward opponent's goal (sign of camera forward)
@@ -281,16 +282,16 @@ static void update_rotofoil(Rotofoil *r, int fwd, int back, int lft, int rgt,
 #define BALL_FRICTION_N  30
 #define BALL_FRICTION_D  32
 #define PICKUP_DIST      (3 * ONE)        /* touch radius */
-#define ROTO_RADIUS      (2 * ONE)        /* rotofoil collision radius */
+#define ROTO_RADIUS      (2 * ONE)        /* skimmer collision radius */
 
-/* Resolve rotofoil-vs-rotofoil collision. Rotofoils inside 2×ROTO_RADIUS
+/* Resolve skimmer-vs-skimmer collision. Skimmers inside 2×ROTO_RADIUS
  * bump apart along the separation vector with an elastic 1D bounce.
  * If one of them is the ball carrier and the tackle cooldown has
  * elapsed, ownership transfers to the tackler at the moment of contact
  * — this is the ONLY tackle path now (ball-proximity checks can't fire
  * on head-on approach because the ball sits on the far side of the
  * carrier, always outside the attacker's pickup radius). */
-static void resolve_collision(Rotofoil *a, Rotofoil *b)
+static void resolve_collision(Skimmer *a, Skimmer *b)
 {
     LONG dx = b->x - a->x;
     LONG dz = b->z - a->z;
@@ -301,13 +302,13 @@ static void resolve_collision(Rotofoil *a, Rotofoil *b)
 
     /* Ball transfer on contact. a = P1 (idx 0), b = P2 (idx 1).
      * On successful tackle the new carrier also gets an impulse kick
-     * in their forward direction — without it, both rotofoils stay
+     * in their forward direction — without it, both skimmers stay
      * locked in the collision zone forever with the ball ping-ponging
      * every cooldown expiry. */
     if (tackle_cooldown == 0 && ball.carrier >= 0) {
         int steal_to = (ball.carrier == 0) ? 1 : 0;
-        Rotofoil *new_carrier = (steal_to == 0) ? a : b;
-        Rotofoil *old_carrier = (steal_to == 0) ? b : a;
+        Skimmer *new_carrier = (steal_to == 0) ? a : b;
+        Skimmer *old_carrier = (steal_to == 0) ? b : a;
         old_carrier->has_ball = 0;
         new_carrier->has_ball = 1;
         ball.carrier    = steal_to;
@@ -356,7 +357,7 @@ static void resolve_collision(Rotofoil *a, Rotofoil *b)
 static void update_ball(void)
 {
     if (ball.carrier < 0) {
-        /* Free ball — check for pickup by either rotofoil. */
+        /* Free ball — check for pickup by either skimmer. */
         LONG d1x = ball.x - p1.x, d1z = ball.z - p1.z;
         LONG d2x = ball.x - p2.x, d2z = ball.z - p2.z;
         LONG r2  = ((PICKUP_DIST >> 8) * (PICKUP_DIST >> 8));
@@ -371,8 +372,8 @@ static void update_ball(void)
         ball.vz = (ball.vz * BALL_FRICTION_N) / BALL_FRICTION_D;
     } else {
         /* Carried — sit 2 world units in front of the carrier. */
-        Rotofoil *carrier = (ball.carrier == 0) ? &p1 : &p2;
-        Rotofoil *other   = (ball.carrier == 0) ? &p2 : &p1;
+        Skimmer *carrier = (ball.carrier == 0) ? &p1 : &p2;
+        Skimmer *other   = (ball.carrier == 0) ? &p2 : &p1;
         LONG ca = math_cos(carrier->angle), sa = math_sin(carrier->angle);
         /* ca/sa are already ONE-scaled, so 2 world units in front of
          * the carrier is just (2*ca, 2*sa). Do NOT pre-multiply by ONE
@@ -436,10 +437,10 @@ static void render_frame(void)
     struct RastPort *rp = &D.mrp;
     rp->BitMap = bm;
 
-    /* P1 (human) pane sees the P2 rotofoil. */
+    /* P1 (human) pane sees the P2 skimmer. */
     pitch_render(rp, PANE_P1_Y0, p1.x, p1.z, p1.angle, &ball,
                  p2.x, p2.z, PEN_ROTO_P2);
-    /* P2 (CPU) pane sees the P1 rotofoil. */
+    /* P2 (CPU) pane sees the P1 skimmer. */
     pitch_render(rp, PANE_P2_Y0, p2.x, p2.z, p2.angle, &ball,
                  p1.x, p1.z, PEN_ROTO_P1);
 
@@ -465,10 +466,10 @@ int main(void)
     GfxBase = (struct GfxBase *)OpenLibrary((CONST_STRPTR)"graphics.library", 39);
     if (!GfxBase) { CloseLibrary((struct Library *)IntuitionBase); return 1; }
 
-    printf("ballblazer v%s\n", VERSION);
-    if (ab_init("ballblazer") != 0) { printf("  Bridge: NOT FOUND\n"); bridge_ok = 0; }
+    printf("rotoball v%s\n", VERSION);
+    if (ab_init("rotoball") != 0) { printf("  Bridge: NOT FOUND\n"); bridge_ok = 0; }
     else { printf("  Bridge: CONNECTED\n"); bridge_ok = 1; }
-    AB_I("ballblazer v%s starting", VERSION);
+    AB_I("rotoball v%s starting", VERSION);
     ab_register_var("frame_count", AB_TYPE_I32, &frame_count);
     ab_register_var("running",     AB_TYPE_I32, &running);
     ab_register_var("p1_score",    AB_TYPE_I32, &p1_score);
@@ -534,8 +535,8 @@ int main(void)
         if (dz_t >  ONE) cpu_rgt = 1;
         if (dz_t < -ONE) cpu_lft = 1;
 
-        update_rotofoil(&p1, in_fwd, in_back, in_left, in_right, &ball);
-        update_rotofoil(&p2, cpu_fwd, cpu_back, cpu_lft, cpu_rgt, &ball);
+        update_skimmer(&p1, in_fwd, in_back, in_left, in_right, &ball);
+        update_skimmer(&p2, cpu_fwd, cpu_back, cpu_lft, cpu_rgt, &ball);
         resolve_collision(&p1, &p2);
         update_ball();
         check_goal();
@@ -548,12 +549,12 @@ int main(void)
         if (bridge_ok) ab_poll();
     }
 
-    AB_I("ballblazer shutting down (%ld frames)", (long)frame_count);
+    AB_I("rotoball shutting down (%ld frames)", (long)frame_count);
     close_display();
     sound_cleanup();
     ab_cleanup();
     CloseLibrary((struct Library *)GfxBase);
     CloseLibrary((struct Library *)IntuitionBase);
-    printf("ballblazer finished.\n");
+    printf("rotoball finished.\n");
     return 0;
 }

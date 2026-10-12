@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-#ifndef FRACTALUS_COMBAT_H
-#define FRACTALUS_COMBAT_H
+#ifndef CANYON_COMBAT_H
+#define CANYON_COMBAT_H
 
 #include <exec/types.h>
 #include "fixed.h"
 
 /*
- * Jaggi flying saucers + player/enemy bullets. Everything lives in
+ * Mimic flying saucers + player/enemy bullets. Everything lives in
  * world coordinates and is projected each frame — no world-space
  * culling, just the near/behind-camera check the renderer does.
  */

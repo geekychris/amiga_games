@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-#ifndef FRACTALUS_SFX_H
-#define FRACTALUS_SFX_H
+#ifndef CANYON_SFX_H
+#define CANYON_SFX_H
 
 #include <exec/types.h>
 

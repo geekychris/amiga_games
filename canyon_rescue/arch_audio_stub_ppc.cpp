@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
- * PPC audio stub for fractalus.
+ * PPC audio stub for canyon_rescue.
  *
  * The 68k build's modplay.c drives Paula directly via <hardware/custom.h>
  * at $DFF000. sam460ex under OS4 has no chip RAM and no Paula, so the

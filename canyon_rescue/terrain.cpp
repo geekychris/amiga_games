@@ -12,7 +12,7 @@
  *
  * Each recursion halves the step and halves the perturbation range,
  * which gives self-similar detail at every scale — the whole point of
- * Fractalus's terrain style.
+ * the game's terrain style.
  */
 
 static ULONG rng_state;

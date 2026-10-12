@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
- * fractalus — Amiga homage to Rescue on Fractalus (Lucasfilm, 1985).
+ * canyon_rescue — fly the valleys of a fractal planet and rescue downed pilots.
  *
  * Phase 1: fractal terrain, cockpit HUD, flight controls (yaw/pitch/thrust).
- * Later phases add pilot rescue, Jaggi enemies, combat, sound.
+ * Later phases add pilot rescue, Mimic enemies, combat, sound.
  *
  * Built as C++ (no exceptions/RTTI/STL) targeting m68020, AGA 320x256x8bpp.
  * Bridge daemon integration for live variable inspection & remote control.
@@ -130,7 +130,7 @@ static LONG      g_force_restart = 0;
 /* Singleton lock file-scope handle, so release_singleton can find it
  * at any exit point without threading it through function signatures. */
 static struct MsgPort *g_singleton_port = NULL;
-static const char     *SINGLETON_PORT_NAME = "fractalus.singleton";
+static const char     *SINGLETON_PORT_NAME = "canyon_rescue.singleton";
 
 static int acquire_singleton(int bridge_ok)
 {
@@ -142,17 +142,17 @@ static int acquire_singleton(int bridge_ok)
          * but AB_W reaches the host log. Only log if the primary ab_init
          * (in main) has already succeeded for this task. */
         if (bridge_ok) {
-            AB_W("singleton: refusing to start — another fractalus "
+            AB_W("singleton: refusing to start — another canyon_rescue "
                  "already holds port '%s' (owner task %p)",
                  SINGLETON_PORT_NAME, existing->mp_SigTask);
         }
-        printf("fractalus already running - exit that first.\n");
+        printf("canyon_rescue already running - exit that first.\n");
         return -1;
     }
     g_singleton_port = CreateMsgPort();
     if (!g_singleton_port) {
         Permit();
-        printf("fractalus: CreateMsgPort failed for singleton lock\n");
+        printf("canyon_rescue: CreateMsgPort failed for singleton lock\n");
         return -1;
     }
     g_singleton_port->mp_Node.ln_Name = (char *)SINGLETON_PORT_NAME;
@@ -180,7 +180,7 @@ int main(void)
     Combat    &combat   = g_combat;
     Sfx       &sfx      = g_sfx;
 
-    /* Grab the singleton lock BEFORE any other init. Concurrent fractalus
+    /* Grab the singleton lock BEFORE any other init. Concurrent canyon_rescue
      * instances split IDCMP focus so keys land randomly on either window
      * and vanish — we saw this stack up to 9 processes on OS4. Passing
      * bridge_ok=0 here means the "already running" AB_W log is skipped
@@ -219,10 +219,10 @@ int main(void)
     /* Optional bridge — we don't hard-fail if the daemon isn't running,
      * so the game plays standalone from Workbench too. */
     extern LONG g_bench_mask;
-    extern LONG g_debug_all_jaggis;
-    int bridge_ok = (ab_init("fractalus") == 0);
+    extern LONG g_debug_all_mimics;
+    int bridge_ok = (ab_init("canyon_rescue") == 0);
     if (bridge_ok) {
-        AB_I("fractalus v0.1 (Phase 1) starting");
+        AB_I("canyon_rescue v0.1 (Phase 1) starting");
         ab_register_var("frame_count",    AB_TYPE_I32, &g_frame_count);
         ab_register_var("ship_x",         AB_TYPE_I32, &g_state.ship.x);
         ab_register_var("ship_z",         AB_TYPE_I32, &g_state.ship.z);
@@ -244,9 +244,9 @@ int main(void)
         /* Toggle from the bridge to isolate render bottlenecks —
          * see g_bench_mask BENCH_* bit table in render.cpp. */
         ab_register_var("bench_mask",     AB_TYPE_I32, &g_bench_mask);
-        /* Debug: force every spawned pilot to be a jaggi. */
-        ab_register_var("debug_all_jaggis", AB_TYPE_I32,
-                        &g_debug_all_jaggis);
+        /* Debug: force every spawned pilot to be a mimic. */
+        ab_register_var("debug_all_mimics", AB_TYPE_I32,
+                        &g_debug_all_mimics);
         /* Debug: set to 1 to force a mid-mission restart on the
          * next frame — useful for applying a debug-var change
          * without having to die first. Auto-clears back to 0. */
@@ -283,11 +283,11 @@ int main(void)
                     g_state.ship.y,
                     FX16_TOINT(g_state.ship.z));
         if (bridge_ok) {
-            LONG jaggis = 0;
+            LONG mimics = 0;
             for (LONG pi = 0; pi < pilots.count(); pi++)
-                if (pilots[pi].is_jaggi) jaggis++;
-            AB_I("mission ready: %ld/12 jaggis hiding (debug=%ld)",
-                 (long)jaggis, (long)g_debug_all_jaggis);
+                if (pilots[pi].is_mimic) mimics++;
+            AB_I("mission ready: %ld/12 mimics hiding (debug=%ld)",
+                 (long)mimics, (long)g_debug_all_mimics);
         }
     };
     reset_world(0xC0FFEE01UL);
@@ -321,7 +321,7 @@ int main(void)
     /* Boot-time world init already done by reset_world above — the
      * per-pilot / per-saucer dump was diagnostic scaffolding, no
      * longer needed now that spawns are deterministic per seed. */
-    /* jaggi count now logged from inside reset_world so restarts
+    /* mimic count now logged from inside reset_world so restarts
      * report too. Static win-target line stays useful. */
     if (bridge_ok) {
         AB_I("goal: rescue %ld of %ld pilots to win",
@@ -481,7 +481,7 @@ int main(void)
     }
 
     if (bridge_ok) {
-        AB_I("fractalus shutting down (%ld frames)", (long)g_frame_count);
+        AB_I("canyon_rescue shutting down (%ld frames)", (long)g_frame_count);
     }
     sfx.shutdown();
     modplay_stop();

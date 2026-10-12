@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-#ifndef FRACTALUS_GAME_H
-#define FRACTALUS_GAME_H
+#ifndef CANYON_GAME_H
+#define CANYON_GAME_H
 
 #include <exec/types.h>
 #include "fixed.h"
@@ -32,13 +32,13 @@ struct ShipState {
     LONG vy;
 };
 
-/* Rescue state machine — Fractalus's key gameplay loop. */
+/* Rescue state machine — the key gameplay loop. */
 enum RescueState {
     RS_FLYING     = 0,   /* normal flight */
     RS_LANDING    = 1,   /* auto-descend + brake */
     RS_AIRLOCK    = 2,   /* "AIRLOCK CYCLING..." */
-    RS_REVEAL     = 3,   /* pilot or jaggi visible */
-    RS_JUMPSCARE  = 4,   /* JAGGI! red flash + shield hit */
+    RS_REVEAL     = 3,   /* pilot or mimic visible */
+    RS_JUMPSCARE  = 4,   /* MIMIC! red flash + shield hit */
     RS_TAKEOFF    = 5,   /* brief lift back into flying */
 };
 
@@ -82,7 +82,7 @@ struct GameState {
     LONG      fuel;              /* 0..1000 */
     LONG      shield;            /* 0..1000 */
     LONG      pilots_rescued;
-    LONG      pilots_lost;       /* eaten by jaggis */
+    LONG      pilots_lost;       /* eaten by mimics */
     LONG      score;
 
     /* Rescue sequence. */
@@ -95,7 +95,7 @@ struct GameState {
     UBYTE     restart_pressed;   /* edge-detect SPACE in end screens */
 };
 
-/* Ship physics constants — tuned for a Fractalus-y sluggish feel. */
+/* Ship physics constants — tuned for a sluggish, heavy feel. */
 #define SHIP_MIN_ALTITUDE    16     /* world units above terrain */
 #define SHIP_MAX_ALTITUDE    2400
 #define SHIP_MAX_SPEED       32     /* world units / tick (was 48 — too fast) */
@@ -125,7 +125,7 @@ class Sfx;
 #define LAND_MAX_ALT_ABOVE   80      /* world units above ground */
 #define LAND_RADIUS          500     /* world units from a pilot to land */
 /* Timer values in game ticks. Engine runs ~25 FPS after the
- * optimisation pass, so bump these so states feel like Fractalus's
+ * optimisation pass, so bump these so states feel like the Amiga version's
  * unhurried pacing rather than a millisecond flash. */
 #define AIRLOCK_FRAMES       60      /* ~2.4s */
 #define REVEAL_FRAMES        40      /* ~1.6s */

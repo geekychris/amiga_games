@@ -376,7 +376,7 @@ static void draw_nest(void)
     if (dot(n, campos) < RADIUS) return;
     t1 = norm(sub(t1, mul(n, dot(t1, n))));
     t2 = cross(n, t1);
-    colour(240, 110, 190, lit(n, 0.7f, 0.4f));
+    colour(120, 90, 170, lit(n, 0.7f, 0.4f));
     glBegin(GL_TRIANGLE_FAN);
     vtx(ctr);
     for (k = 0; k <= 12; k++) {

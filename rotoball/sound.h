@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-#ifndef BALLBLAZER_SOUND_H
-#define BALLBLAZER_SOUND_H
+#ifndef ROTOBALL_SOUND_H
+#define ROTOBALL_SOUND_H
 
 #include <exec/types.h>
 

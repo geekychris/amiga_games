@@ -3,7 +3,7 @@
 
 # ARCH=m68k (default) — classic AmigaOS 3.x on 680x0 (FS-UAE / AmiKit)
 # ARCH=ppc            — AmigaOS 4.1 on PowerPC (sam460ex / QEMU)
-# Build for PPC via: scripts/build-example-ppc.sh fractalus
+# Build for PPC via: scripts/build-example-ppc.sh canyon_rescue
 #
 # On PPC we swap modplay.c (direct Paula chip register access, no such
 # hardware on sam460ex) for arch_audio_stub_ppc.cpp which no-ops the
@@ -41,7 +41,7 @@ else
   AUDIO_SRCS = modplay.c
 endif
 
-TARGET   = fractalus
+TARGET   = canyon_rescue
 CPPSRCS  = main.cpp terrain.cpp render.cpp game.cpp pilots.cpp combat.cpp sfx.cpp
 CSRCS    =
 

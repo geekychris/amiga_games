@@ -219,8 +219,8 @@ void Renderer::install_palette()
     struct ViewPort *vp = &screen->ViewPort;
     int i;
 
-    /* Sky: deep indigo at top → dusty orange at horizon. Fractalus's
-     * planet was mostly seen at twilight; this palette mirrors that. */
+    /* Sky: deep indigo at top → dusty orange at horizon. A
+     * twilight palette. */
     for (i = 0; i < PAL_SKY_COUNT; i++) {
         int t = i;
         int r =  20 + (t * 220) / (PAL_SKY_COUNT - 1);
@@ -275,6 +275,9 @@ void Renderer::install_palette()
     put_rgb(vp, PAL_MISC_BASE + 5, 20, 200, 40);         /* laser grn  */
     put_rgb(vp, PAL_MISC_BASE + 6, 250, 250, 220);       /* pilot suit */
     put_rgb(vp, PAL_MISC_BASE + 7, 255, 255, 210);       /* teeth      */
+    put_rgb(vp, PAL_MISC_BASE + 8, 70, 30, 110);         /* mimic dark violet */
+    put_rgb(vp, PAL_MISC_BASE + 9, 120, 60, 170);        /* mimic violet      */
+    put_rgb(vp, PAL_MISC_BASE + 10, 190, 140, 230);      /* mimic lilac       */
 }
 
 /* ------------------------------------------------------------------ */
@@ -290,7 +293,7 @@ int Renderer::open_display()
         SA_Height,    R_SCREEN_H,
         SA_Depth,     8,
         SA_DisplayID, LORES_KEY,
-        SA_Title,     (ULONG)"Fractalus",
+        SA_Title,     (ULONG)"Canyon Rescue",
         SA_ShowTitle, FALSE,
         SA_Quiet,     TRUE,
         SA_Type,      CUSTOMSCREEN,
@@ -866,8 +869,8 @@ static void draw_title_screen(struct RastPort *rp, const GameState &gs)
      * some spacing. */
     SetDrMd(rp, JAM1);
     SetAPen(rp, PAL_TERRAIN_BASE + 7 * 8);  /* sunny highlight yellow */
-    Move(rp, R_VIEW_X + 60, R_VIEW_Y + 30);
-    Text(rp, (STRPTR)" F R A C T A L U S ", 19);
+    Move(rp, R_VIEW_X + 44, R_VIEW_Y + 30);
+    Text(rp, (STRPTR)"C A N Y O N   R E S C U E", 25);
 
     SetAPen(rp, PAL_HUD_BASE + 12);
     Move(rp, R_VIEW_X + 92, R_VIEW_Y + 46);
@@ -877,7 +880,7 @@ static void draw_title_screen(struct RastPort *rp, const GameState &gs)
     SetAPen(rp, PAL_MISC_BASE + 6);         /* pilot-suit white */
     int y = R_VIEW_Y + 70;
     Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"Downed pilots need extraction.", 30); y += 10;
-    Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"Some are Jaggis in disguise.",   28); y += 10;
+    Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"Some are Mimics in disguise.",   28); y += 10;
     Move(rp, R_VIEW_X + 24, y); Text(rp, (STRPTR)"Rescue 5 of 12 to complete.",     27); y += 14;
 
     SetAPen(rp, PAL_HUD_BASE + 15);
@@ -926,14 +929,14 @@ static void draw_end_screen(struct RastPort *rp, const GameState &gs)
             Move(rp, tx + 8, by + 20);  Text(rp, (STRPTR)"SHIELDS DESTROYED", 17);
         }
     }
-    /* Stats — rescued, jaggis encountered (shield damage), score */
+    /* Stats — rescued, mimics encountered (shield damage), score */
     SetAPen(rp, PAL_HUD_BASE + 12);
     char buf[40];
     sprintf(buf, "RESCUED %ld / %ld",
             (long)gs.pilots_rescued, (long)MISSION_WIN_PILOTS);
     Move(rp, tx + 20, by + 32); Text(rp, (STRPTR)buf, strlen(buf));
     SetAPen(rp, PAL_MISC_BASE + 3);
-    sprintf(buf, "JAGGIS SPRUNG %ld", (long)gs.pilots_lost);
+    sprintf(buf, "MIMICS SPRUNG %ld", (long)gs.pilots_lost);
     Move(rp, tx + 20, by + 44); Text(rp, (STRPTR)buf, strlen(buf));
     SetAPen(rp, PAL_HUD_BASE + 12);
     sprintf(buf, "SHIELD LEFT %ld", (long)gs.shield);
@@ -950,12 +953,13 @@ static void draw_end_screen(struct RastPort *rp, const GameState &gs)
 }
 
 /* -------------------------------------------------------------
- * Full-body jaggi slamming the cockpit glass.
+ * Full-body mimic slamming the cockpit glass.
  *
- * The jaggi is a lumpy green thing with a wide torso, dome head
- * with two red eyes and a fanged mouth, and two arms extending
- * outward that pound rhythmically on the "glass". Cracks radiate
- * from each fist during the strike phase.
+ * The mimic is a violet shape-shifter, half out of the stolen
+ * flight suit: a squat torso, a blocky head with one big cyclops
+ * eye and a toothless slit mouth, and two arms ending in rounded
+ * pads that pound rhythmically on the "glass". Cracks radiate
+ * from each pad during the strike phase.
  *
  * Animation:
  *   BUILD   0..N/3     alien grows from small centre out
@@ -973,7 +977,7 @@ static void draw_v_crack(struct RastPort *rp, int x, int y,
     Move(rp, x, y); Draw(rp, x + dir * len, y + len);
 }
 
-static void draw_jaggi_slam(struct RastPort *rp, const GameState &gs)
+static void draw_mimic_slam(struct RastPort *rp, const GameState &gs)
 {
     int prog = JUMPSCARE_FRAMES - (int)gs.state_timer;
     if (prog < 0) prog = 0;
@@ -1021,13 +1025,13 @@ static void draw_jaggi_slam(struct RastPort *rp, const GameState &gs)
         slam = (prog & 1) ? 6 : -6;
 
     /* Palette pens. */
-    UBYTE body_pen  = (UBYTE)(PAL_TERRAIN_BASE + 3 * 8);   /* dark green */
-    UBYTE hi_pen    = (UBYTE)(PAL_TERRAIN_BASE + 5 * 8);   /* mid-bright */
-    UBYTE head_pen  = (UBYTE)(PAL_TERRAIN_BASE + 4 * 8);   /* mid green */
-    UBYTE eye_pen   = (UBYTE)(PAL_MISC_BASE + 3);          /* red */
-    UBYTE eye_flash = (UBYTE)(PAL_MISC_BASE + 4);          /* yellow */
-    UBYTE tooth_pen = (UBYTE)(PAL_MISC_BASE + 7);          /* off-white */
-    UBYTE claw_pen  = (UBYTE)(PAL_MISC_BASE + 7);
+    UBYTE body_pen  = (UBYTE)(PAL_MISC_BASE + 8);          /* dark violet */
+    UBYTE hi_pen    = (UBYTE)(PAL_MISC_BASE + 10);         /* lilac */
+    UBYTE head_pen  = (UBYTE)(PAL_MISC_BASE + 9);          /* violet */
+    UBYTE eye_pen   = (UBYTE)(PAL_MISC_BASE + 4);          /* yellow */
+    UBYTE eye_flash = (UBYTE)(PAL_MISC_BASE + 7);          /* white */
+    UBYTE pupil_pen = (UBYTE)(PAL_MISC_BASE + 0);          /* dark grey */
+    UBYTE suit_pen  = (UBYTE)(PAL_MISC_BASE + 6);          /* stolen suit */
     UBYTE crack_pen = (UBYTE)(PAL_MISC_BASE + 1);          /* light grey */
 
     /* --- Torso (rounded via stacked rects) --- */
@@ -1098,24 +1102,11 @@ static void draw_jaggi_slam(struct RastPort *rp, const GameState &gs)
     if (rfx0 < R_VIEW_X)  rfx0 = R_VIEW_X;
     if (rfx0 < rfx1 && rfy0 < rfy1) RectFill(rp, rfx0, rfy0, rfx1, rfy1);
 
-    /* Claws — 3 small pointy bits protruding forward from each fist. */
-    if (prog >= build_end / 2) {
-        SetAPen(rp, claw_pen);
-        int cw = fist / 4; if (cw < 2) cw = 2;
-        int ch = fist / 3; if (ch < 3) ch = 3;
-        for (int k = 0; k < 3; k++) {
-            int cy0 = arm_y - fist / 2 + k * (fist / 3);
-            int cy1 = cy0 + ch;
-            if (cy0 < R_VIEW_Y || cy1 > R_VIEW_Y2) continue;
-            /* Left claws point right (into cockpit) */
-            int lcx0 = lfx1;
-            int lcx1 = lfx1 + cw;
-            if (lcx1 <= R_VIEW_X2) RectFill(rp, lcx0, cy0, lcx1, cy1);
-            /* Right claws point left */
-            int rcx1 = rfx0;
-            int rcx0 = rcx1 - cw;
-            if (rcx0 >= R_VIEW_X) RectFill(rp, rcx0, cy0, rcx1, cy1);
-        }
+    /* Scraps of the stolen flight suit: a white band across the
+     * bottom of the torso. */
+    if (by1 - 4 > by0) {
+        SetAPen(rp, suit_pen);
+        RectFill(rp, bx0, by1 - (th / 3), bx1, by1);
     }
 
     /* --- Glass cracks radiating from each fist during STRIKE --- */
@@ -1138,55 +1129,41 @@ static void draw_jaggi_slam(struct RastPort *rp, const GameState &gs)
     SetAPen(rp, head_pen);
     if (hx0 < hx1 && hy0 < hy1) RectFill(rp, hx0, hy0, hx1, hy1);
 
-    /* --- Eyes — glowing red, pulse yellow on STRIKE beats --- */
+    /* --- One cyclops eye, flashes white on STRIKE beats --- */
     if (hw > 4 && hh > 2) {
-        int ew = (14 * scale) / 200; if (ew < 3) ew = 3;
-        int eh = (10 * scale) / 200; if (eh < 3) eh = 3;
+        int ew = (24 * scale) / 200; if (ew < 4) ew = 4;
+        int eh = (16 * scale) / 200; if (eh < 3) eh = 3;
         int ey_mid = hy0 + (hy1 - hy0) / 3;
-        SetAPen(rp, (prog >= build_end && (prog & 1)) ? eye_flash : eye_pen);
-        int lex0 = cx - (hw * 2) / 3, lex1 = lex0 + ew;
-        int rex1 = cx + (hw * 2) / 3, rex0 = rex1 - ew;
+        int ex0 = cx - ew / 2, ex1 = cx + ew / 2;
         int ey0 = ey_mid - eh / 2, ey1 = ey_mid + eh / 2;
-        if (lex0 >= R_VIEW_X && lex1 <= R_VIEW_X2 && ey0 >= R_VIEW_Y && ey1 <= R_VIEW_Y2)
-            RectFill(rp, lex0, ey0, lex1, ey1);
-        if (rex0 >= R_VIEW_X && rex1 <= R_VIEW_X2 && ey0 >= R_VIEW_Y && ey1 <= R_VIEW_Y2)
-            RectFill(rp, rex0, ey0, rex1, ey1);
-    }
-
-    /* --- Mouth: dark cavity + teeth. Opens up during STRIKE. --- */
-    if (hw > 6) {
-        int mw = (hw * 3) / 4;
-        int mh = ((6 + (slam > 0 ? slam : 0)) * scale) / 200;
-        if (mh < 3) mh = 3;
-        int my0 = hy1 - mh - 2;
-        int my1 = hy1 - 2;
-        if (my0 >= R_VIEW_Y && my1 <= R_VIEW_Y2) {
-            SetAPen(rp, PAL_MISC_BASE + 0);   /* dark grey = mouth cavity */
-            RectFill(rp, cx - mw, my0, cx + mw, my1);
-            /* Teeth: alternating up/down triangles rendered as narrow rects. */
-            SetAPen(rp, tooth_pen);
-            int nteeth = 6;
-            int space = (mw * 2) / nteeth;
-            for (int i = 0; i < nteeth; i++) {
-                int tx0 = cx - mw + i * space;
-                int tx1 = tx0 + space / 2;
-                if (tx1 > R_VIEW_X2) break;
-                if (i & 1) {
-                    RectFill(rp, tx0, my0, tx1, my0 + mh / 2);
-                } else {
-                    RectFill(rp, tx0, my1 - mh / 2, tx1, my1);
-                }
-            }
+        if (ex0 >= R_VIEW_X && ex1 <= R_VIEW_X2 && ey0 >= R_VIEW_Y && ey1 <= R_VIEW_Y2) {
+            SetAPen(rp, (prog >= build_end && (prog & 1)) ? eye_flash : eye_pen);
+            RectFill(rp, ex0, ey0, ex1, ey1);
+            SetAPen(rp, pupil_pen);
+            RectFill(rp, cx - ew / 8 - 1, ey0 + 1, cx + ew / 8 + 1, ey1 - 1);
         }
     }
 
-    /* --- "JAGGI!!" text at bottom, only during STRIKE + FADE --- */
+    /* --- Mouth: a thin dark slit, no teeth; widens during STRIKE --- */
+    if (hw > 6) {
+        int mw = hw / 2;
+        int mh = ((2 + (slam > 0 ? slam / 2 : 0)) * scale) / 200;
+        if (mh < 1) mh = 1;
+        int my1 = hy1 - (hy1 - hy0) / 5;
+        int my0 = my1 - mh;
+        if (my0 >= R_VIEW_Y && my1 <= R_VIEW_Y2) {
+            SetAPen(rp, pupil_pen);
+            RectFill(rp, cx - mw, my0, cx + mw, my1);
+        }
+    }
+
+    /* --- "MIMIC!!" text at bottom, only during STRIKE + FADE --- */
     if (prog >= build_end) {
         SetAPen(rp, PAL_HUD_BASE + 15);
         SetDrMd(rp, JAM1);
         int text_y = R_VIEW_Y2 - 12;
         Move(rp, cx - 32, text_y);
-        Text(rp, (STRPTR)"JAGGI!!", 7);
+        Text(rp, (STRPTR)"MIMIC!!", 7);
     }
 }
 
@@ -1238,7 +1215,7 @@ void Renderer::draw_overlay(struct RastPort *rp, const GameState &gs)
     }
 
     if (gs.rescue_state == RS_JUMPSCARE)
-        draw_jaggi_slam(rp, gs);
+        draw_mimic_slam(rp, gs);
 }
 
 void Renderer::flip()

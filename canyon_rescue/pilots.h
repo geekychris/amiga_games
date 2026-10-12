@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-#ifndef FRACTALUS_PILOTS_H
-#define FRACTALUS_PILOTS_H
+#ifndef CANYON_PILOTS_H
+#define CANYON_PILOTS_H
 
 #include <exec/types.h>
 
 /*
  * Downed pilots scattered across the map. The player lands near one,
  * cycles the airlock, and either rescues them — or gets jumped by a
- * Jaggi wearing the pilot's flight suit. Fractalus's signature moment.
+ * Mimic wearing the pilot's flight suit. The game's signature moment.
  */
 
 #define MAX_PILOTS      12
@@ -19,7 +19,7 @@
 enum PilotState {
     PILOT_ACTIVE   = 0,   /* waiting to be rescued */
     PILOT_RESCUED  = 1,   /* picked up */
-    PILOT_JAGGI    = 2,   /* was actually a jaggi in disguise (used) */
+    PILOT_MIMIC    = 2,   /* was actually a mimic in disguise (used) */
     PILOT_EMPTY    = 3,   /* slot unused */
 };
 
@@ -28,7 +28,7 @@ struct Pilot {
     LONG z;
     LONG y;         /* terrain height at (x,z) — computed at spawn */
     UBYTE state;    /* PilotState */
-    UBYTE is_jaggi; /* rolled at spawn — determines airlock outcome */
+    UBYTE is_mimic; /* rolled at spawn — determines airlock outcome */
     UBYTE _pad[2];
 };
 

@@ -3,15 +3,15 @@
 
 # miner-meteor
 
-A clean-room single-screen tile platformer, inspired by 8-bit classics of the
-Manic Miner / Jet Set Willy lineage. Every level is a fixed 20×15-tile room
+A clean-room single-screen tile platformer in the style of the 8-bit
+single-screen platformers of the early 1980s. Every level is a fixed 20×15-tile room
 with keys to collect, an exit that unlocks once the last key is grabbed, plus
 a menagerie of hazards: stationary spikes, patrolling guardians, conveyor
 belts, and collapsing floors that evaporate a few frames after you step on
 them. Air drains regardless of what you do.
 
 **No copyrighted asset or code** from the games it's inspired by. Mechanics
-only — level layouts, tile art, sprite art, palette are all original.
+only — level names, level layouts, tile art, sprite art, palette are all original.
 
 ## Controls
 
@@ -43,7 +43,7 @@ remaining 14 is a follow-up:
 
 | # | Name | Introduces |
 |---|---|---|
-| 0 | CENTRAL CAVERN   | walking, jumping, key collection |
+| 0 | FIRST SHAFT      | walking, jumping, key collection |
 | 1 | HAZARD BAY       | stationary hazards + air pressure |
 | 2 | THE ESCALATORS   | conveyor belts (zig-zag descent through drop-gaps) |
 | 3 | GUARDIAN ALLEY   | patrolling horizontal guardians |
@@ -106,7 +106,7 @@ Deliberately out of scope for the initial cut, all tracked in code comments:
    `LevelSpec`) is defined in data but not yet honoured at draw time.
 4. **Frame-rate cap.** Currently `WaitTOF()` — matches classic PAL @ 50Hz
    fine; on OS4 RTG a timer.device-based cap is needed (same lesson as
-   fractalus).
+   canyon_rescue).
 5. **PPC OS4 build.** Scaffolded (`__PPC__` guards, input via bridge hook)
    but not tested. Building against `walkero/amigagccondocker:os4-gcc11`
    should Just Work; input needs a full input-hook rewrite for OS4.

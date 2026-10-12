@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
- * Ballblazer — Amiga port of Lucasfilm's 1985 futuristic sport.
+ * Rotoball — split-screen futuristic ball sport (Amiga game, 3DO port).
  *
- * Two rotofoils on a checkered grid pitch, split-screen (top pane
- * = P2/CPU view, bottom pane = P1/human view). Each rotofoil auto-
+ * Two skimmers on a checkered grid pitch, split-screen (top pane
+ * = P2/CPU view, bottom pane = P1/human view). Each skimmer auto-
  * faces the ball; players control forward/back speed and lateral
  * strafing. Ball attaches when close, releases when pushed. Goals
  * are hoverbeams at each end of the pitch.
@@ -14,13 +14,13 @@
  *   +X = down-pitch toward P2 goal
  *   -X = down-pitch toward P1 goal
  *   +Z = P1's right when facing +X (grid width axis)
- *   Y  = up (rotofoils and ball hover at Y = HOVER_H above ground)
+ *   Y  = up (skimmers and ball hover at Y = HOVER_H above ground)
  *
  * All coordinates are 16.16 fixed-point unless suffixed _i (raw int).
  */
 
-#ifndef BALLBLAZER_H
-#define BALLBLAZER_H
+#ifndef ROTOBALL_H
+#define ROTOBALL_H
 
 #include <exec/types.h>
 
@@ -41,7 +41,7 @@
 #define PITCH_LENGTH   (100L * ONE)   /* +/- along X: goal at +/-100 */
 #define PITCH_WIDTH    ( 40L * ONE)   /* +/- along Z: sidelines */
 #define GRID_STEP      (  5L * ONE)   /* grid square = 5 world units */
-#define HOVER_H        (  2L * ONE)   /* rotofoils & ball hover this high */
+#define HOVER_H        (  2L * ONE)   /* skimmers & ball hover this high */
 #define BALL_RADIUS    ( ONE)         /* world-space radius */
 
 /* ---- palette pens (5 planes = 32 pens) ---------------------------- */
@@ -56,20 +56,20 @@
 #define PEN_BALL_DARK  8     /* ball shadow edge */
 #define PEN_BALL       9     /* mid red */
 #define PEN_BALL_HI   10     /* highlight */
-#define PEN_ROTO_P1   11     /* player 1 rotofoil body */
-#define PEN_ROTO_P2   12     /* player 2 rotofoil body */
-#define PEN_ROTO_EDGE 13     /* rotofoil dark outline */
+#define PEN_ROTO_P1   11     /* player 1 skimmer body */
+#define PEN_ROTO_P2   12     /* player 2 skimmer body */
+#define PEN_ROTO_EDGE 13     /* skimmer dark outline */
 #define PEN_HUD_BG    14
 #define PEN_HUD_FG    15
 #define PEN_WHITE     16
 
-/* ---- rotofoil state ----------------------------------------------- */
+/* ---- skimmer state ----------------------------------------------- */
 typedef struct {
     LONG x, z;        /* world position (fixed-point) */
     LONG vx, vz;      /* world velocity (fixed-point) */
     LONG angle;       /* facing angle degrees (0..359), auto-set to ball */
     int  has_ball;    /* nonzero when carrying the ball */
-} Rotofoil;
+} Skimmer;
 
 /* ---- ball state --------------------------------------------------- */
 typedef struct {

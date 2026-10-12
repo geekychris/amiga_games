@@ -4,11 +4,11 @@
 #include "pilots.h"
 #include "terrain.h"
 
-/* Debug knob — settable from the bridge. 0 = normal 33% jaggi rate,
- * 1 = force every pilot to be a jaggi (for animating/testing the
+/* Debug knob — settable from the bridge. 0 = normal 33% mimic rate,
+ * 1 = force every pilot to be a mimic (for animating/testing the
  * jumpscare path without hunting for one). Read by spawn() only at
  * mission-start, so toggle it then press RETURN to regen. */
-LONG g_debug_all_jaggis = 0;
+LONG g_debug_all_mimics = 0;
 
 static ULONG plseed;
 static inline ULONG pl_rng()
@@ -35,12 +35,12 @@ void PilotList::spawn(LONG center_x, LONG center_z, ULONG seed,
          * as sprites sitting on the terrain surface. */
         pilots[i].y = world.height_at_world(pilots[i].x, pilots[i].z);
         pilots[i].state = PILOT_ACTIVE;
-        /* Normal: 33% chance each pilot is a jaggi. Debug override
-         * forces all pilots to be jaggis for animation testing. */
-        if (g_debug_all_jaggis) {
-            pilots[i].is_jaggi = 1;
+        /* Normal: 33% chance each pilot is a mimic. Debug override
+         * forces all pilots to be mimics for animation testing. */
+        if (g_debug_all_mimics) {
+            pilots[i].is_mimic = 1;
         } else {
-            pilots[i].is_jaggi = ((pl_rng() % 100) < 33) ? 1 : 0;
+            pilots[i].is_mimic = ((pl_rng() % 100) < 33) ? 1 : 0;
         }
     }
 }

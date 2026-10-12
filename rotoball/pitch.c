@@ -17,7 +17,7 @@
 #include <graphics/gfxmacros.h>
 #include <proto/graphics.h>
 
-#include "ballblazer.h"
+#include "rotoball.h"
 
 /* ---- integer sin / cos --------------------------------------------- */
 static LONG sintab[360];
@@ -140,7 +140,7 @@ static void band(struct RastPort *rp, int y0, int y1, UBYTE pen)
  * Cost per frame: ~85 rows × 5 plane byte-writes × 40 bytes × 2
  * panes = ~34 KB memory writes. Trivial on 68020.
  *
- * Camera restriction: only the two Ballblazer angles (0 / 180) so
+ * Camera restriction: only the two Rotoball angles (0 / 180) so
  * we can hard-code the fwd_sign instead of running a full 2D rotate
  * per pixel.
  */
@@ -258,13 +258,13 @@ static void draw_ball_sphere(struct RastPort *rp, int pane_y0,
     }
 }
 
-/* ---- rotofoil sprite ---------------------------------------------- */
+/* ---- skimmer sprite ---------------------------------------------- */
 /*
  * Draw the opponent as a hovering "spinner": a filled triangle (body)
  * with a horizontal base bar (hover skirt) at the ground point. Scales
  * with 1/depth like the ball. Body pen distinguishes P1 (cyan)
  * from P2 (amber). */
-static void draw_rotofoil(struct RastPort *rp, int pane_y0,
+static void draw_skimmer(struct RastPort *rp, int pane_y0,
                           int cx_ground, int cy_ground, int scale, UBYTE body_pen)
 {
     if (scale < 6) scale = 6;   /* keep visible even at distance */
@@ -356,7 +356,7 @@ void pitch_render(struct RastPort *rp, int pane_y0,
         }
     }
 
-    /* Opponent rotofoil. Depth-cull first, then project onto ground
+    /* Opponent skimmer. Depth-cull first, then project onto ground
      * point and scale the sprite by 1/depth. */
     {
         LONG dx = other_x - cam_x;
@@ -369,7 +369,7 @@ void pitch_render(struct RastPort *rp, int pane_y0,
                 int  s    = (int)(s_px >> FP);
                 if (s < 4)  s = 4;
                 if (s > 40) s = 40;
-                draw_rotofoil(rp, pane_y0, osx, osy, s, other_pen);
+                draw_skimmer(rp, pane_y0, osx, osy, s, other_pen);
             }
         }
     }

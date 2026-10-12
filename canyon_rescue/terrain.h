@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-#ifndef FRACTALUS_TERRAIN_H
-#define FRACTALUS_TERRAIN_H
+#ifndef CANYON_TERRAIN_H
+#define CANYON_TERRAIN_H
 
 #include <exec/types.h>
 
 /*
- * Fractal heightfield for planet Fractalus. Generated once via recursive
+ * Fractal heightfield for the planet. Generated once via recursive
  * midpoint displacement with a fixed seed so the world is deterministic
  * (same play session = same mountains — makes the game debuggable).
  *

@@ -41,7 +41,7 @@ void Game::init(GameState *state, Terrain *terrain, PilotList *plist,
     gs->mode = GM_TITLE;       /* start at the title screen */
     gs->restart_pressed = 0;
 
-    /* Low-flyer cruise altitude — Fractalus-style ground-hugging.
+    /* Low-flyer cruise altitude — ground-hugging.
      * If a peak sticks up higher than us, the raycaster's "camera
      * inside mountain" degenerate case fires per-column (that column
      * fills with the peak's colour) — physically correct: the peak
@@ -168,10 +168,10 @@ void Game::update_rescue(UWORD in)
 
     case RS_AIRLOCK:
         if (gs->state_timer == 0) {
-            /* Reveal: was it a real pilot or a jaggi in a suit? */
+            /* Reveal: was it a real pilot or a mimic in a suit? */
             LONG pi = gs->current_pilot;
-            if (pi >= 0 && (*pl)[pi].is_jaggi) {
-                (*pl)[pi].state = PILOT_JAGGI;
+            if (pi >= 0 && (*pl)[pi].is_mimic) {
+                (*pl)[pi].state = PILOT_MIMIC;
                 gs->pilots_lost++;
                 enter_state(RS_JUMPSCARE, JUMPSCARE_FRAMES);
             } else if (pi >= 0) {
