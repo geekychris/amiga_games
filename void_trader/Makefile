@@ -15,9 +15,10 @@ ifeq ($(ARCH),ppc)
   CFLAGS  = -mcrt=newlib -O2 -mcpu=440 -Wall -Wno-unused-function \
             -I../../amiga-bridge/include \
             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
-  LDFLAGS = -mcrt=newlib -L../../amiga-bridge -lbridge -lauto
+  # the bridge client is compiled in: ../../amiga-bridge/libbridge.a is a 68k build
+  LDFLAGS = -mcrt=newlib -lauto
   # Swap in the arch audio stub instead of modplay + sfx.
-  AUDIO_SRCS = arch_audio_stub_ppc.c
+  AUDIO_SRCS = arch_audio_stub_ppc.c bridge_client.c
 else
   CC = m68k-amigaos-gcc
   CFLAGS  = -noixemul -O2 -m68020 -Wall -Wno-unused-function \
@@ -29,6 +30,7 @@ endif
 TARGET   = void_trader
 SRCS     = main.c engine3d.c models.c combat.c scanner.c trade.c $(AUDIO_SRCS)
 OBJS     = $(SRCS:.c=.o)
+vpath %.c . ../../amiga-bridge/client
 
 all: $(TARGET)
 

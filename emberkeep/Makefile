@@ -11,7 +11,9 @@ ifeq ($(ARCH),ppc)
   CFLAGS  = -mcrt=newlib -O2 -mcpu=440 -Wall -Wno-unused-function \
             -I../../amiga-bridge/include \
             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
-  LDFLAGS = -mcrt=newlib -L../../amiga-bridge -lbridge -lauto
+  # the bridge client is compiled in: ../../amiga-bridge/libbridge.a is a 68k build
+  BRIDGE_OBJ = bridge_client.o
+  LDFLAGS = -mcrt=newlib -lauto
 else
   CC      = m68k-amigaos-g++
   CFLAGS  = -noixemul -O2 -m68020 -Wall -Wno-unused-function \
@@ -23,12 +25,15 @@ endif
 
 TARGET = emberkeep
 SRCS   = main.cpp game.cpp levels.cpp render.cpp audio.cpp tilesheet_data.cpp
-OBJS   = $(SRCS:.cpp=.o)
+OBJS   = $(SRCS:.cpp=.o) $(BRIDGE_OBJ)
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
+
+bridge_client.o: ../../amiga-bridge/client/bridge_client.c
+	ppc-amigaos-gcc $(CFLAGS) -c -o $@ $<
 
 %.o: %.cpp
 	$(CC) $(CFLAGS) -c -o $@ $<

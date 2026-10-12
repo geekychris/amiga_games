@@ -25,8 +25,9 @@ ifeq ($(ARCH),ppc)
   CFLAGS   = -mcrt=newlib -O2 -mcpu=440 -Wall -Wno-unused-function \
              -I../../amiga-bridge/include \
              -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
-  LDFLAGS  = -mcrt=newlib -L../../amiga-bridge -lbridge -lauto
-  AUDIO_SRCS = arch_audio_stub_ppc.cpp
+  # the bridge client is compiled in: ../../amiga-bridge/libbridge.a is a 68k build
+  LDFLAGS  = -mcrt=newlib -lauto
+  AUDIO_SRCS = arch_audio_stub_ppc.cpp bridge_client.c
 else
   CXX      = m68k-amigaos-g++
   CC       = m68k-amigaos-gcc
@@ -53,6 +54,7 @@ CPPSRCS  += $(AUDIO_CPP)
 CSRCS    += $(AUDIO_C)
 
 OBJS     = $(CPPSRCS:.cpp=.o) $(CSRCS:.c=.o)
+vpath %.c . ../../amiga-bridge/client
 
 all: $(TARGET)
 
