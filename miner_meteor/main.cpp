@@ -46,7 +46,7 @@ struct GfxBase       *GfxBase;
 #endif
 
 /* Bigger stack: 64K covers the level ASCII tables + render buffers
- * with a safe margin. Matches void_trader / fractalus. */
+ * with a safe margin. Matches void_trader / canyon_rescue. */
 ULONG __stack = 65536;
 
 /* Raw-key codes. */

@@ -7,7 +7,7 @@
  * ONE file. NO gameplay, NO HUD, NO combat. Just:
  *   - Fractal terrain (128x128 midpoint displacement, wraps)
  *   - Camera that auto-flies forward with slow yaw drift
- *   - Column-based voxel raycaster (Comanche/Fractalus style)
+ *   - Column-based voxel raycaster (classic voxel-landscape style)
  *   - Bridge heartbeat so we can measure FPS from the host
  *
  * The point is to prove the RENDER is right in isolation, then port
