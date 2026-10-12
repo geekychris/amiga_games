@@ -16,7 +16,9 @@ else
   CC      = m68k-amigaos-g++
   CFLAGS  = -noixemul -O2 -m68020 -Wall -Wno-unused-function \
             -I../../amiga-bridge/include
-  LDFLAGS = -noixemul -m68020 -L../../amiga-bridge -lbridge -lamiga
+  # -lnix before the libraries g++ adds (-lm): printf then comes from libnix, not
+  # libm's floating-point printf, which needs LIBS:mathieeedoubbas.library on disk.
+  LDFLAGS = -noixemul -m68020 -L../../amiga-bridge -lbridge -lamiga -lnix
 endif
 
 TARGET = emberkeep

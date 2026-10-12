@@ -349,8 +349,8 @@ static void draw_walls(int flash)
             colour4(wall_c[nv + 1], 235, 240, 255, 1);
             colour4(wall_c[nv + 4], 255, 255, 255, 1);
         } else {
-            colour4(wall_c[nv + 1], 50, 80, 220, lit(plus ? wside[i] : mul(wside[i], -1), 0.5f, 0.8f));
-            colour4(wall_c[nv + 4], 130, 180, 255, lit(wmid[i], 0.75f, 0.35f));
+            colour4(wall_c[nv + 1], 158, 92, 41, lit(plus ? wside[i] : mul(wside[i], -1), 0.5f, 0.8f));
+            colour4(wall_c[nv + 4], 255, 199, 115, lit(wmid[i], 0.75f, 0.35f));
         }
         for (k = 0; k < 8; k++) wall_i[ni + k] = (GLushort)(nv + qs[k]);
         nv += 6;
@@ -376,7 +376,7 @@ static void draw_nest(void)
     if (dot(n, campos) < RADIUS) return;
     t1 = norm(sub(t1, mul(n, dot(t1, n))));
     t2 = cross(n, t1);
-    colour(240, 110, 190, lit(n, 0.7f, 0.4f));
+    colour(120, 90, 170, lit(n, 0.7f, 0.4f));
     glBegin(GL_TRIANGLE_FAN);
     vtx(ctr);
     for (k = 0; k <= 12; k++) {

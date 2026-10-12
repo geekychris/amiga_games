@@ -102,7 +102,7 @@ struct Level;
 
 struct GameState {
     /* Widened to LONG so ab_register_var(AB_TYPE_I32) reads cleanly —
-     * same lesson we learned in fractalus with UBYTE/UWORD aliasing. */
+     * same lesson we learned in canyon_rescue with UBYTE/UWORD aliasing. */
     LONG      mode;
     LONG      level_index;
     LONG      lives;
