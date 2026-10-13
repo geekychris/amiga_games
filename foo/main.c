@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 #include <exec/types.h>
+#include <dos/dos.h>
 #include <intuition/intuition.h>
 #include <graphics/gfx.h>
 #include <graphics/rastport.h>
