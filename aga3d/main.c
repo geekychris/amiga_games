@@ -13,6 +13,7 @@
  */
 
 #include <exec/types.h>
+#include <dos/dos.h>
 #include <exec/memory.h>
 #include <intuition/intuition.h>
 #include <intuition/screens.h>

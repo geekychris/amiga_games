@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 #include <exec/types.h>
+#include <dos/dos.h>
 #include <intuition/intuition.h>
 #include <graphics/gfx.h>
 #include <graphics/rastport.h>
@@ -108,6 +109,12 @@ int main(void)
                 AB_I("Close window requested");
                 running = 0;
             }
+        }
+
+        /* CTRL-C from the shell, or from the bridge (amiga_stop_client) */
+        if (SetSignal(0L, SIGBREAKF_CTRL_C) & SIGBREAKF_CTRL_C) {
+            AB_I("Break received");
+            running = 0;
         }
 
         loop_count++;
