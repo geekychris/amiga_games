@@ -66,3 +66,8 @@
 */obj68k/
 */objppc/
 spectral_keep/tools/rtgmodes
+
+# terra_strike: game, on-Amiga test runner, host test runner
+terra_strike/terra_strike
+terra_strike/terra_strike_test
+terra_strike/tests/host_tests
