@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Amiga Games logo" width="180">
+</p>
+
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 2026 Chris Collins <chris@hitorro.com> -->
 
