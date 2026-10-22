@@ -1,7 +1,8 @@
 # Terra Strike
 
 A Zarch / Carrier Command style landscape shooter for the classic 68k Amiga
-(68020+, OS 3.0+), written with Claude Code against Amiga DevBench.
+(68020+, OS 3.0+) and AmigaOS 4.1 (PowerPC), written with Claude Code against
+Amiga DevBench.
 
 Lift off from the landing pad, fly over a wrapping fractal island, and
 destroy the tanks, buildings and ships. Tanks and ships shoot back. Land on
@@ -16,6 +17,7 @@ level.
 | P | pause |
 | Return / F1 | start |
 | Esc | title / quit |
+| F / F10 | window ↔ full screen (AmigaOS 4) |
 
 ## Main screen
 
@@ -43,6 +45,36 @@ round-trips the converter.
 - **Audio**: ptplayer plays `terra_strike.mod` on two channels, with
   synthesised effects on the other two.
 
+## AmigaOS 4.1
+
+The same game on PowerPC (`terra_strike_os4`, deployed as
+`DH1:terra_strike/terra_strike` next to `terra_strike.mod`). The
+simulation, renderer, models and the whole bridge interface are shared
+with the classic version; only the platform layer differs:
+
+| | Classic Amiga | AmigaOS 4 |
+|---|---|---|
+| Frame | five bitplanes, spans written by the CPU | a 320×256 buffer of 8-bit pens, turned into RGB through the palette |
+| Display | 320×256 PAL screen, `ChangeScreenBuffer` | `os4_display.c`: a window (`SCALE=n`, default 2) or a screen of its own (`FULLSCREEN`), scaled up; F / F10 switches |
+| Text | `Text()` with topaz 8 | the same topaz 8 glyphs, read out of the ROM font |
+| Timing | 25 fps, every other vertical blank | 25 fps on a fixed 40 ms schedule, sleeping on `timer.device` in between (`WaitTOF()` returns hundreds of times a second under QEMU, so waiting on it keeps the CPU busy) |
+| Music | ptplayer on Paula | `modplay.c`, a small Protracker player that mixes in software, streamed to `ahi.device` |
+| Effects | ptplayer `mt_playfx` | the same synthesised samples, sent to AHI at their Paula rate |
+| Joystick | port 2 | keyboard only |
+
+```
+DH1:terra_strike/terra_strike FULLSCREEN
+```
+
+| | |
+|---|---|
+| ![Title screen on AmigaOS 4](screenshots/os4-title.png) | ![Destroying a tank on AmigaOS 4](screenshots/os4-gameplay.png) |
+| Full screen: the title artwork | Full screen: the `tanks` scene, a tank just destroyed |
+
+![In a Workbench window](screenshots/os4-window.png)
+
+In a Workbench window at the default `SCALE=2`.
+
 ## Files
 
 | | |
@@ -50,8 +82,12 @@ round-trips the converter.
 | `ts.h`, `ts_math.c`, `terrain.c`, `world.c` | portable core: maths, clipping, spans, terrain, simulation (no Amiga headers) |
 | `models.c/h` | polygon models, palette layout |
 | `render.c/h` | camera, renderer, HUD, radar |
-| `main.c` | screen, input, main loop, AmigaBridge wiring |
+| `game.c/h` | the shared side of the frame loop: input, fixed-rate simulation, what to draw, AmigaBridge vars and hooks |
+| `main.c` | classic Amiga: screen, joystick, ptplayer, timers |
+| `main_os4.c` | AmigaOS 4: pen buffer → RGB, window or screen, keyboard, timers |
 | `sound.c/h`, `ptplayer.*` | effects and Protracker replay (from ace_pilot) |
+| `sound_ahi.c`, `modplay.c/h` | AmigaOS 4 sound: AHI streaming and the software MOD player |
+| `os4_display.c/h` | AmigaOS 4 window / full screen, shared with planet_chomp, rolling_steel and spectral_keep |
 | `tests/test_cases.c` | 67 unit tests, shared by all three runners |
 | `tests/host_main.c` | runs them natively on the host |
 | `tests/amiga_test_main.c` | `terra_strike_test`, runs them on the Amiga |
@@ -62,6 +98,7 @@ round-trips the converter.
 ```bash
 make host-test                         # unit tests on the Mac (cc)
 make                                   # terra_strike + terra_strike_test (Docker m68k)
+scripts/build-example-ppc.sh terra_strike   # terra_strike_os4 (from the amiga_mcp root)
 ```
 
 Through devbench (classic 68k profile on :3001):
@@ -79,7 +116,7 @@ Copy `terra_strike.mod` next to the binary (`PROGDIR:`) for music.
 
 | | |
 |---|---|
-| vars (monitor) | `score lives level targets state pstate fuel shield speed yaw alt px pz fps polys frame title_phase` and `us_update us_build us_draw us_hud` (stage timings in µs) |
+| vars (monitor) | `score lives level targets state pstate fuel shield speed yaw alt px pz fps polys frame title_phase` and `us_update us_build us_draw us_hud` (stage timings in µs); on AmigaOS 4 also `us_convert us_present` |
 | vars (tunables) | `god_mode inf_fuel enemy_fire enemy_range turn_rate lift gravity max_speed` |
 | hooks | `title [image\|attract]`, `scene <sea\|tanks\|city\|landing\|lowfuel\|pad>`, `selftest`, `status`, `spawn <tank\|ship\|building> [dist]`, `start`, `clear`, `regen [seed]` |
 | memregion | `heightmap` (64×64 big-endian WORD heights) |
