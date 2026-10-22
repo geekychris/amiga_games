@@ -3,11 +3,22 @@
 
 /*
  * sound.c - Sound effect synthesis for Terra Strike
- * Uses ptplayer for playback via SFX structures
+ * Uses ptplayer for playback via SFX structures (ahi.device on AmigaOS 4)
  */
 #include <exec/memory.h>
 #include <proto/exec.h>
 #include "sound.h"
+
+#ifdef __PPC__
+/* no chip RAM on AmigaOS 4: any memory AHI can read */
+#define SAMPLE_ALLOC(n) AllocVecTags((n), AVT_Type, MEMF_SHARED, AVT_ClearWithValue, 0, TAG_DONE)
+#define SAMPLE_FREE(p, n) FreeVec(p)
+#define PLAY(s) ahi_sfx(s)
+#else
+#define SAMPLE_ALLOC(n) AllocMem((n), MEMF_CHIP | MEMF_CLEAR)
+#define SAMPLE_FREE(p, n) FreeMem((p), (n))
+#define PLAY(s) mt_playfx(CUSTOM_BASE, (s))
+#endif
 
 /* SFX sample lengths */
 #define SFX_GUN_LEN     64
@@ -41,7 +52,7 @@ void sound_init(void)
     WORD i;
 
     /* Machine gun burst: rapid clicking, high-pitched */
-    sfx_gun_data = (BYTE *)AllocMem(SFX_GUN_LEN, MEMF_CHIP | MEMF_CLEAR);
+    sfx_gun_data = (BYTE *)SAMPLE_ALLOC(SFX_GUN_LEN);
     if (sfx_gun_data) {
         for (i = 0; i < SFX_GUN_LEN; i++) {
             WORD phase = (i * 30) & 0xFF;
@@ -51,7 +62,7 @@ void sound_init(void)
     }
 
     /* Explosion: white noise with long decay */
-    sfx_explode_data = (BYTE *)AllocMem(SFX_EXPLODE_LEN, MEMF_CHIP | MEMF_CLEAR);
+    sfx_explode_data = (BYTE *)SAMPLE_ALLOC(SFX_EXPLODE_LEN);
     if (sfx_explode_data) {
         for (i = 0; i < SFX_EXPLODE_LEN; i++) {
             WORD env = 127 - (i * 127) / SFX_EXPLODE_LEN;
@@ -60,7 +71,7 @@ void sound_init(void)
     }
 
     /* Hit: short noise burst */
-    sfx_hit_data = (BYTE *)AllocMem(SFX_HIT_LEN, MEMF_CHIP | MEMF_CLEAR);
+    sfx_hit_data = (BYTE *)SAMPLE_ALLOC(SFX_HIT_LEN);
     if (sfx_hit_data) {
         for (i = 0; i < SFX_HIT_LEN; i++) {
             WORD env = 127 - (i * 127) / SFX_HIT_LEN;
@@ -69,7 +80,7 @@ void sound_init(void)
     }
 
     /* Die: descending wail + noise */
-    sfx_die_data = (BYTE *)AllocMem(SFX_DIE_LEN, MEMF_CHIP | MEMF_CLEAR);
+    sfx_die_data = (BYTE *)SAMPLE_ALLOC(SFX_DIE_LEN);
     if (sfx_die_data) {
         for (i = 0; i < SFX_DIE_LEN; i++) {
             WORD env = 127 - (i * 127) / SFX_DIE_LEN;
@@ -115,32 +126,32 @@ void sound_cleanup(void)
     /* Null the pointers immediately after free so a stray sfx_* call
      * after cleanup, or a second cleanup pass, cannot use freed memory
      * or double-free. */
-    if (sfx_gun_data)     { FreeMem(sfx_gun_data, SFX_GUN_LEN);         sfx_gun_data = NULL; }
-    if (sfx_explode_data) { FreeMem(sfx_explode_data, SFX_EXPLODE_LEN); sfx_explode_data = NULL; }
-    if (sfx_hit_data)     { FreeMem(sfx_hit_data, SFX_HIT_LEN);         sfx_hit_data = NULL; }
-    if (sfx_die_data)     { FreeMem(sfx_die_data, SFX_DIE_LEN);         sfx_die_data = NULL; }
+    if (sfx_gun_data)     { SAMPLE_FREE(sfx_gun_data, SFX_GUN_LEN);         sfx_gun_data = NULL; }
+    if (sfx_explode_data) { SAMPLE_FREE(sfx_explode_data, SFX_EXPLODE_LEN); sfx_explode_data = NULL; }
+    if (sfx_hit_data)     { SAMPLE_FREE(sfx_hit_data, SFX_HIT_LEN);         sfx_hit_data = NULL; }
+    if (sfx_die_data)     { SAMPLE_FREE(sfx_die_data, SFX_DIE_LEN);         sfx_die_data = NULL; }
 }
 
 void sfx_gunfire(void)
 {
     if (sfx_gun_data)
-        mt_playfx(CUSTOM_BASE, &sfx_gun_sfx);
+        PLAY(&sfx_gun_sfx);
 }
 
 void sfx_explosion(void)
 {
     if (sfx_explode_data)
-        mt_playfx(CUSTOM_BASE, &sfx_explode_sfx);
+        PLAY(&sfx_explode_sfx);
 }
 
 void sfx_hit(void)
 {
     if (sfx_hit_data)
-        mt_playfx(CUSTOM_BASE, &sfx_hit_sfx);
+        PLAY(&sfx_hit_sfx);
 }
 
 void sfx_die(void)
 {
     if (sfx_die_data)
-        mt_playfx(CUSTOM_BASE, &sfx_die_sfx);
+        PLAY(&sfx_die_sfx);
 }

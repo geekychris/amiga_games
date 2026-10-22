@@ -1,8 +1,8 @@
 /*
  * os4_display.c: the game's picture on AmigaOS 4, in a window on the
  * Workbench or full screen on a screen of its own, scaled up by a whole
- * number and centred. The same file is in planet_chomp, rolling_steel and
- * spectral_keep.
+ * number and centred. The same file is in planet_chomp, rolling_steel,
+ * spectral_keep and terra_strike.
  */
 #ifndef OS4_DISPLAY_H
 #define OS4_DISPLAY_H

@@ -7,17 +7,22 @@
  * Each frame the visible block of terrain tiles and every model are
  * transformed into camera space, clipped (near plane, then the screen
  * rectangle) and dropped into depth buckets. The buckets are drawn far to
- * near with graphics.library area fills (blitter), so nearer hills cover
- * farther ones - a painter's algorithm, as Zarch did it.
+ * near, so nearer hills cover farther ones - a painter's algorithm, as
+ * Zarch did it.
  *
- * Models are keyed to the depth of the terrain tile they stand over, so
- * they draw just after their own tile and before anything nearer.
+ * Models are keyed to the depth of the tile they stand over, so they draw
+ * just after their own tile and before anything nearer.
+ *
+ * The drawing primitives at the top are the only part that differs between
+ * the classic Amiga (spans written straight into the five bitplanes,
+ * graphics.library for rectangles and text) and AmigaOS 4 (a buffer of
+ * 8-bit pens, with the topaz 8 glyphs read out of the system font).
  */
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <graphics/gfx.h>
 #include <graphics/rastport.h>
-#include <graphics/gfxmacros.h>
+#include <graphics/text.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
 #include <string.h>
@@ -28,7 +33,103 @@
 #include "render.h"
 #include "title_image.h"
 
-/* ---------- area fill set-up ---------- */
+#ifdef __PPC__
+/* ---------- drawing primitives: 8-bit pens ---------- */
+static uint8_t glyph[256][8];           /* topaz 8, one byte per row, bit 7 left */
+static int glyph_base = 6;              /* baseline row, as Text() uses it */
+static uint8_t title_pix[TITLE_W * TITLE_H];
+
+/* the topaz 8 bitmap out of the ROM font, so the text matches the 68k game */
+static void load_font(void)
+{
+    struct TextAttr ta = { (STRPTR)"topaz.font", 8, 0, 0 };
+    struct TextFont *tf = OpenFont(&ta);
+    int c, r, b;
+    if (!tf) return;
+    glyph_base = tf->tf_Baseline;
+    for (c = tf->tf_LoChar; c <= tf->tf_HiChar && c < 256; c++) {
+        const ULONG *loc = (const ULONG *)tf->tf_CharLoc + (c - tf->tf_LoChar);
+        int off = (int)(*loc >> 16), w = (int)(*loc & 0xFFFF);
+        const UBYTE *data = (const UBYTE *)tf->tf_CharData;
+        if (w > 8) w = 8;
+        for (r = 0; r < 8 && r < tf->tf_YSize; r++) {
+            uint8_t bits = 0;
+            for (b = 0; b < w; b++) {
+                int bit = off + b;
+                if (data[r * tf->tf_Modulo + (bit >> 3)] & (0x80 >> (bit & 7))) bits |= 0x80 >> b;
+            }
+            glyph[c][r] = bits;
+        }
+    }
+    CloseFont(tf);
+}
+
+/* the artwork's five planes as pens, once */
+static void decode_title(void)
+{
+    int y, x, p;
+    for (y = 0; y < TITLE_H; y++)
+        for (x = 0; x < TITLE_W; x++) {
+            int pen = 0, o = y * (TITLE_W / 8) + (x >> 3), m = 0x80 >> (x & 7);
+            for (p = 0; p < TITLE_DEPTH; p++)
+                if (title_planes[p][o] & m) pen |= 1 << p;
+            title_pix[y * TITLE_W + x] = (uint8_t)pen;
+        }
+}
+
+int render_init(void)
+{
+    load_font();
+    decode_title();
+    models_init();
+    return 1;
+}
+
+void render_cleanup(void) {}
+
+static void g_rect(Canvas *cv, int x0, int y0, int x1, int y1, int col)
+{
+    int y;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > SCREEN_W - 1) x1 = SCREEN_W - 1;
+    if (y1 > SCREEN_H - 1) y1 = SCREEN_H - 1;
+    if (x0 > x1) return;
+    for (y = y0; y <= y1; y++) memset(cv->pix + y * SCREEN_W + x0, col, x1 - x0 + 1);
+}
+
+static void g_span(Canvas *cv, int y, int xl, int xr, int col)
+{
+    memset(cv->pix + y * SCREEN_W + xl, col, xr - xl + 1);
+}
+
+/* like Move(x, y) + Text(): y is the baseline, JAM1 */
+static void g_text(Canvas *cv, int x, int y, int col, const char *s)
+{
+    int r, b;
+    y -= glyph_base;
+    for (; *s; s++, x += 8)
+        for (r = 0; r < 8; r++) {
+            int yy = y + r;
+            uint8_t bits = glyph[(unsigned char)*s][r];
+            if (!bits || yy < 0 || yy >= SCREEN_H) continue;
+            for (b = 0; b < 8; b++)
+                if ((bits & (0x80 >> b)) && x + b >= 0 && x + b < SCREEN_W)
+                    cv->pix[yy * SCREEN_W + x + b] = (uint8_t)col;
+        }
+}
+
+static void g_begin(Canvas *cv) { (void)cv; }
+
+static void g_title(Canvas *cv)
+{
+    int i;
+    /* a plain loop: newlib's memcpy is unreliable for big copies on OS4 */
+    for (i = 0; i < TITLE_W * TITLE_H; i++) cv->pix[i] = title_pix[i];
+}
+
+#else
+/* ---------- drawing primitives: bitplanes and graphics.library ---------- */
 #define AREA_MAXV 40
 static WORD area_buf[(AREA_MAXV * 5 + 1) / 2];
 static struct AreaInfo area_info;
@@ -55,6 +156,67 @@ void render_cleanup(void)
 {
     if (tmp_plane) { FreeRaster(tmp_plane, 320, 256); tmp_plane = NULL; }
 }
+
+static void g_rect(Canvas *rp, int x0, int y0, int x1, int y1, int col)
+{
+    SetAPen(rp, col);
+    RectFill(rp, x0, y0, x1, y1);
+}
+
+/* Fill one row segment xl..xr with pen col straight into the bitplanes.
+ * Works for interleaved and plain bitmaps (BytesPerRow covers both). */
+static void g_span(Canvas *rp, int y, int xl, int xr, int col)
+{
+    PLANEPTR *planes = rp->BitMap->Planes;
+    LONG bpr = rp->BitMap->BytesPerRow;
+    int wl = xl >> 4, wr = xr >> 4, p, k, n = wr - wl;
+    UWORD lm = 0xFFFF >> (xl & 15), rm = 0xFFFF << (15 - (xr & 15));
+    LONG off = y * bpr + wl * 2;
+
+    if (n == 0) lm &= rm;
+    for (p = 0; p < 5; p++, col >>= 1) {
+        UWORD *d = (UWORD *)(planes[p] + off);
+        if (col & 1) {
+            d[0] |= lm;
+            if (n) { for (k = 1; k < n; k++) d[k] = 0xFFFF; d[n] |= rm; }
+        } else {
+            d[0] &= ~lm;
+            if (n) { for (k = 1; k < n; k++) d[k] = 0; d[n] &= ~rm; }
+        }
+    }
+}
+
+static void g_text(Canvas *rp, int x, int y, int col, const char *s)
+{
+    SetAPen(rp, col);
+    Move(rp, x, y);
+    Text(rp, (STRPTR)s, strlen(s));
+}
+
+/* the CPU writes the planes next: let the blitter finish first */
+static void g_begin(Canvas *rp)
+{
+    SetDrMd(rp, JAM1);
+    WaitBlit();
+}
+
+/* the converted artwork, copied straight into the bitplanes */
+static void g_title(Canvas *rp)
+{
+    struct BitMap *bm = rp->BitMap;
+    LONG bpr = bm->BytesPerRow;
+    int p, y;
+
+    WaitBlit();
+    for (p = 0; p < TITLE_DEPTH; p++) {
+        const UBYTE *src = title_planes[p];
+        UBYTE *dst = (UBYTE *)bm->Planes[p];
+        for (y = 0; y < TITLE_H; y++, src += TITLE_W / 8, dst += bpr)
+            memcpy(dst, src, TITLE_W / 8);
+    }
+    SetDrMd(rp, JAM1);
+}
+#endif
 
 /* ---------- draw list ---------- */
 typedef struct DPoly {
@@ -287,34 +449,10 @@ static int ent_model(const Ent *e, int idx)
     return -1;
 }
 
-/* Fill one row segment xl..xr with pen col straight into the bitplanes.
- * Works for interleaved and plain bitmaps (BytesPerRow covers both). */
-static void fill_span(PLANEPTR *planes, LONG bpr, int y, int xl, int xr, int col)
-{
-    int wl = xl >> 4, wr = xr >> 4, p, k, n = wr - wl;
-    UWORD lm = 0xFFFF >> (xl & 15), rm = 0xFFFF << (15 - (xr & 15));
-    LONG off = y * bpr + wl * 2;
-
-    if (n == 0) lm &= rm;
-    for (p = 0; p < 5; p++, col >>= 1) {
-        UWORD *d = (UWORD *)(planes[p] + off);
-        if (col & 1) {
-            d[0] |= lm;
-            if (n) { for (k = 1; k < n; k++) d[k] = 0xFFFF; d[n] |= rm; }
-        } else {
-            d[0] &= ~lm;
-            if (n) { for (k = 1; k < n; k++) d[k] = 0; d[n] &= ~rm; }
-        }
-    }
-}
-
 static int16_t span_l[SPAN_MAX], span_r[SPAN_MAX];
 
-static void flush(struct RastPort *rp)
+static void flush(Canvas *cv)
 {
-    struct BitMap *bm = rp->BitMap;
-    PLANEPTR *planes = bm->Planes;
-    LONG bpr = bm->BytesPerRow;
     int b, i, y;
 
     for (b = NBUCKET - 1; b >= 0; b--) {
@@ -322,7 +460,7 @@ static void flush(struct RastPort *rp)
         for (p = bhead[b]; p; p = p->next) {
             if (p->n == 0) {
                 for (y = p->y[0]; y <= p->y[1]; y++)
-                    fill_span(planes, bpr, y, p->x[0], p->x[1], p->col);
+                    g_span(cv, y, p->x[0], p->x[1], p->col);
             } else {
                 int ymin, rows = poly_spans(p->x, p->y, p->n, span_l, span_r, &ymin);
                 for (i = 0; i < rows; i++) {
@@ -331,7 +469,7 @@ static void flush(struct RastPort *rp)
                     if (xl > xr || y < 0 || y >= VIEW_H) continue;
                     if (xl < 0) xl = 0;
                     if (xr > VIEW_W - 1) xr = VIEW_W - 1;
-                    fill_span(planes, bpr, y, xl, xr, p->col);
+                    g_span(cv, y, xl, xr, p->col);
                 }
             }
         }
@@ -382,44 +520,36 @@ void render_build(const World *w, Cam *c)
     render_stats.polys = npoly;
 }
 
-void render_draw(struct RastPort *rp)
+void render_draw(Canvas *cv)
 {
-    SetDrMd(rp, JAM1);
-    SetAPen(rp, PEN_BLACK);
-    RectFill(rp, 0, 0, VIEW_W - 1, VIEW_H - 1);
-    WaitBlit();          /* the CPU writes the planes next */
-    flush(rp);
+    g_rect(cv, 0, 0, VIEW_W - 1, VIEW_H - 1, PEN_BLACK);
+    g_begin(cv);
+    flush(cv);
 }
 
 /* ---------- HUD ---------- */
-static void text_at(struct RastPort *rp, int x, int y, int col, const char *s)
+static void text_at(Canvas *rp, int x, int y, int col, const char *s)
 {
-    SetAPen(rp, col);
-    Move(rp, x, y);
-    Text(rp, (STRPTR)s, strlen(s));
+    g_text(rp, x, y, col, s);
 }
 
-static void text_centre(struct RastPort *rp, int y, int col, const char *s)
+static void text_centre(Canvas *rp, int y, int col, const char *s)
 {
     int x = (VIEW_W - (int)strlen(s) * 8) / 2;
     text_at(rp, x + 1, y + 1, PEN_BLACK, s);
     text_at(rp, x, y, col, s);
 }
 
-static void bar(struct RastPort *rp, int x, int y, int w, int val, int max, int col)
+static void bar(Canvas *rp, int x, int y, int w, int val, int max, int col)
 {
     int fill = (val * w) / max;
     if (fill < 0) fill = 0;
     if (fill > w) fill = w;
-    SetAPen(rp, PEN_BLACK);
-    RectFill(rp, x, y, x + w, y + 4);
-    if (fill > 0) {
-        SetAPen(rp, col);
-        RectFill(rp, x, y, x + fill, y + 4);
-    }
+    g_rect(rp, x, y, x + w, y + 4, PEN_BLACK);
+    if (fill > 0) g_rect(rp, x, y, x + fill, y + 4, col);
 }
 
-static void radar(struct RastPort *rp, const World *w)
+static void radar(Canvas *rp, const World *w)
 {
     const int x0 = 250, y0 = VIEW_H + 3, x1 = 316, y1 = 253;
     const int cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
@@ -427,16 +557,16 @@ static void radar(struct RastPort *rp, const World *w)
     int32_t padx, padz;
     int i, rx, ry;
 
-    SetAPen(rp, PEN_BLACK);
-    RectFill(rp, x0, y0, x1, y1);
-    SetAPen(rp, PEN_GREY);
-    Move(rp, x0, y0); Draw(rp, x1, y0); Draw(rp, x1, y1); Draw(rp, x0, y1); Draw(rp, x0, y0);
+    g_rect(rp, x0, y0, x1, y1, PEN_BLACK);
+    g_rect(rp, x0, y0, x1, y0, PEN_GREY);           /* the frame */
+    g_rect(rp, x0, y1, x1, y1, PEN_GREY);
+    g_rect(rp, x0, y0, x0, y1, PEN_GREY);
+    g_rect(rp, x1, y0, x1, y1, PEN_GREY);
 
     pad_centre(w, &padx, &padz);
     radar_map(ts_wrap_delta(padx, px), ts_wrap_delta(padz, pz), w->p.yaw, 6, &rx, &ry);
     if (cx + rx > x0 + 1 && cx + rx < x1 - 2 && cy + ry > y0 + 1 && cy + ry < y1 - 2) {
-        SetAPen(rp, PEN_YELLOW);
-        RectFill(rp, cx + rx - 1, cy + ry - 1, cx + rx + 1, cy + ry + 1);
+        g_rect(rp, cx + rx - 1, cy + ry - 1, cx + rx + 1, cy + ry + 1, PEN_YELLOW);
     }
     for (i = 0; i < MAX_ENTS; i++) {
         const Ent *e = &w->ents[i];
@@ -446,11 +576,9 @@ static void radar(struct RastPort *rp, const World *w)
                   w->p.yaw, 6, &rx, &ry);
         if (cx + rx <= x0 || cx + rx >= x1 - 1 || cy + ry <= y0 || cy + ry >= y1 - 1) continue;
         col = e->type == ENT_TANK ? PEN_RED : e->type == ENT_SHIP ? PEN_CRAFT : PEN_WHITE;
-        SetAPen(rp, col);
-        RectFill(rp, cx + rx, cy + ry, cx + rx + 1, cy + ry + 1);
+        g_rect(rp, cx + rx, cy + ry, cx + rx + 1, cy + ry + 1, col);
     }
-    SetAPen(rp, PEN_WHITE);
-    Move(rp, cx, cy - 2); Draw(rp, cx, cy + 1);
+    g_rect(rp, cx, cy - 2, cx, cy + 1, PEN_WHITE);
 }
 
 /* HUD text is cached per screen buffer: a line is redrawn only when its
@@ -458,29 +586,26 @@ static void radar(struct RastPort *rp, const World *w)
 static char hud_cache[2][6][24];
 static int hud_valid[2];
 
-static void hud_line(struct RastPort *rp, int buf, int slot, int x, int y, int w,
+static void hud_line(Canvas *rp, int buf, int slot, int x, int y, int w,
                      int col, const char *s)
 {
     if (hud_valid[buf] && strcmp(hud_cache[buf][slot], s) == 0) return;
     strncpy(hud_cache[buf][slot], s, 23);
-    SetAPen(rp, PEN_PANEL);
-    RectFill(rp, x, y - 7, x + w, y + 1);
+    g_rect(rp, x, y - 7, x + w, y + 1, PEN_PANEL);
     text_at(rp, x, y, col, s);
 }
 
 void render_hud_reset(void) { hud_valid[0] = hud_valid[1] = 0; }
 
-void render_hud(struct RastPort *rp, int buf, const World *w, int fps, int paused)
+void render_hud(Canvas *rp, int buf, const World *w, int fps, int paused)
 {
     char tmp[48];
     const Craft *p = &w->p;
     int32_t alt = (p->y >> FBITS) - ground_height(w, p->x >> FBITS, p->z >> FBITS);
 
     if (!hud_valid[buf]) {
-        SetAPen(rp, PEN_PANEL);
-        RectFill(rp, 0, VIEW_H, 319, 255);
-        SetAPen(rp, PEN_GREY);
-        Move(rp, 0, VIEW_H); Draw(rp, 319, VIEW_H);
+        g_rect(rp, 0, VIEW_H, 319, 255, PEN_PANEL);
+        g_rect(rp, 0, VIEW_H, 319, VIEW_H, PEN_GREY);
         text_at(rp, 134, VIEW_H + 12, PEN_GREY, "FUEL");
         text_at(rp, 134, VIEW_H + 24, PEN_GREY, "SHLD");
     }
@@ -527,7 +652,7 @@ void render_hud(struct RastPort *rp, int buf, const World *w, int fps, int pause
     if (paused) text_centre(rp, 100, PEN_WHITE, "PAUSED");
 }
 
-void render_title(struct RastPort *rp, const World *w)
+void render_title(Canvas *rp, const World *w)
 {
     text_centre(rp, 40, PEN_YELLOW, "T E R R A   S T R I K E");
     text_centre(rp, 56, PEN_GREY, "an Amiga DevBench demo");
@@ -536,23 +661,12 @@ void render_title(struct RastPort *rp, const World *w)
     if (w->frame & 32) text_centre(rp, 186, PEN_YELLOW, "PRESS FIRE TO START");
 }
 
-/* Main screen: the converted ChatGPT artwork (tools/make_title.py), copied
- * straight into the bitplanes, with the prompt text drawn over the dark sea
- * at the bottom in the image's own palette. */
-void render_title_image(struct RastPort *rp, int frame)
+/* Main screen: the converted ChatGPT artwork (tools/make_title.py), with
+ * the prompt text drawn over the dark sea at the bottom in the image's own
+ * palette. */
+void render_title_image(Canvas *rp, int frame)
 {
-    struct BitMap *bm = rp->BitMap;
-    LONG bpr = bm->BytesPerRow;
-    int p, y;
-
-    WaitBlit();
-    for (p = 0; p < TITLE_DEPTH; p++) {
-        const UBYTE *src = title_planes[p];
-        UBYTE *dst = (UBYTE *)bm->Planes[p];
-        for (y = 0; y < TITLE_H; y++, src += TITLE_W / 8, dst += bpr)
-            memcpy(dst, src, TITLE_W / 8);
-    }
-    SetDrMd(rp, JAM1);
+    g_title(rp);
     {
         const char *keys = "ARROWS FLY  A/Z SPEED  SPACE FIRE";
         int x = (320 - (int)strlen(keys) * 8) / 2;

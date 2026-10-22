@@ -5,7 +5,8 @@
  * scaled up by a whole number and centred. WritePixelArray converts the
  * A R G B frame to whatever the screen's pixel format is.
  *
- * The same file is in planet_chomp, rolling_steel and spectral_keep.
+ * The same file is in planet_chomp, rolling_steel, spectral_keep and
+ * terra_strike.
  */
 #include <exec/types.h>
 #include <exec/memory.h>
