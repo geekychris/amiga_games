@@ -66,6 +66,15 @@ with the classic version; only the platform layer differs:
 DH1:terra_strike/terra_strike FULLSCREEN
 ```
 
+| | |
+|---|---|
+| ![Title screen on AmigaOS 4](screenshots/os4-title.png) | ![Destroying a tank on AmigaOS 4](screenshots/os4-gameplay.png) |
+| Full screen: the title artwork | Full screen: the `tanks` scene, a tank just destroyed |
+
+![In a Workbench window](screenshots/os4-window.png)
+
+In a Workbench window at the default `SCALE=2`.
+
 ## Files
 
 | | |
