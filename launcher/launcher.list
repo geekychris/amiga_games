@@ -1,0 +1,16 @@
+# AmigaOS 4 launcher list: Title|program. Programs that aren't
+# installed are left out of the menu. Deploy beside DH1:launcher.
+# Arguments may follow the program: FULLSCREEN gives a game a screen of
+# its own (F or F10 switches back to a window while playing).
+Planet Chomp|DH1:planet_chomp FULLSCREEN
+Rolling Steel|DH1:rolling_steel/rolling_steel FULLSCREEN
+Spectral Keep|DH1:spectral_keep/spectral_keep FULLSCREEN
+Void Trader|DH1:void_trader
+Canyon Rescue|DH1:canyon_rescue
+Emberkeep|DH1:emberkeep
+Warden Keep|DH1:warden_keep
+Masterwork|DH1:masterwork
+Terrain Test|DH1:terrain_test
+Organizer|DH1:organizer
+TrapezePDF|DH1:TrapezePDF
+NetSurf|DH1:NetSurf/NetSurf

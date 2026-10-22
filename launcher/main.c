@@ -10,6 +10,13 @@
  *   2. Then by launch count (most used first)
  * Saves launch stats to DH2:Dev/launcher.stats
  *
+ * If APP_DIR holds a launcher.list file, the list comes from it instead
+ * of the directory scan: one "Title|program path" per line (# comments).
+ * The AmigaOS 4 build (make ARCH=ppc) uses DH1: and expects a list,
+ * since the dev drive holds a lot of test programs. A file named
+ * launcher.skip in APP_DIR is ignored here; the boot scripts check it
+ * to decide whether to start the launcher at all.
+ *
  * Controls:
  *   Click         Select app
  *   Double-click  Launch app
@@ -27,9 +34,14 @@
 #include <intuition/intuition.h>
 #include <intuition/gadgetclass.h>
 #include <devices/input.h>
+#ifdef __PPC__
+#include <stdio.h>
+#endif
 #include <devices/inputevent.h>
+#ifndef __PPC__
 #include <hardware/custom.h>
 #include <hardware/cia.h>
+#endif
 #include <dos/dos.h>
 #include <exec/memory.h>
 #include <exec/lists.h>
@@ -39,23 +51,46 @@
 
 #include "bridge_client.h"
 
+#ifdef __PPC__
+/* OS4: -lauto opens intuition, graphics, gadtools and their interfaces. */
+#ifndef Examine
+#define Examine OBSOLETEExamine
+#define ExNext  OBSOLETEExNext
+#endif
+#define STACK_SIZE  (3L * 1024 * 1024)   /* the OSMesa games want ~2 MB */
+#else
 char *sprintf(char *buf, const char *fmt, ...);
 
 /* Libraries */
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase       *GfxBase = NULL;
 struct Library       *GadToolsBase = NULL;
+#define STACK_SIZE  16384
+#endif
 
 /* Paths */
+#ifndef APP_DIR
+#ifdef __PPC__
+#define APP_DIR     "DH1:"
+#else
 #define APP_DIR     "DH2:Dev/"
-#define STATS_FILE  "DH2:Dev/launcher.stats"
+#endif
+#endif
+#define STATS_FILE  APP_DIR "launcher.stats"
+#define LIST_FILE   APP_DIR "launcher.list"
 
 #define MAX_APPS    64
 #define NAME_LEN    40
+#define PATH_LEN    120
 #define DISP_LEN    80
 
+#ifdef __PPC__
+#define WIN_W       360
+#define WIN_H       380
+#else
 #define WIN_W       320
 #define WIN_H       300
+#endif
 #define WIN_LEFT    10
 #define WIN_TOP     15
 
@@ -88,11 +123,19 @@ static struct IOStdReq *inp_req = NULL;
 static struct Interrupt inp_handler;
 static WORD inp_installed = 0;
 
+#ifdef __PPC__
+static struct InputEvent *
+key_handler_func(struct InputEvent *events, APTR data)
+{
+    struct InputEvent *ev;
+    (void)data;
+#else
 static struct InputEvent * __attribute__((used))
 key_handler_func(void)
 {
     register struct InputEvent *events __asm("a0");
     struct InputEvent *ev;
+#endif
     for (ev = events; ev; ev = ev->ie_NextEvent) {
         if (ev->ie_Class == IECLASS_RAWKEY) {
             UWORD code = ev->ie_Code;
@@ -151,6 +194,12 @@ static void input_handler_cleanup(void)
     if (inp_port) { DeleteMsgPort(inp_port); inp_port = NULL; }
 }
 
+static void clear_keys(void)
+{
+    WORD i;
+    for (i = 0; i < 128; i++) key_pressed[i] = 0;
+}
+
 /* Consume a key press (edge-triggered) */
 static WORD key_pop(UBYTE key)
 {
@@ -162,6 +211,7 @@ static WORD key_pop(UBYTE key)
 typedef struct {
     struct Node node;
     char name[NAME_LEN];
+    char path[PATH_LEN];      /* program to run; empty = APP_DIR + name */
     char display[DISP_LEN];
     LONG count;
     WORD is_new;
@@ -171,19 +221,20 @@ static AppEntry apps[MAX_APPS];
 static WORD app_count = 0;
 static struct List app_list;
 static WORD selected = 0;
+static WORD from_list = 0;
 
 /* ---- Stats ---- */
 
 static void stats_load(void)
 {
     BPTR fh;
-    char buf[512];
+    static char buf[2048];
     LONG len;
     char *p;
 
     fh = Open((STRPTR)STATS_FILE, MODE_OLDFILE);
     if (!fh) return;
-    len = Read(fh, buf, 511);
+    len = Read(fh, buf, sizeof(buf) - 1);
     Close(fh);
     if (len <= 0) return;
     buf[len] = 0;
@@ -194,8 +245,18 @@ static void stats_load(void)
         LONG count = 0;
         WORD ni = 0;
 
-        while (*p && *p != ' ' && *p != '\n' && ni < NAME_LEN - 1)
-            name[ni++] = *p++;
+        /* "name count" lines; list titles can hold spaces, so the
+         * count is the last word on the line. */
+        {
+            char *eol = p, *sp = NULL;
+            while (*eol && *eol != '\n') {
+                if (*eol == ' ') sp = eol;
+                eol++;
+            }
+            while (p < (sp ? sp : eol) && ni < NAME_LEN - 1)
+                name[ni++] = *p++;
+            if (sp) p = sp;
+        }
         name[ni] = 0;
         while (*p == ' ') p++;
         while (*p >= '0' && *p <= '9') { count = count * 10 + (*p - '0'); p++; }
@@ -222,7 +283,7 @@ static void stats_save(void)
 {
     BPTR fh;
     WORD i;
-    char buf[64];
+    char buf[NAME_LEN + 24];
 
     fh = Open((STRPTR)STATS_FILE, MODE_NEWFILE);
     if (!fh) return;
@@ -255,6 +316,57 @@ static WORD has_skip_extension(const char *name)
         }
     }
     return 0;
+}
+
+/* Read LIST_FILE ("Title|path" lines). Returns 1 if the file exists. */
+static WORD load_list(void)
+{
+    static char buf[4096];
+    BPTR fh;
+    LONG len;
+    char *p;
+
+    fh = Open((STRPTR)LIST_FILE, MODE_OLDFILE);
+    if (!fh) return 0;
+    len = Read(fh, buf, sizeof(buf) - 1);
+    Close(fh);
+    if (len < 0) len = 0;
+    buf[len] = 0;
+
+    for (p = buf; *p && app_count < MAX_APPS; ) {
+        char *line = p, *bar = NULL, *end;
+        while (*p && *p != '\n') { if (*p == '|' && !bar) bar = p; p++; }
+        end = p;
+        if (*p == '\n') p++;
+        while (end > line && (end[-1] == '\r' || end[-1] == ' ')) end--;
+        if (*line == '#' || *line == ';' || !bar || bar == line) continue;
+        {
+            AppEntry *a = &apps[app_count];
+            LONG tl = bar - line, pl = end - (bar + 1);
+            BPTR test;
+            if (tl > NAME_LEN - 1) tl = NAME_LEN - 1;
+            if (pl > PATH_LEN - 1) pl = PATH_LEN - 1;
+            if (pl <= 0) continue;
+            memcpy(a->name, line, tl); a->name[tl] = 0;
+            memcpy(a->path, bar + 1, pl); a->path[pl] = 0;
+            /* Leave out entries whose program isn't installed (the
+             * path may be followed by arguments, e.g. FULLSCREEN). */
+            {
+                char prog[PATH_LEN];
+                char *sp;
+                strcpy(prog, a->path);
+                sp = strchr(prog, ' ');
+                if (sp) *sp = 0;
+                test = Lock((STRPTR)prog, SHARED_LOCK);
+            }
+            if (!test) continue;
+            UnLock(test);
+            a->count = 0;
+            a->is_new = 1;
+            app_count++;
+        }
+    }
+    return 1;
 }
 
 static void scan_directory(void)
@@ -294,6 +406,7 @@ static void scan_directory(void)
                 }
                 if (!found && app_count < MAX_APPS) {
                     strncpy(apps[app_count].name, fib->fib_FileName, NAME_LEN - 1);
+                    apps[app_count].path[0] = 0;
                     apps[app_count].count = 0;
                     apps[app_count].is_new = 1;
                     app_count++;
@@ -372,9 +485,14 @@ static void build_list(void)
         sprintf(apps[i].display, "%s", apps[i].name);
         dlen = strlen(apps[i].display);
 
+#ifdef __PPC__
+        /* proportional font: columns wouldn't line up anyway */
+        strcat(apps[i].display, "   ");
+#else
         /* Pad to column 32, then add tag */
         while (dlen < 32) apps[i].display[dlen++] = ' ';
         apps[i].display[dlen] = 0;
+#endif
 
         if (apps[i].is_new) {
             strcat(apps[i].display, "[NEW]");
@@ -395,7 +513,7 @@ static void build_list(void)
 
 static void launch_app(WORD idx)
 {
-    char cmd[120];
+    char cmd[PATH_LEN + 16];
     BPTR nil;
     if (idx < 0 || idx >= app_count) return;
 
@@ -404,13 +522,17 @@ static void launch_app(WORD idx)
     stats_save();
 
     /* Use SystemTagList for clean async launch (no signal inheritance) */
-    sprintf(cmd, APP_DIR "%s", apps[idx].name);
+    if (apps[idx].path[0])
+        sprintf(cmd, "%s", apps[idx].path);
+    else
+        sprintf(cmd, APP_DIR "%s", apps[idx].name);
+    AB_I("launch %s", cmd);
     nil = Open((STRPTR)"NIL:", MODE_OLDFILE);
     SystemTags((STRPTR)cmd,
         SYS_Asynch, TRUE,
         SYS_Input,  nil ? nil : 0,
         SYS_Output, 0,
-        NP_StackSize, 16384,
+        NP_StackSize, STACK_SIZE,
         TAG_DONE);
     /* SystemTags closes nil handle when async */
 }
@@ -436,10 +558,12 @@ int main(int argc, char *argv[])
     /* Register with AmigaBridge daemon (safe to call even if daemon absent) */
     ab_init("launcher");
 
+#ifndef __PPC__
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((STRPTR)"intuition.library", 39);
     GfxBase = (struct GfxBase *)OpenLibrary((STRPTR)"graphics.library", 39);
     GadToolsBase = OpenLibrary((STRPTR)"gadtools.library", 39);
     if (!IntuitionBase || !GfxBase || !GadToolsBase) goto cleanup;
+#endif
 
     /* Install keyboard handler */
     input_handler_init();
@@ -447,7 +571,9 @@ int main(int argc, char *argv[])
     /* Scan disk first so stats_load() only annotates real files.
      * This prevents stale stats entries for deleted apps from filling
      * MAX_APPS slots and blocking discovery of current executables. */
-    scan_directory();
+    from_list = load_list();
+    if (!from_list)
+        scan_directory();
     stats_load();
     sort_apps();
     build_list();
@@ -503,6 +629,9 @@ int main(int argc, char *argv[])
         WA_Width,       WIN_W,
         WA_Height,      WIN_H,
         WA_Title,       (ULONG)"Launcher  W/S=Nav Enter=Run",
+#ifdef __PPC__
+        WA_ScreenTitle, (ULONG)"Game Launcher",
+#endif
         WA_PubScreen,   (ULONG)wb_screen,
         WA_Gadgets,     (ULONG)glist,
         WA_DragBar,     TRUE,
@@ -510,7 +639,8 @@ int main(int argc, char *argv[])
         WA_CloseGadget, TRUE,
         WA_Activate,    TRUE,
         WA_SmartRefresh,TRUE,
-        WA_IDCMP,       IDCMP_CLOSEWINDOW | IDCMP_GADGETUP | IDCMP_REFRESHWINDOW | IDCMP_INTUITICKS,
+        WA_IDCMP,       IDCMP_CLOSEWINDOW | IDCMP_GADGETUP | IDCMP_REFRESHWINDOW | IDCMP_INTUITICKS |
+                        IDCMP_ACTIVEWINDOW,
         TAG_DONE);
 
     UnlockPubScreen(NULL, wb_screen);
@@ -539,6 +669,12 @@ int main(int argc, char *argv[])
                 running = 0;
                 break;
 
+            case IDCMP_ACTIVEWINDOW:
+                /* The input handler sees keys typed into a game too; drop
+                 * them so the Esc that quit the game doesn't quit us. */
+                clear_keys();
+                break;
+
             case IDCMP_REFRESHWINDOW:
                 GT_BeginRefresh(win);
                 GT_EndRefresh(win, TRUE);
@@ -565,10 +701,12 @@ int main(int argc, char *argv[])
 
             case IDCMP_INTUITICKS:
             {
+#ifndef __PPC__
                 extern volatile struct Custom custom;
                 extern volatile struct CIA ciaa;
-                WORD want_up = 0, want_down = 0, want_launch = 0;
                 UWORD joy;
+#endif
+                WORD want_up = 0, want_down = 0, want_launch = 0;
 
                 /* ESC exits the launcher */
                 if (key_pop(0x45)) { running = 0; break; }
@@ -594,6 +732,7 @@ int main(int argc, char *argv[])
                     key_repeat_delay = 0;
                 }
 
+#ifndef __PPC__
                 /* Joystick port 2 - covers arrow keys mapped to joystick in FS-UAE */
                 joy = custom.joy1dat;
                 {
@@ -603,6 +742,7 @@ int main(int argc, char *argv[])
                 }
                 /* Joy fire = launch */
                 if (!(ciaa.ciapra & 0x80)) want_launch = 1;
+#endif
 
                 /* Apply navigation */
                 if (want_up && selected > 0) {
@@ -633,9 +773,11 @@ cleanup:
     if (win) CloseWindow(win);
     if (glist) FreeGadgets(glist);
     if (vi) FreeVisualInfo(vi);
+#ifndef __PPC__
     if (GadToolsBase) CloseLibrary(GadToolsBase);
     if (GfxBase) CloseLibrary((struct Library *)GfxBase);
     if (IntuitionBase) CloseLibrary((struct Library *)IntuitionBase);
+#endif
     ab_cleanup();
     return 0;
 }
