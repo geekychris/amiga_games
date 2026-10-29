@@ -74,3 +74,10 @@ terra_strike/terra_strike_test
 terra_strike/terra_strike_os4
 terra_strike/tests/host_tests
 */miner_meteor
+# scairy_fun: game, on-Amiga test and trace runners, host test and trace runners
+scairy_fun/scairy_fun
+scairy_fun/scairy_fun_test
+scairy_fun/scairy_fun_trace
+scairy_fun/tests/host_tests
+scairy_fun/tests/host_trace
+__pycache__/
