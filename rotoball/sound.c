@@ -6,6 +6,7 @@
 #include <exec/memory.h>
 #include <devices/audio.h>
 #include <proto/exec.h>
+#include <clib/alib_protos.h>   /* BeginIO() (amiga.lib) */
 
 /* Two samples:
  *   CLANG — long inharmonic metallic hit for goals
