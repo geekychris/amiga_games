@@ -20,6 +20,11 @@
 #include "draw.h"
 #include "input.h"
 #include "sound.h"
+#include <hardware/custom.h>
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
 /* Libraries */
 struct IntuitionBase *IntuitionBase = NULL;
@@ -261,7 +266,7 @@ int main(int argc, char *argv[])
 
     /* Seed RNG from beam position */
     {
-        volatile UWORD *vhpos = (volatile UWORD *)0xDFF006;
+        volatile UWORD *vhpos = &OC_CUSTOM->vhposr;
         game_srand((ULONG)*vhpos * 7919);
     }
 

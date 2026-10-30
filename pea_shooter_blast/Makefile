@@ -1,6 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
+# ARCH=m68k (default): classic Amiga.  ARCH=ppc: AmigaOS 4 (pea_shooter_blast_os4)
+# through the shared layer in ../os4_compat (scripts/build-example-ppc.sh).
+ARCH ?= m68k
+
+ifeq ($(ARCH),ppc)
+NAME = pea_shooter_blast
+SRCS = main.c game.c draw.c input.c levels.c
+include ../os4_compat/os4c.mk
+else
+
 CC = m68k-amigaos-gcc
 AS = vasmm68k_mot
 CFLAGS = -noixemul -O2 -m68020 -Wall -I../../amiga-bridge/include
@@ -25,3 +35,5 @@ ptplayer.o: ptplayer.asm
 
 clean:
 	rm -f *.o $(TARGET)
+
+endif

@@ -15,8 +15,12 @@
 #include <hardware/custom.h>
 #include <hardware/dmabits.h>
 #include "sound.h"
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
-#define CUSTOM ((volatile struct Custom *)0xDFF000)
+#define CUSTOM OC_CUSTOM
 
 /* Synthesized waveform sizes */
 #define SINE_LEN     32

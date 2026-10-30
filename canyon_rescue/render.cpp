@@ -52,7 +52,13 @@ extern struct GfxBase       *GfxBase;
  * but portable. `snapshot_planes` stashes the RastPort so fill_*
  * can issue commands against it without a taller interface change.
  * ------------------------------------------------------------------ */
-#ifndef __PPC__
+/* planar bitmaps: the classic Amiga, and AmigaOS 4 through ../os4_compat
+ * (unless built with its chunky bitmaps, OS4C_CHUNKY) */
+#if !defined(__PPC__) || (defined(OS4_COMPAT_H) && !defined(OS4C_CHUNKY))
+#define CR_PLANAR 1
+#endif
+
+#ifdef CR_PLANAR
 static UBYTE *g_plane[8];
 static int    g_plane_bpr;
 
@@ -103,7 +109,7 @@ static inline void fill_rect_bytes(int x1, int x2, int y1, int y2, UBYTE pen)
         }
     }
 }
-#else  /* __PPC__ */
+#else  /* !CR_PLANAR */
 /* graphics.library RectFill fallback for OS4/RTG. Same interface as the
  * 68k bitplane path so all callers stay portable. One micro-optimisation
  * — SetAPen elision — caches the last pen written to the RastPort and
@@ -1224,7 +1230,7 @@ void Renderer::flip()
      * doesn't chase a half-written bitplane. Render time is currently
      * far longer than a vblank so the previously-displayed buffer is
      * guaranteed safe to reuse — no safe-message dance needed. */
-#ifdef __PPC__
+#ifndef CR_PLANAR
     /* PPC fill_strip8 batches consecutive same-pen strips; drain the
      * pending batch before we swap so the last drawn column actually
      * lands on the buffer we're about to display. */

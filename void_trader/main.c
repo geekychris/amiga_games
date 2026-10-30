@@ -778,7 +778,7 @@ int main(void)
         } else {
             WaitTOF();
         }
-#ifdef __PPC__
+#if defined(__PPC__) && !defined(OS4_COMPAT_H)   /* not with ../os4_compat: WaitTOF paces */
         /* Pacing under diagnosis. Both Delay(1) and DateStamp
          * busy-poll trigger DSI. Fall back to a pure CPU burn — no
          * OS calls in the tight loop. Tune the count for ~50 FPS

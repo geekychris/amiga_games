@@ -268,6 +268,10 @@ void sfx_arcade_a(void)  { if (arcade_a_data) mt_playfx(CUSTOM_BASE, &arcade_a_s
 /* --- Arcade cabinet A voice samples loaded from disk --- */
 
 #include <proto/dos.h>
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
 #define ARCADE_A_VOICE_COUNT 4
 #define ARCADE_A_PERIOD      354   /* 3546895 / 10026 Hz ≈ 354 */
@@ -361,7 +365,7 @@ void arcade_voice_play_random(void)
 
     /* Silence all 4 Paula channels immediately */
     {
-        volatile struct Custom *hw = (volatile struct Custom *)0xdff000;
+        volatile struct Custom *hw = OC_CUSTOM;
         hw->dmacon = 0x000F;  /* disable audio DMA for all 4 channels */
         hw->aud[0].ac_vol = 0;
         hw->aud[1].ac_vol = 0;

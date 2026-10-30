@@ -193,7 +193,7 @@ int main(void)
     /* On OS4 the library bases are typed struct Library by the proto
      * headers; on 68k they're the specific struct types. Gate the cast
      * so both arches compile. */
-#ifdef __PPC__
+#if defined(__PPC__) && !defined(__USE_BASETYPE__)
     IntuitionBase = OpenLibrary((CONST_STRPTR)"intuition.library", 39);
 #else
     IntuitionBase = (struct IntuitionBase *)OpenLibrary(
@@ -204,7 +204,7 @@ int main(void)
         release_singleton();
         return 20;
     }
-#ifdef __PPC__
+#if defined(__PPC__) && !defined(__USE_BASETYPE__)
     GfxBase = OpenLibrary((CONST_STRPTR)"graphics.library", 39);
 #else
     GfxBase = (struct GfxBase *)OpenLibrary(

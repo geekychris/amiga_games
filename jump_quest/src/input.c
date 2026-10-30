@@ -6,9 +6,15 @@
  * Joystick port 2 + Keyboard
  */
 #include "game.h"
+#include <hardware/custom.h>
+#include <hardware/cia.h>
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
-#define JOY1DAT   (*(volatile UWORD *)0xDFF00C)
-#define CIAAPRA   (*(volatile UBYTE *)0xBFE001)
+#define JOY1DAT   (OC_CUSTOM->joy1dat)
+#define CIAAPRA   (OC_CIAA->ciapra)
 
 static UWORD key_state = 0;
 static BOOL  esc_pressed = FALSE;

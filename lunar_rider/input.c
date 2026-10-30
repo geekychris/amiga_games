@@ -15,6 +15,10 @@
 
 #include "game.h"
 #include "input.h"
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
 extern struct Custom custom;
 
@@ -91,6 +95,6 @@ void input_update(InputState *inp)
     if (((joy >> 9) ^ (joy >> 8)) & 1)    inp->jump = 1;   /* up */
 
     /* Fire button: CIA-A PRA bit 7, active low */
-    ciaa_pra = *((volatile UBYTE *)0xBFE001);
+    ciaa_pra = *(&OC_CIAA->ciapra);
     if (!(ciaa_pra & 0x80)) inp->fire = 1;
 }

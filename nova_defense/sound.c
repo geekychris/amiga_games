@@ -7,9 +7,13 @@
 #include <hardware/dmabits.h>
 #include <proto/exec.h>
 #include "sound.h"
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
 /* Direct access to custom chip registers */
-#define CUSTOM ((volatile struct Custom *)0xDFF000)
+#define CUSTOM OC_CUSTOM
 
 #define WAVE_LEN     32
 #define NOISE_LEN    128

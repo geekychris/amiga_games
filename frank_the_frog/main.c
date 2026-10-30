@@ -30,6 +30,10 @@
 #include "score.h"
 #include "sound.h"
 #include "modplay.h"
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
 struct IntuitionBase *IntuitionBase = NULL;
 struct GfxBase *GfxBase = NULL;
@@ -67,7 +71,7 @@ static void read_joystick(int *dx, int *dy, int *fire)
     prev_joy = joy;
 
     /* Fire button: bit 7 of CIA-A PRA, active low */
-    ciaa_pra = *((volatile UBYTE *)0xBFE001);
+    ciaa_pra = *(&OC_CIAA->ciapra);
     *fire = (ciaa_pra & 0x80) ? 0 : 1;
 }
 

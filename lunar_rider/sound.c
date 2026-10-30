@@ -18,6 +18,11 @@
 
 #include "sound.h"
 #include "bridge_client.h"
+#include <hardware/cia.h>
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
 extern struct Custom custom;
 
@@ -175,8 +180,8 @@ static void paula_play(int ch, BYTE *data, UWORD len_words, UWORD period, UWORD 
 
     custom.dmacon = (UWORD)(1 << ch);  /* disable channel */
 
-    dummy = *(volatile UBYTE *)0xBFE001;
-    dummy = *(volatile UBYTE *)0xBFE001;
+    dummy = *&OC_CIAA->ciapra;
+    dummy = *&OC_CIAA->ciapra;
     (void)dummy;
 
     custom.aud[ch].ac_ptr = (UWORD *)data;

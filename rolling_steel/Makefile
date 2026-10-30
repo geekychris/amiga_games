@@ -9,8 +9,10 @@
 #                       with a depth buffer (glcels_soft.c):
 #                       scripts/build-example-68k.sh rolling_steel
 #
-# -mcpu=440fp, not 440: with this GCC 11, plain 440 means soft float,
-# which won't link against the hard-float libOSMesa / newlib libm.
+# -mcpu=powerpc (hard float), never 440/440fp: those emit dlmzb, which
+# only the 440/460 have (real X5000, A1222, G4 crash; see CLAUDE.md).
+# (Before: -mcpu=440fp, not 440: with this GCC 11, plain 440 means soft float,
+# which won't link against the hard-float libOSMesa / newlib libm.)
 ARCH ?= ppc
 
 GAME   = game.c phys.c course.c
@@ -28,7 +30,7 @@ ifeq ($(ARCH),m68k)
 else
   MESA    = ../../third_party/mesa-os4/out
   CC      = ppc-amigaos-gcc
-  CFLAGS  = -mcrt=newlib -O2 -mcpu=440fp -Wall -Wno-unused-function \
+  CFLAGS  = -mcrt=newlib -O2 -mcpu=powerpc -Wall -Wno-unused-function \
             -I$(MESA)/include -I../../amiga-bridge/include \
             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
   LDFLAGS = -mcrt=newlib -L$(MESA)/lib -lOSMesa -lm -lauto
@@ -37,6 +39,15 @@ else
   # (a 68k build) is left alone
   SRCS    = main_os4.c $(GAME) render.c glcels.c sound_ahi.c os4_display.c $(BRIDGE)
   OBJDIR  = objppc
+endif
+
+ifneq ($(ARCH),m68k)
+# gcc 11 notes that aren't problems: best is only read once a closest
+# point was found (phys.c); the 3DO renderer keeps an unused look; the
+# bridge client's CreateMsgPort still works on AmigaOS 4
+objppc/phys.o: CFLAGS += -Wno-maybe-uninitialized
+objppc/render.o: CFLAGS += -Wno-unused-const-variable
+objppc/bridge_client.o: CFLAGS += -Wno-deprecated-declarations
 endif
 
 OBJS = $(addprefix $(OBJDIR)/,$(notdir $(SRCS:.c=.o)))
