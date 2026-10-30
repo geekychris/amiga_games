@@ -361,7 +361,8 @@ int main(int argc, char *argv[])
 
     /* Sound */
     sound_init();
-    if (sound_load_mod("DH2:Dev/orbital_patrol.mod")) {
+    /* beside the program first (a release), then the dev shared folder */
+    if (sound_load_mod("PROGDIR:orbital_patrol.mod") || sound_load_mod("DH2:Dev/orbital_patrol.mod")) {
         AB_I("MOD loaded");
         sound_start_music();
     } else {

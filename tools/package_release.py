@@ -84,6 +84,10 @@ DATA = {
                                               "title_comet.img", "title_deep.img", "title_foundry.img"]),
     "scairy_fun": (["scairy.mod", "scairy.voc"], ["scairy_title.img", "scairy_horizon.img"]),
     "terra_strike": (["terra_strike.mod"], []),
+    "ace_pilot": (["blue_danube.mod"], []),
+    "orb_hunter": (["../rock_blaster/rock_blaster.mod"], []),
+    "orbital_patrol": (["orbital_patrol.mod"], []),
+    "pea_shooter_blast": (["music.mod"], []),
     "rolling_steel": (["data"], []),
     "spectral_keep": (["data"], []),
 }
@@ -167,7 +171,8 @@ def package(g, arch, out, stage_root):
         if os.path.isdir(s):
             shutil.copytree(s, os.path.join(drawer, f), dirs_exist_ok=True)
         else:
-            shutil.copy2(s, os.path.join(drawer, f))
+            shutil.copy2(s, os.path.join(drawer, os.path.basename(f)))
+    files = [os.path.basename(f) for f in files]
     with open(os.path.join(drawer, "ReadMe.txt"), "w") as fh:
         fh.write(readme(g, arch, files))
     name = f"{gid}-{'amiga68k' if arch == '68k' else 'amigaos4'}.zip"
