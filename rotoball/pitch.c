@@ -242,7 +242,8 @@ static void draw_ball_sphere(struct RastPort *rp, int pane_y0,
         if (w_mid > 0) {
             SetAPen(rp, PEN_BALL);
             int mL = cx - w_mid, mR = cx + w_mid;
-            if (mL < 0) mL = 0; if (mR > SCR_W - 1) mR = SCR_W - 1;
+            if (mL < 0) mL = 0;
+            if (mR > SCR_W - 1) mR = SCR_W - 1;
             Move(rp, mL, y); Draw(rp, mR, y);
         }
         /* Highlight: PEN_BALL_HI, offset up-left */
@@ -252,7 +253,8 @@ static void draw_ball_sphere(struct RastPort *rp, int pane_y0,
             int w_hi = 0; while ((w_hi+1)*(w_hi+1) <= hw_hi) w_hi++;
             SetAPen(rp, PEN_BALL_HI);
             int hL = cx + hi_dx - w_hi, hR = cx + hi_dx + w_hi;
-            if (hL < 0) hL = 0; if (hR > SCR_W - 1) hR = SCR_W - 1;
+            if (hL < 0) hL = 0;
+            if (hR > SCR_W - 1) hR = SCR_W - 1;
             Move(rp, hL, y); Draw(rp, hR, y);
         }
     }
