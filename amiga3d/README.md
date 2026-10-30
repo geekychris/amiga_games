@@ -9,6 +9,24 @@ resolution in full colour. Used by:
 - [`lander_3d`](../lander_3d/README.md): landing on generated terrain (3D terrain, a model, the HUD)
 - [`boing_pinball`](../boing_pinball/README.md): three pinball tables (a pre-drawn scrolling picture, 2D on top)
 - [`scairy_fun`](../scairy_fun/README.md): the self-driving car game (its own road renderer and models, the engine's drawing, platform and sound)
+- [`block_breaker_3d`](../block_breaker_3d/README.md): breakout down a tunnel (a fixed camera, bricks as visible faces only)
+- [`harbour_crane`](../harbour_crane/README.md): a pendulum crane loading a rolling ship (three frames: world, ship, swinging load)
+- [`ridge_runner`](../ridge_runner/README.md): hover-bike racing over generated terrain (a height-grid window, a track ribbon)
+- [`tank_duel`](../tank_duel/README.md): a tank fight in a walled arena, from the turret (models, a radar)
+- [`marble_tilt`](../marble_tilt/README.md): a tilting maze board (floor and walls drawn in runs)
+- [`orbit_docking`](../orbit_docking/README.md): docking with a spinning station (a camera with roll, see below)
+- [`drone_courier`](../drone_courier/README.md): deliveries across a city of towers (culling by grid cell, see below)
+- [`canyon_rail`](../canyon_rail/README.md): a rail shooter (hits found with the engine's own projection)
+
+Two additions are proposed for the engine from these, each so far in its
+game's own `render.c`: **camera roll** (`cam_roll` in orbit_docking: a turn
+of camera space's x and y about the line of sight, after `cam_xform`) and
+**culling by grid cell** (`city` in drone_courier: visit only the grid
+cells round the camera out to a range, and draw only those ahead of it).
+
+A limit to keep in mind: the bridge takes 32 variables and 16 hooks a
+client (`AB_MAX_VARS`, `AB_MAX_HOOKS` in `amiga-bridge/include/bridge_ipc.h`);
+more are dropped without an error.
 
 ## What a game writes
 
