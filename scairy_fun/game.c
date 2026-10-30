@@ -196,17 +196,17 @@ static int hook_route(const char *args, char *buf, int bufsz)
 
 static int hook_scene(const char *args, char *buf, int bufsz)
 {
-    char tmp[96];
+    char tmp[192];                      /* the scene name is cut to 32 chars below */
     const char *name = (args && args[0]) ? args : "flood";
     if (!world_scene(&world, name)) {
-        sprintf(tmp, "no such scene: %s (flood ghost phantom cones glare siren debris deer cyclist tractor merge goats peds finish)", name);
+        sprintf(tmp, "no such scene: %.32s (flood ghost phantom cones glare siren debris deer cyclist tractor merge goats peds finish)", name);
         reply(buf, bufsz, tmp);
         return 1;
     }
     paused = 0;
-    sprintf(tmp, "scene %s: route %ld seg %ld, autopilot on", name, (long)world.route + 1,
+    sprintf(tmp, "scene %.32s: route %ld seg %ld, autopilot on", name, (long)world.route + 1,
             (long)seg_of(world.car.z));
-    AB_I("SCENE %s route %ld seg %ld", name, (long)world.route + 1, (long)seg_of(world.car.z));
+    AB_I("SCENE %.32s route %ld seg %ld", name, (long)world.route + 1, (long)seg_of(world.car.z));
     reply(buf, bufsz, tmp);
     return 0;
 }

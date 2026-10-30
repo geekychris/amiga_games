@@ -136,6 +136,11 @@ Still unwinnable, waiting on a level-design decision:
   up, beyond the jump, and one key stands on the row-3 conveyor. It needs new
   platforms.
 
+Known, not fixed: the collision code snaps. A side hit moves the player to the
+tile edge (up to 14 px in one tick), and landing with an unaligned y can put
+them inside the block above. Check any level change with a reachability
+search, not by eye.
+
 ## License
 
 MIT. See `LICENSE` at the repo root.
