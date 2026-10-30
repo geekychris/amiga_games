@@ -11,7 +11,10 @@ bridge variables read and tuned live; the route and plan memory regions;
 the AI's voice on Paula; the arrival, software update and game-over
 screens; screenshots of all of it; and stopping the client.
 
-  python3 tests/e2e_devbench.py [--url http://localhost:3001/mcp] [--no-build]
+  python3 tests/e2e_devbench.py [--url http://localhost:3001/mcp] [--no-build] [--remote HOST]
+  python3 tests/e2e_devbench.py --os4 HOST --url http://localhost:13002/mcp
+        (AmigaOS 4: scairy_fun_os4, scairy.mod and scairy.voc must be in RAM:scairy_fun/
+        already, the program as RAM:scairy_fun/scairy_fun; screenshots from QEMU's monitor)
 
 Exit status is the number of failed checks.
 """
@@ -19,6 +22,7 @@ import argparse
 import json
 import os
 import struct
+import subprocess
 import sys
 import time
 import urllib.request
@@ -27,7 +31,10 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--url", default=os.environ.get("DEVBENCH_MCP", "http://localhost:3001/mcp"))
 ap.add_argument("--no-build", action="store_true")
 ap.add_argument("--shots", default="e2e_shots", help="directory for screenshots")
+ap.add_argument("--os4", default="", help="the OS4 emulator's host (screenshots via ssh + QEMU's monitor)")
+ap.add_argument("--remote", default="", help="ssh host of a devbench on another machine (to fetch its screenshots)")
 opt = ap.parse_args()
+DEV = "RAM:scairy_fun" if opt.os4 else "Dropbox:Dev"
 
 CLIENT = "scairy_fun"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -80,6 +87,9 @@ def hook(name, args=""):
 
 
 def key(code, hold=0.1):
+    if opt.os4:                                 # keys go to the active window
+        hook("activate")
+        time.sleep(0.3)
     tool("amiga_input_key", rawkey=code, direction="down")
     time.sleep(hold)
     tool("amiga_input_key", rawkey=code, direction="up")
@@ -135,14 +145,36 @@ def step(title):
     print(f"\n== {title}", flush=True)
 
 
+def qemu_shot(name):
+    """an OS4 screenshot from QEMU's monitor on the emulator's host"""
+    cmd = ('(echo "mouse_move 2 2"; sleep 0.3; echo "mouse_move -2 -2"; sleep 1; '
+           'echo "screendump /tmp/sc_shot.ppm"; sleep 1) | nc -q1 localhost 2348 >/dev/null; '
+           'python3 -c "from PIL import Image; Image.open(\'/tmp/sc_shot.ppm\').save(\'/tmp/sc_shot.png\')"')
+    subprocess.run(["ssh", opt.os4, cmd], check=False)
+    os.makedirs(opt.shots, exist_ok=True)
+    dst = os.path.join(opt.shots, f"{name}.png")
+    subprocess.run(["scp", "-q", f"{opt.os4}:/tmp/sc_shot.png", dst], check=False)
+    print(f"  shot  {dst}")
+
+
 def shot(name, pause=True):
     """screenshot; the game is paused for it, so the picture is one frame"""
     if pause:
         hook("pause", "on")
+    if opt.os4:
+        qemu_shot(name)
+        if pause:
+            hook("pause", "off")
+        return
     out = tool("amiga_screenshot")
     if pause:
         hook("pause", "off")
     path = out.split("saved: ")[-1].split(" (")[0].strip() if "saved:" in out else ""
+    if path and not os.path.exists(path) and opt.remote:      # saved on the devbench's machine
+        local = os.path.join(opt.shots, os.path.basename(path))
+        os.makedirs(opt.shots, exist_ok=True)
+        subprocess.run(["scp", "-q", f"{opt.remote}:{path}", local], check=False)
+        path = local
     if path and os.path.exists(path):
         os.makedirs(opt.shots, exist_ok=True)
         dst = os.path.join(opt.shots, f"{name}.png")
@@ -175,23 +207,23 @@ for line in tool("amiga_list_clients").split(":", 1)[-1].split(","):
         print(f"  stopping {name}: " + tool("amiga_stop_client", name=name))
 
 step("build, deploy, launch")
-if not opt.no_build:
+if not opt.no_build and not opt.os4:
     out = tool("amiga_run", project="examples/scairy_fun")
     print("  " + out.replace("\n", "\n  "))
     check("Build: OK" in out and "Deploy: OK" in out, "cross-compiled and deployed")
-listing = tool("amiga_list_dir", path="Dropbox:Dev")
+listing = tool("amiga_list_dir", path=DEV)
 for asset in ("scairy.voc", "scairy.mod"):
-    if asset not in listing:
+    if asset not in listing and not opt.os4:
         print("  " + tool("amiga_push_file", local_path=os.path.join(HERE, "..", asset),
-                          amiga_path=f"Dropbox:Dev/{asset}"))
+                          amiga_path=f"{DEV}/{asset}"))
 if CLIENT not in tool("amiga_list_clients"):
-    tool("amiga_launch", command="Dropbox:Dev/scairy_fun")
+    tool("amiga_launch", command=f"{DEV}/scairy_fun")
 check(bool(wait_for(lambda: CLIENT in tool("amiga_list_clients"), 15)), "game registered with the bridge")
 t_start = time.time() - 3
 info = tool("amiga_client_info", client=CLIENT)
 check(all(v in info for v in ("score", "cover", "ap", "draw_dist", "in_joy")), "all 32 bridge variables registered")
 hooks = tool("amiga_list_hooks", client=CLIENT)
-check(all(f"  {h}:" in hooks for h in ("scene", "selftest", "ap", "say", "pause", "spawn")), "all 12 hooks registered")
+check(all(f"  {h}:" in hooks for h in ("scene", "selftest", "ap", "say", "pause", "spawn", "activate")), "all the hooks registered")
 res = logs_since(t_start - 10)
 check(any("voice: 19 clips" in m or "voice: 20 clips" in m for m in res), "the AI's voice loaded (scairy.voc)")
 check(any("music loaded" in m for m in res), "music loaded (scairy.mod)")
@@ -236,6 +268,28 @@ check(bool(wait_log(t1, "EV unavailable", 5)), "off the lane centre: AUTOPILOT U
 print("  " + hook("ap", "on"))
 key(RIGHT, 0.6)
 time.sleep(1.0)
+
+
+def lane_off():
+    """how far the car is from its lane's centre (units): the autopilot takes
+    over within a quarter lane (14)"""
+    d = var("lane_d")
+    if d is None:
+        return 99
+    if d < 0:                       # over the centre line: steer right
+        return -99
+    return d - ((d // 56) * 56 + 28)
+
+
+# a key held for a fixed time lands anywhere across the lane (an injected key's
+# timing varies, more so over a network): steer in taps into the window first
+for _ in range(16):
+    off = lane_off()
+    if abs(off) <= 10:
+        break
+    key(LEFT if off > 0 else RIGHT, 0.08 if abs(off) < 40 else 0.25)
+    time.sleep(0.5)
+print(f"  {lane_off()} units off the lane's centre")
 t1 = time.time()
 key(SPACE)
 check(wait_for(lambda: var("ap") == 1, 5) or bool(wait_log(t1, "EV ap_on", 3)), "back in lane: Space hands back to the autopilot")
@@ -324,11 +378,15 @@ check(not [m for m in logs_since(t0) if "EV splash" in m], "through the flood by
 check(wait_for(lambda: var("saves") == s0 + 1, 8), "judged a save (GOOD CATCH)")
 check(bool(wait_log(t0, "SAY GOOD CATCH", 5)), "the AI: good catch")
 
-step("the AI's voice on Paula")
+step("the AI's voice")
+t0 = time.time()
 print("  " + hook("say", "13"))
 time.sleep(0.2)
-audio = tool("amiga_audio_channels")
-check(audio.count("DMA=ON") >= 1, "Paula channels playing")
+if opt.os4:                                     # AHI: no Paula to look at; the game logs what it says
+    check(bool(wait_log(t0, "SAY", 5)), "the AI spoke (AHI)")
+else:
+    audio = tool("amiga_audio_channels")
+    check(audio.count("DMA=ON") >= 1, "Paula channels playing")
 
 step("arrival and the software update")
 hook("route", "1")
@@ -342,7 +400,9 @@ check(wait_for(lambda: var("state") == 4, 5), "Space: the software update")
 time.sleep(3.0)
 shot("21_update", pause=False)
 key(SPACE)
-check(wait_for(lambda: var("state") == 1 and var("route") == 1, 12), "route 2 (rush hour) after the update")
+# (on AmigaOS 4 the slow QEMU screenshot can let the update time out, and
+# Space then skips route 2's intro card: either state is route 2 begun)
+check(wait_for(lambda: var("state") in (1, 2) and var("route") == 1, 12), "route 2 (rush hour) after the update")
 key(SPACE)
 time.sleep(2)
 shot("22_rush_hour")

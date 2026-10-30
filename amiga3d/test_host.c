@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-/* host_main.c - the test suite built natively: make host-test */
+/* test_host.c - a game's tests (run_tests in its test cases) on the host */
 #include <stdio.h>
-#include "../sc.h"
+
+int run_tests(void (*check)(int cond, const char *name));
 
 static int pass, fail;
 
@@ -15,7 +16,7 @@ static void check(int cond, const char *name)
 
 int main(void)
 {
-    sc_run_tests(check);
+    run_tests(check);
     printf("%d passed, %d failed\n", pass, fail);
     return fail != 0;
 }

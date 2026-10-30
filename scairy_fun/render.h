@@ -1,21 +1,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-/* render.h - ScAIry Fun's road renderer, HUD and screens.
- *
- * Everything is drawn by the CPU straight into the five bitplanes of a
- * RastPort (text too, from the topaz 8 bitmap), except the big sky and
- * ground fills at the start of a frame, which the blitter does. */
+/* render.h - ScAIry Fun's road renderer, HUD and screens, drawn with the
+ * shared engine's 2D calls (../amiga3d/a3d_draw.h): into the five
+ * bitplanes on the classic Amiga, in full colour at twice the resolution on
+ * AmigaOS 4. */
 #ifndef RENDER_H
 #define RENDER_H
 
-#include <graphics/rastport.h>
 #include "sc.h"
-
-#define SCREEN_W 320
-#define SCREEN_H 256
-
-typedef struct RastPort Canvas;
+#define A3D_NO_MODELS                   /* ScAIry Fun has its own (models.h) */
+#include "a3d_draw.h"
 
 typedef struct { int32_t segs, models, polys, dropped; } RenderStats;
 extern RenderStats render_stats;

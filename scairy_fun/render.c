@@ -17,12 +17,6 @@
  * way from the topaz 8 bitmap, so nothing waits for the blitter except the
  * sky and ground fills at the start of a frame.
  */
-#include <exec/types.h>
-#include <graphics/gfx.h>
-#include <graphics/rastport.h>
-#include <graphics/text.h>
-#include <proto/exec.h>
-#include <proto/graphics.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -88,173 +82,28 @@ static const int16_t side_prof[SIDE_COUNT][4] = {
     {  42,   -60, 1800,  -60 },         /* canal */
 };
 
-/* ---------- drawing primitives: CPU into the bitplanes ---------- */
-static uint8_t glyph[256][8];           /* topaz 8, one byte per row, bit 7 left */
-static int glyph_base = 6;
+/* ---------- drawing: the shared engine's (a3d_draw.h) ---------- */
+#define g_fill_blit  g_fill
+#define g_wait       g_sync
+#define text_shadow  g_text_shadow
+#define text_centre  g_text_centre
 
-static void load_font(void)
-{
-    struct TextAttr ta = { (STRPTR)"topaz.font", 8, 0, 0 };
-    struct TextFont *tf = OpenFont(&ta);
-    int c, r, b;
-    if (!tf) return;
-    glyph_base = tf->tf_Baseline;
-    for (c = tf->tf_LoChar; c <= tf->tf_HiChar && c < 256; c++) {
-        const ULONG *loc = (const ULONG *)tf->tf_CharLoc + (c - tf->tf_LoChar);
-        int off = (int)(*loc >> 16), wd = (int)(*loc & 0xFFFF);
-        const UBYTE *data = (const UBYTE *)tf->tf_CharData;
-        if (wd > 8) wd = 8;
-        for (r = 0; r < 8 && r < tf->tf_YSize; r++) {
-            uint8_t bits = 0;
-            for (b = 0; b < wd; b++) {
-                int bit = off + b;
-                if (data[r * tf->tf_Modulo + (bit >> 3)] & (0x80 >> (bit & 7))) bits |= 0x80 >> b;
-            }
-            glyph[c][r] = bits;
-        }
-    }
-    CloseFont(tf);
-}
-
-/* Fill one row segment xl..xr with pen col straight into the bitplanes.
- * Works for interleaved and plain bitmaps (BytesPerRow covers both). */
-static void g_span(Canvas *rp, int y, int xl, int xr, int col)
-{
-    PLANEPTR *planes = rp->BitMap->Planes;
-    LONG bpr = rp->BitMap->BytesPerRow;
-    int wl = xl >> 4, wr = xr >> 4, p, k, n = wr - wl;
-    UWORD lm = 0xFFFF >> (xl & 15), rm = 0xFFFF << (15 - (xr & 15));
-    LONG off = y * bpr + wl * 2;
-
-    if (n == 0) lm &= rm;
-    for (p = 0; p < 5; p++, col >>= 1) {
-        UWORD *d = (UWORD *)(planes[p] + off);
-        if (col & 1) {
-            d[0] |= lm;
-            if (n) { for (k = 1; k < n; k++) d[k] = 0xFFFF; d[n] |= rm; }
-        } else {
-            d[0] &= ~lm;
-            if (n) { for (k = 1; k < n; k++) d[k] = 0; d[n] &= ~rm; }
-        }
-    }
-}
-
-static void g_rect(Canvas *rp, int x0, int y0, int x1, int y1, int col)
-{
-    int y;
-    if (x0 < 0) x0 = 0;
-    if (y0 < 0) y0 = 0;
-    if (x1 > SCREEN_W - 1) x1 = SCREEN_W - 1;
-    if (y1 > SCREEN_H - 1) y1 = SCREEN_H - 1;
-    if (x0 > x1) return;
-    for (y = y0; y <= y1; y++) g_span(rp, y, x0, x1, col);
-}
-
-/* the blitter, for big areas; g_wait before the CPU draws again */
-static void g_fill_blit(Canvas *rp, int x0, int y0, int x1, int y1, int col)
-{
-    if (x0 < 0) x0 = 0;
-    if (y0 < 0) y0 = 0;
-    if (x1 > SCREEN_W - 1) x1 = SCREEN_W - 1;
-    if (y1 > SCREEN_H - 1) y1 = SCREEN_H - 1;
-    if (x0 > x1 || y0 > y1) return;
-    SetAPen(rp, col);
-    RectFill(rp, x0, y0, x1, y1);
-}
-
-static void g_wait(void) { WaitBlit(); }
-
-/* one 8x8 glyph, y = its top row */
-static void g_glyph(Canvas *rp, int x, int y, int col, int c)
-{
-    PLANEPTR *planes = rp->BitMap->Planes;
-    LONG bpr = rp->BitMap->BytesPerRow;
-    int r, p, wl = x >> 4, sh = x & 15;
-    if (x < 0 || x > SCREEN_W - 8) return;
-    for (r = 0; r < 8; r++) {
-        int yy = y + r, cc = col;
-        ULONG m = (ULONG)glyph[c & 255][r] << (24 - sh);
-        UWORD hi = (UWORD)(m >> 16), lo = (UWORD)m;
-        LONG off;
-        if (!m || yy < 0 || yy >= SCREEN_H) continue;
-        off = yy * bpr + wl * 2;
-        for (p = 0; p < 5; p++, cc >>= 1) {
-            UWORD *d = (UWORD *)(planes[p] + off);
-            if (cc & 1) { d[0] |= hi; if (lo) d[1] |= lo; }
-            else        { d[0] &= ~hi; if (lo) d[1] &= ~lo; }
-        }
-    }
-}
-
-/* like Move(x, y) + Text(): y is the baseline */
-static void g_text(Canvas *rp, int x, int y, int col, const char *s)
-{
-    for (; *s; s++, x += 8) g_glyph(rp, x, y - glyph_base, col, (unsigned char)*s);
-}
-
-static void text_shadow(Canvas *rp, int x, int y, int col, const char *s)
-{
-    g_text(rp, x + 1, y + 1, PEN_BLACK, s);
-    g_text(rp, x, y, col, s);
-}
-
-static void text_centre(Canvas *rp, int y, int col, const char *s)
-{
-    text_shadow(rp, (SCREEN_W - (int)strlen(s) * 8) / 2, y, col, s);
-}
-
-/* topaz 8 scaled up: y is the top */
-static void g_text_big(Canvas *rp, int x, int y, int col, const char *s, int sc)
-{
-    int r, b;
-    for (; *s; s++, x += 8 * sc)
-        for (r = 0; r < 8; r++) {
-            uint8_t bits = glyph[(unsigned char)*s][r];
-            for (b = 0; b < 8; b++) {
-                int e = b;
-                if (!(bits & (0x80 >> b))) continue;
-                while (e < 7 && (bits & (0x80 >> (e + 1)))) e++;      /* a run of set pixels */
-                g_rect(rp, x + b * sc, y + r * sc, x + e * sc + sc - 1, y + r * sc + sc - 1, col);
-                b = e;
-            }
-        }
-}
-
-static int16_t span_l[SPAN_MAX], span_r[SPAN_MAX];
-
-/* a convex screen polygon, clipped to rows y0..y1 */
-static void g_poly(Canvas *rp, const int16_t *xs, const int16_t *ys, int n, int col, int y0, int y1)
-{
-    int ymin, i, rows = poly_spans(xs, ys, n, span_l, span_r, &ymin);
-    for (i = 0; i < rows; i++) {
-        int xl = span_l[i], xr = span_r[i], y = ymin + i;
-        if (xl > xr || y < y0 || y > y1) continue;
-        if (xl < 0) xl = 0;
-        if (xr > SCREEN_W - 1) xr = SCREEN_W - 1;
-        if (xl <= xr) g_span(rp, y, xl, xr, col);
-    }
-}
-
+/* lines in the 3D area only */
 static void hline(Canvas *rp, int x0, int x1, int y, int col)
 {
     if (y < 0 || y >= VIEW_H) return;
-    if (x0 < 0) x0 = 0;
-    if (x1 > SCREEN_W - 1) x1 = SCREEN_W - 1;
-    if (x0 <= x1) g_span(rp, y, x0, x1, col);
+    g_hline(rp, x0, x1, y, col);
 }
 
 static void vline(Canvas *rp, int x, int y0, int y1, int col)
 {
-    int y;
-    if (x < 0 || x >= SCREEN_W) return;
-    if (y0 < 0) y0 = 0;
     if (y1 > VIEW_H - 1) y1 = VIEW_H - 1;
-    for (y = y0; y <= y1; y++) g_span(rp, y, x, x, col);
+    if (y0 <= y1) g_vline(rp, x, y0, y1, col);
 }
 
 int render_init(void)
 {
-    load_font();
+    a3_draw_init();
     models_init();
     return 1;
 }
@@ -263,8 +112,8 @@ void render_cleanup(void) {}
 
 /* ---------- draw list: in painter's order ---------- */
 typedef struct {
-    WORD n;
-    UBYTE col;
+    int16_t n;
+    uint8_t col;
     int16_t x[MAX_PV], y[MAX_PV];
 } DPoly;
 
@@ -281,13 +130,19 @@ static void add_poly(int col, V3 *cv, int n)
 
     n = clip_near(cv, n, cl);
     if (n < 3) return;
-    for (i = 0; i < n; i++) cam_project(&cl[i], &xs[i], &ys[i]);
-    n = clip_rect(xs, ys, n, 0, 0, VIEW_W - 1, VIEW_H - 1);
+    /* in the drawing's own pixels: finer on AmigaOS 4 (x * FOV fits 32 bits;
+     * the finer step comes from the remainder) */
+    for (i = 0; i < n; i++) {
+        int32_t qx = cl[i].x * FOV, qy = cl[i].y * FOV, z = cl[i].z;
+        xs[i] = VIEW_CX * A3_SUB + (qx / z) * A3_SUB + ((qx % z) * A3_SUB) / z;
+        ys[i] = VIEW_CY * A3_SUB - ((qy / z) * A3_SUB + ((qy % z) * A3_SUB) / z);
+    }
+    n = clip_rect(xs, ys, n, 0, 0, VIEW_W * A3_SUB - 1, VIEW_H * A3_SUB - 1);
     if (n < 3) return;
     if (npoly >= MAX_DPOLY) { render_stats.dropped++; return; }
     p = &pool[npoly++];
-    p->n = (WORD)n;
-    p->col = (UBYTE)col;
+    p->n = (int16_t)n;
+    p->col = (uint8_t)col;
     for (i = 0; i < n; i++) { p->x[i] = (int16_t)xs[i]; p->y[i] = (int16_t)ys[i]; }
 }
 
@@ -304,24 +159,15 @@ static void quad(V3 a, V3 b, V3 c, V3 d, int col)
 
 static void flush(Canvas *cv)
 {
-    int k, i, y;
-    for (k = 0; k < npoly; k++) {
-        DPoly *p = &pool[k];
-        int ymin, rows = poly_spans(p->x, p->y, p->n, span_l, span_r, &ymin);
-        for (i = 0; i < rows; i++) {
-            int xl = span_l[i], xr = span_r[i];
-            y = ymin + i;
-            if (xl > xr || y < 0 || y >= VIEW_H) continue;
-            if (xl < 0) xl = 0;
-            if (xr > VIEW_W - 1) xr = VIEW_W - 1;
-            g_span(cv, y, xl, xr, p->col);
-        }
-    }
+    int k, y1 = g_clip_y1;
+    g_clip_y1 = VIEW_H - 1;
+    for (k = 0; k < npoly; k++) g_poly_sub(cv, pool[k].x, pool[k].y, pool[k].n, pool[k].col);
+    g_clip_y1 = y1;
 }
 
 /* ---------- camera ---------- */
 static int32_t cam_d;                   /* the chase camera's offset, lagging the car */
-static int cam_yaw, cam_view = -1;
+static int cam_yaw, chase_view = -1;
 
 static int car_yaw_off(const Car *c)
 {
@@ -340,11 +186,11 @@ void camera_follow(Cam *c, const World *w)
         c->y = road_y(w, z) + 17;
         c->yaw = (road_dir(w, car->z) + car_yaw_off(car)) & 0xFFFF;
         c->pitch = COCKPIT_PITCH;
-        cam_view = CAM_COCKPIT;
+        chase_view = CAM_COCKPIT;
     } else {
         int32_t z = car->z - ((int32_t)CAM_BACK * (1 << FBITS)), y0, y1;
         if (z < 0) z = 0;
-        if (cam_view != CAM_CHASE) { cam_d = car->d; cam_yaw = road_dir(w, car->z); }
+        if (chase_view != CAM_CHASE) { cam_d = car->d; cam_yaw = road_dir(w, car->z); }
         cam_d += (car->d - cam_d) / 4;
         target = road_dir(w, car->z) + car_yaw_off(car) / 3;
         cam_yaw += (int16_t)(target - cam_yaw) / 3;
@@ -355,7 +201,7 @@ void camera_follow(Cam *c, const World *w)
         c->y = (y0 > y1 ? y0 : y1) + CAM_UP;
         c->yaw = cam_yaw & 0xFFFF;
         c->pitch = CHASE_PITCH;
-        cam_view = CAM_CHASE;
+        chase_view = CAM_CHASE;
     }
     cam_setup(c);
 }
@@ -366,7 +212,7 @@ int render_horizon(int view)
     memset(&c, 0, sizeof(c));
     c.pitch = view == CAM_COCKPIT ? COCKPIT_PITCH : CHASE_PITCH;
     cam_setup(&c);
-    return cam_horizon(&c);
+    return sc_horizon(&c);
 }
 
 /* ---------- models ---------- */
@@ -765,7 +611,7 @@ void render_build(const World *w, Cam *c)
     for (i = s1; i >= s0; i--) draw_segment(w, c, i, i - s0);
 
     /* where the sky meets the ground */
-    horizon = cam_horizon(c);
+    horizon = sc_horizon(c);
     cam_xform(c, w->seg[s1].cx + (road_left(w) + road_right(w)) / 2, c->y, (int32_t)s1 << SEG_BITS, &v);
     vanish_x = v.z > NEAR_Z ? (int)(VIEW_CX + (v.x * FOV) / v.z) : VIEW_CX;
     if (vanish_x < 0) vanish_x = 0;
@@ -843,19 +689,29 @@ static void draw_sun(Canvas *cv, const World *w, const Cam *c)
     octagon(cv, x, horizon - 14, r / 2, PEN_WHITE);
 }
 
+/* AmigaOS 4's painted dusk all the way round (`make art`): 2 pi FOV of
+ * the view's pixels across, so it turns with the road; its bottom edge on
+ * the horizon */
+static A3Image *panorama;
+static int panorama_tried;
+
 void render_draw(Canvas *cv, const World *w, const Cam *c)
 {
     static int skylines_made;
     int hz = horizon;
     if (!skylines_made) { make_skylines(); skylines_made = 1; }
+    if (!panorama_tried) { panorama = g_image_load("PROGDIR:scairy_horizon.img"); panorama_tried = 1; }
     if (hz < 0) hz = 0;
     if (hz > VIEW_H) hz = VIEW_H;
-    SetDrMd(cv, JAM1);
-    g_fill_blit(cv, 0, 0, VIEW_W - 1, hz - 1, PEN_SKY);
+    if (panorama) {
+        /* the picture's column at the view's left edge */
+        int32_t a = (int32_t)(uint16_t)c->yaw - (int32_t)VIEW_CX * 10430 / FOV;
+        if (hz > 0) g_image_wrap(cv, panorama, (int)((a * g_image_w(panorama)) >> 16), hz * A3_SUB - g_image_h(panorama), 0, hz * A3_SUB - 1);
+    } else g_fill_blit(cv, 0, 0, VIEW_W - 1, hz - 1, PEN_SKY);
     g_fill_blit(cv, 0, hz, vanish_x, VIEW_H - 1, ground_l);
     g_fill_blit(cv, vanish_x + 1, hz, VIEW_W - 1, VIEW_H - 1, ground_r);
     g_wait();
-    draw_skyline(cv, w, c);
+    if (!panorama) draw_skyline(cv, w, c);
     draw_sun(cv, w, c);
     flush(cv);
 }
@@ -887,8 +743,8 @@ static void ai_brackets(Canvas *cv, const World *w, const Cam *c)
         cam_xform(c, x - wid, y, z, &p);
         cam_xform(c, x + wid, y + h, z, &q);
         if (p.z < NEAR_Z + 8 || q.z < NEAR_Z + 8) continue;
-        cam_project(&p, &x0, &y0);
-        cam_project(&q, &x1, &y1);
+        sc_project(&p, &x0, &y0);
+        sc_project(&q, &x1, &y1);
         if (x0 > x1) { int32_t t = x0; x0 = x1; x1 = t; }
         if (y0 < y1) { int32_t t = y0; y0 = y1; y1 = t; }
         if (x1 < 0 || x0 >= VIEW_W || y0 < 0 || y1 >= VIEW_H) continue;
@@ -1045,7 +901,6 @@ void render_update_screen(Canvas *cv, const World *w)
     int done = 200 - w->state_timer, k, fill;
     char tmp[48];
 
-    SetDrMd(cv, JAM1);
     g_fill_blit(cv, 0, 0, SCREEN_W - 1, SCREEN_H - 1, PEN_BLACK);
     g_wait();
     g_text_big(cv, (SCREEN_W - 15 * 16) / 2, 24, PEN_AI, "SOFTWARE UPDATE", 2);
@@ -1113,7 +968,6 @@ void render_help(Canvas *cv, int page)
     char tmp[24];
     int k;
     if (page < 1 || page > HELP_PAGES) return;
-    SetDrMd(cv, JAM1);
     g_fill_blit(cv, 0, 0, SCREEN_W - 1, SCREEN_H - 1, PEN_BLACK);
     g_wait();
     g_text_big(cv, (SCREEN_W - (int)strlen(help_title[page - 1]) * 16) / 2, 14, PEN_AI, help_title[page - 1], 2);
