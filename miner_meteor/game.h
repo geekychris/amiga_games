@@ -53,7 +53,10 @@ struct TileState {
 /* Physics constants (units: pixels, frames). */
 #define GRAVITY             1        /* vy += GRAVITY each frame while airborne */
 #define MAX_FALL_SPEED      6        /* clamp downward vy */
-#define JUMP_IMPULSE        (-8)     /* upward vy on jump */
+/* Bug in the original: -8 rose 36 px but the keys sit 64 px up, so no
+ * cavern could be finished. -12 makes caverns 1, 3, 4 and 5 winnable;
+ * 2 and 6 still need level changes (see README). */
+#define JUMP_IMPULSE        (-12)    /* upward vy on jump */
 #define WALK_SPEED          2        /* horizontal step per frame */
 #define CONVEYOR_PUSH       1        /* extra px/frame on conveyors */
 #define COLLAPSE_FRAMES     18       /* tile persists this many frames after step */

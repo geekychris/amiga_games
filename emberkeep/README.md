@@ -175,6 +175,17 @@ The game exports these variables live via the amiga-devbench bridge:
    attempt that trip-wired at rest).
 6. **PPC OS4 build.** Scaffolded in Makefile (`ARCH=ppc`); untested.
 
+## Fixes to the original (2026-10-30)
+
+Found while porting to the Atari Falcon and 3DO:
+
+- **Chamber 1:** the rune at (6,6) was sealed in a walled box, so the
+  chamber could never be finished. `FIX_SEALED_RUNE` in `levels.cpp` opens
+  row 5 cols 17-18 to the corridor above (0 restores the original).
+- **Captions** on the title and end screens were drawn in pen 0 under the
+  default JAM2 draw mode, so they showed as solid black boxes. `render_open()`
+  now sets JAM1 on both buffers.
+
 ## License
 
 MIT. See `LICENSE` at the repo root.
