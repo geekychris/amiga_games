@@ -53,7 +53,7 @@ EXTRA = [
     ("spectral_keep", "Spectral Keep", "An isometric flip-screen adventure: three keeps and 24 rooms. Find the relics and carry them to the throne; keys open the red gates.",
      "Arrows / WASD: walk. Space / Return: jump.", NEEDS_68K_FAST),
     ("rotoball", "Rotoball", "A split-screen futuristic ball sport against the computer: steer your skimmer, grab the orb and carry it over the goal line.",
-     "W / S: forward / reverse. A / D: strafe. Esc: quit.", NEEDS_68K),
+     "W / S: forward / reverse. A / D: strafe. Space: start / play again. Esc: quit.", NEEDS_68K),
     ("block_breaker_3d", "Block Breaker 3D", "Breakout down a tunnel: move the paddle across the near opening and send the ball to the bricks at the far end. Eight levels.",
      "Arrows / WASD / joystick: paddle. Space / fire: serve. B: autopilot. Help: rules.", NEEDS_68K),
     ("harbour_crane", "Harbour Crane", "Work a gantry crane: swing containers onto a ship that rolls in the swell, and keep her level. Eight levels.",
