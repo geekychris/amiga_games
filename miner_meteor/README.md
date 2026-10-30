@@ -123,18 +123,26 @@ ports) showed that no cavern could be finished as first released:
 - **Jump:** `JUMP_IMPULSE` was -8, a 36 px rise, but the keys sit on
   platforms 64 px up. It is now -12 (`game.h`), which makes caverns 1, 3, 4
   and 5 winnable.
+- **Cavern 2 (Hazard Bay):** no jump clears the four floor spikes in front of
+  the exit. One of them is now floor: row 12 `#..P.....^^^^....E.#` →
+  `#..P.....^.^^....E.#`.
+- **Cavern 6 (Full Ensemble):** the full-width conveyors in rows 3 and 10
+  sealed the keys away and everything above the floor was out of jump reach.
+  Now a step block in row 11 (`#....#.............#`) leads up through a gap
+  in the row-10 conveyor (column 6) onto the conveyor and the ledges; a gap in
+  the row-3 conveyor (column 5, `#>>>>.>>>>>>>>>>>>>#`) reaches the top key;
+  and a second row-10 gap (column 14, `#<<<<<.<<<<<<<.<<<<#`) drops you past
+  the spikes to the exit. Guardians, spikes, conveyors, collapsing floors and
+  the three keys are unchanged.
 - **Captions** on the title and end screens were drawn in pen 0 under the
   default JAM2 draw mode, so they showed as solid black boxes. `render_open()`
   now sets JAM1 on both buffers.
 
-Still unwinnable, waiting on a level-design decision:
-
-- **Cavern 2 (Hazard Bay):** no jump clears the four floor spikes in front of
-  the exit. Turning any one into floor fixes it, e.g. row 12
-  `#..P.....^^^^....E.#` → `#..P.....^.^^....E.#`.
-- **Cavern 6 (Full Ensemble):** everything above the floor is at least 80 px
-  up, beyond the jump, and one key stands on the row-3 conveyor. It needs new
-  platforms.
+All six caverns are now winnable: a search over the real game state
+(guardians moving, floors collapsing, air draining; the collision snaps
+below included) finds a run through each, checked by replaying it with the
+game code (3.0, 6.1, 17.1, 4.2, 5.3 and 6.0 s). Each changed row is marked
+"bug in the original: unwinnable" in `levels.cpp`.
 
 Known, not fixed: the collision code snaps. A side hit moves the player to the
 tile edge (up to 14 px in one tick), and landing with an unaligned y can put
