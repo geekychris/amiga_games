@@ -389,7 +389,9 @@ int main(void)
     sound_init();
 
     /* Load MOD music */
-    mod_data = load_file_to_chip("DH2:Dev/blue_danube.mod", &mod_size);
+    /* beside the program first (a release), then the dev shared folder */
+    mod_data = load_file_to_chip("PROGDIR:blue_danube.mod", &mod_size);
+    if (!mod_data) mod_data = load_file_to_chip("DH2:Dev/blue_danube.mod", &mod_size);
     if (mod_data) {
         AB_I("Loaded music (%ld bytes)", (long)mod_size);
         mt_install_cia(CUSTOM_BASE, NULL, 1);  /* PAL */

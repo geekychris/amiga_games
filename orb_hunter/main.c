@@ -617,7 +617,9 @@ int main(void)
     build_sfx();
 
     /* Load MOD music */
-    mod_data = load_file_to_chip("DH2:Dev/rock_blaster.mod", &mod_size);
+    /* beside the program first (a release), then the dev shared folder */
+    mod_data = load_file_to_chip("PROGDIR:rock_blaster.mod", &mod_size);
+    if (!mod_data) mod_data = load_file_to_chip("DH2:Dev/rock_blaster.mod", &mod_size);
     if (mod_data) {
         AB_I("Loaded rock_blaster.mod (%ld bytes)", (long)mod_size);
         if (validate_mod(mod_data, mod_size)) {

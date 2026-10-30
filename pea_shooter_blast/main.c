@@ -535,7 +535,9 @@ int main(void)
     /* Load MOD music. Before handing the buffer to ptplayer, validate
      * the 15/31-sample MOD header against mod_size so a truncated or
      * bogus file can't drive mt_init off the end of the buffer. */
-    mod_data = load_file_to_chip("DH2:Dev/music.mod", &mod_size);
+    /* beside the program first (a release), then the dev shared folder */
+    mod_data = load_file_to_chip("PROGDIR:music.mod", &mod_size);
+    if (!mod_data) mod_data = load_file_to_chip("DH2:Dev/music.mod", &mod_size);
     if (mod_data) {
         WORD mod_ok = 0;
         /* Minimum: 1084-byte header (20 name + 31*30 sample hdrs +
