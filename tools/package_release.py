@@ -198,7 +198,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(ROOT, "dist", "release"))
     ap.add_argument("--tag", default="games-" + datetime.date.today().isoformat())
+    ap.add_argument("--skip-os4", default="", help="comma-separated games whose AmigaOS 4 build isn't ready to release")
     opt = ap.parse_args()
+    skip_os4 = set(filter(None, opt.skip_os4.split(",")))
     if os.path.exists(opt.out):
         shutil.rmtree(opt.out)
     os.makedirs(opt.out)
@@ -207,6 +209,8 @@ def main():
     for g in games:
         g["packages"] = {}
         for arch in ("68k", "os4"):
+            if arch == "os4" and g["id"] in skip_os4:
+                continue
             p = package(g, arch, opt.out, stage)
             if p:
                 p["url"] = f"https://github.com/{REPO}/releases/download/{opt.tag}/{p['file']}"
