@@ -6,7 +6,7 @@ ARCH ?= m68k
 
 ifeq ($(ARCH),ppc)
   CC      = ppc-amigaos-g++
-  CFLAGS  = -mcrt=newlib -O2 -mcpu=440 -Wall -Wno-unused-function \
+  CFLAGS  = -mcrt=newlib -O2 -mcpu=powerpc -Wall -Wno-unused-function \
             -I../../amiga-bridge/include \
             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
   # the bridge client is compiled in: ../../amiga-bridge/libbridge.a is a 68k build

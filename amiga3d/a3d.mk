@@ -25,7 +25,7 @@ vpath %.c . tests $(A3D) $(BRIDGE)/client
 ifeq ($(ARCH),ppc)
 
 CC      = ppc-amigaos-gcc
-CFLAGS  = -mcrt=newlib -O2 -mcpu=440fp -Wall -I. -I$(A3D) -I$(BRIDGE)/include \
+CFLAGS  = -mcrt=newlib -O2 -mcpu=powerpc -Wall -I. -I$(A3D) -I$(BRIDGE)/include \
           -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
 LDFLAGS = -mcrt=newlib -lauto
 OBJDIR  = objppc

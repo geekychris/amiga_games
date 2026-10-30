@@ -8,7 +8,7 @@
 #   ARCH=m68k           AmigaOS 3.x, 68020+, RTG or AGA, software cels:
 #                       scripts/build-example-68k.sh planet_chomp
 #
-# -mcpu=440fp, not 440: with this GCC 11, plain 440 means soft float,
+# -mcpu=powerpc, not 440: with this GCC 11, plain 440 means soft float,
 # which won't link against the hard-float libOSMesa / newlib libm.
 ARCH ?= ppc
 
@@ -27,7 +27,7 @@ ifeq ($(ARCH),m68k)
 else
   MESA    = ../../third_party/mesa-os4/out
   CC      = ppc-amigaos-gcc
-  CFLAGS  = -mcrt=newlib -O2 -mcpu=440fp -Wall -Wno-unused-function \
+  CFLAGS  = -mcrt=newlib -O2 -mcpu=powerpc -Wall -Wno-unused-function \
             -I$(MESA)/include -I../../amiga-bridge/include \
             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
   LDFLAGS = -mcrt=newlib -L$(MESA)/lib -lOSMesa -lm -lauto

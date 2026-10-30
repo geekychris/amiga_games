@@ -22,7 +22,7 @@ ifeq ($(ARCH),m68k)
   OBJDIR  = obj68k
 else
   CC      = ppc-amigaos-gcc
-  CFLAGS  = -mcrt=newlib -O2 -mcpu=440fp -Wall -Wno-unused-function \
+  CFLAGS  = -mcrt=newlib -O2 -mcpu=powerpc -Wall -Wno-unused-function \
             -I../../amiga-bridge/include \
             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
   LDFLAGS = -mcrt=newlib -lauto
