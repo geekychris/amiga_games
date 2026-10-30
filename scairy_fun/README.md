@@ -1,7 +1,8 @@
 # ScAIry Fun
 
 A self-driving car game for the classic Amiga (68020+, OS 3.0+, AGA or
-ECS), written with Claude Code against Amiga DevBench.
+ECS) and AmigaOS 4.1 (PowerPC), written with Claude Code against Amiga
+DevBench, on the shared engine in [`../amiga3d`](../amiga3d/README.md).
 
 You ride in a car that drives itself. Points come from the distance it
 drives **on autopilot**, multiplied by how long it has stayed on (up to
@@ -21,6 +22,19 @@ hand it back. Take over when it was right all along and it tells you
 | P | pause |
 | Return / F1 | start |
 | Esc | title / quit |
+
+## Screenshots
+
+AmigaOS 4, with the painted title and the dusk all the way round:
+
+| | |
+|---|---|
+| ![The title](screenshots/os4-title.png) | ![The levee road](screenshots/os4-levee-road.png) |
+| ![The mountain pass, into the low sun](screenshots/os4-mountain-pass.png) | ![The flooded town](screenshots/os4-flooded-town.png) |
+
+The classic Amiga (32 colours, 320 x 256):
+
+![The levee road, 68k](screenshots/68k-levee-road.png)
 
 ## The routes
 
@@ -56,33 +70,43 @@ and the car installs a software update before the next route.
 - **Renderer** (`render.c`): the segments are drawn far to near, each with
   a cross-section of 8 points, so a painter's algorithm by segment gets
   hills and bends right without a depth sort; then lines, guardrails, the
-  autopilot's path, cones, scenery and the models on that segment. The
-  CPU fills the spans straight into the five bitplanes (the filler and
-  clipper come from Terra Strike) and draws text the same way from the
-  topaz 8 bitmap; the blitter only clears the sky and ground. The copper
-  draws the sky gradient (`plat_sky`), and the low sun washes the
+  autopilot's path, cones, scenery and the models on that segment. It
+  draws with the shared engine's 2D calls: on the classic Amiga the CPU
+  fills spans straight into the five bitplanes and the blitter clears the
+  sky and ground; on AmigaOS 4 everything is drawn at twice the resolution
+  in full colour, with a smoother font. The sky gradient is the copper's
+  on the classic Amiga, smooth on AmigaOS 4, and the low sun washes the
   palette out towards white.
-- **Simulation** (`world.c`, `track.c`, `sc_math.c`): fixed 25 Hz,
-  integer only, no Amiga headers, so the same code is tested on the host,
-  on the Amiga and inside the game.
-- **Display**: 320x256 PAL lores, 32 colours per route, double-buffered
-  with `ChangeScreenBuffer`, 25 fps.
-- **Sound**: ptplayer plays `scairy.mod` ("Autopilot Lounge", from
+- **Simulation** (`world.c`, `track.c`, and the engine's `a3d_math.c`):
+  fixed 25 Hz, integer only, no Amiga headers, so the same code is tested
+  on the host, on the Amiga and inside the game.
+- **Display**: 320x256 PAL lores, 32 colours per route, double-buffered,
+  25 fps on the classic Amiga; a 640x512 full-colour window or screen on
+  AmigaOS 4 (F or F10 switches), where the title shows the painted
+  artwork (`assets/title_source.png`, made into `scairy_title.img`) and
+  a painted dusk all the way round (`assets/horizon.png`, into
+  `scairy_horizon.img`) stands in for the routes' skylines, turning with
+  the road.
+- **Sound**: `scairy.mod` ("Autopilot Lounge", from
   `tools/modgen/scairy_fun.py`) on two channels; effects are synthesised
   at start-up; the AI's 19 lines (`scairy.voc`, from
-  `tools/modgen/scairy_voices.py`: Kokoro TTS, voice bf_emma) stay in
-  fast RAM and are copied into one small chip buffer as they are said.
+  `tools/modgen/scairy_voices.py`: Kokoro TTS, voice bf_emma). ptplayer
+  and Paula on the classic Amiga, AHI on AmigaOS 4.
 
 ## Building and running
 
 ```sh
-scripts/build-example-68k.sh scairy_fun     # from the amiga_mcp checkout
+scripts/build-example-68k.sh scairy_fun     # scairy_fun, scairy_fun_test (from the amiga_mcp checkout)
+scripts/build-example-ppc.sh scairy_fun     # scairy_fun_os4
 make -C examples/scairy_fun host-test       # 90 tests on the host
+make -C examples/scairy_fun art             # scairy_title.img, scairy_horizon.img: AmigaOS 4's pictures
 python3 examples/scairy_fun/tests/e2e_devbench.py   # on a live Amiga, through devbench
+python3 examples/scairy_fun/tests/e2e_devbench.py --os4 HOST --url http://localhost:13002/mcp
 ```
 
 The program needs `scairy.mod` and `scairy.voc` beside it (it runs
-without them, silently). `make music` and `make voice` regenerate them.
+without them, silently), and on AmigaOS 4 `scairy_title.img` and
+`scairy_horizon.img` for the painted title and sky. `make music` and `make voice` regenerate them.
 
 ## Testing
 
@@ -101,8 +125,9 @@ without them, silently). `make music` and `make voice` regenerate them.
   start, take over, hand back and switch views; each hazard set up with
   the `scene` hook and checked in the remote log; a takeover judged a save
   by driving through the flood by hand; live tuning; the memory regions;
-  the voice on Paula; the arrival, update and game-over screens; and
-  screenshots of each.
+  the voice (on Paula, or logged on AmigaOS 4); the arrival, update and
+  game-over screens; and screenshots of each. It passes on FS-UAE (68060)
+  and QEMU's AmigaOS 4.
 
 ## Driving it from devbench
 
@@ -115,12 +140,14 @@ Hooks: `status`, `start`, `route <1-4>`, `scene <flood|ghost|phantom|
 cones|glare|siren|debris|deer|cyclist|tractor|merge|goats|peds|finish>`,
 `ap <on|off>`, `view <chase|cockpit>`, `say <1-19>`, `spawn <car|truck|
 deer|debris|cyclist|goat|ped|tractor> [segments]`, `skip`, `title`,
-`selftest`.
+`pause`, `help`, `selftest`, `activate`.
 
 Memory regions: `route` (the segments), `plan` (the autopilot's 16
 planned offsets), `seen` (what it has detected).
 
 ## Title artwork
 
-`assets/chatgpt_prompt.md` is the prompt for the main screen artwork; the
-title currently draws the logo over the autopilot demo.
+`assets/chatgpt_prompt.md` is the prompt the main screen artwork
+(`assets/title_source.png`) was made from. AmigaOS 4 shows it in full
+colour at the start of the title; the classic Amiga's 32 colours draw the
+logo over the autopilot demo instead.

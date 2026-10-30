@@ -23,45 +23,38 @@
 #include <stdint.h>
 
 /* ---------------- maths ---------------- */
+/* the shared engine's (../amiga3d/a3d.h): trig with 16-bit angles (0..65535
+ * a full turn; yaw 0 faces +Z, increasing to the right), the camera, clipping
+ * and the span converter. ScAIry Fun's own names for them: */
+#include "a3d.h"
+
 #define FBITS          4
 #define UNITS_M        16                /* world units per metre */
 
-extern const int32_t sc_sin_tab[256];    /* sin * 65536 */
-/* angles: 0..65535 is a full turn; yaw 0 faces +Z, increasing to the right */
-int32_t sc_sin(int a);                   /* * 65536, interpolated */
-int32_t sc_cos(int a);
-int sc_atan_ratio(int32_t num, int32_t den);   /* angle of (num, den), den > 0, |num| <= den */
-uint32_t sc_rand(uint32_t *state);       /* 15-bit LCG output */
-uint32_t sc_hash(uint32_t x);            /* stateless scramble for scenery */
-
-typedef struct { int32_t x, y, z; } V3;
-
-typedef struct {
-    int32_t x, y, z;                     /* world units */
-    int yaw, pitch;                      /* 16-bit angles; pitch > 0 looks down */
-    int32_t cy, sy, cp, sp;              /* cached trig, 16.16 */
-} Cam;
+#define sc_sin_tab     a3_sin_tab
+#define sc_sin         a3_sin
+#define sc_cos         a3_cos
+#define sc_atan_ratio  a3_atan_ratio
+#define sc_rand        a3_rand
+#define sc_hash        a3_hash
 
 #define VIEW_W      320
 #define VIEW_H      212                  /* 3D area; dashboard / HUD below */
 #define VIEW_CX     160
 #define VIEW_CY     100
 #define FOV         180
-#define NEAR_Z      12
 #define FAR_Z       4200
 
-void cam_setup(Cam *c);
-void cam_xform(const Cam *c, int32_t wx, int32_t wy, int32_t wz, V3 *out);
-void cam_project(const V3 *p, int32_t *sx, int32_t *sy);   /* z >= NEAR_Z */
-int  cam_horizon(const Cam *c);          /* screen row of the horizon */
-
-#define MAX_PV 10
-int clip_near(V3 *in, int n, V3 *out);
-int clip_rect(int32_t *xs, int32_t *ys, int n, int32_t x0, int32_t y0,
-              int32_t x1, int32_t y1);
-#define SPAN_MAX 256
-int poly_spans(const int16_t *xs, const int16_t *ys, int n,
-               int16_t *xl, int16_t *xr, int *ymin);
+/* the fixed view's projection and horizon (z >= NEAR_Z) */
+static inline void sc_project(const V3 *p, int32_t *sx, int32_t *sy)
+{
+    *sx = VIEW_CX + (p->x * FOV) / p->z;
+    *sy = VIEW_CY - (p->y * FOV) / p->z;
+}
+static inline int sc_horizon(const Cam *c)
+{
+    return VIEW_CY - (int)((FOV * (c->sp >> 4)) / (c->cp >> 4));
+}
 
 /* ---------------- routes ---------------- */
 #define SEG_BITS    7
@@ -303,5 +296,6 @@ int32_t ai_steer(const World *w);
 /* tests/test_cases.c */
 typedef void (*sc_assert_fn)(int cond, const char *name);
 int sc_run_tests(sc_assert_fn check);
+int run_tests(sc_assert_fn check);          /* the engine's test runners call this */
 
 #endif

@@ -31,6 +31,11 @@
 #include "sound.h"
 #include "game.h"
 
+const char game_title[] = "ScAIry Fun";
+const char game_client[] = "scairy_fun";
+const char game_music[] = "PROGDIR:scairy.mod";
+const char game_voice[] = "PROGDIR:scairy.voc";
+
 World world;
 static Cam cam;
 int paused;
@@ -51,6 +56,9 @@ static int help_page, help_auto;
 static int32_t title_t0;
 #define TITLE_DEMO_TICKS 600            /* 1/50 s */
 #define TITLE_PAGE_TICKS 400
+#define TITLE_ART_TICKS  400            /* the painted title (AmigaOS 4) */
+static A3Image *title_img;              /* NULL on the classic Amiga */
+static int title_art;                   /* showing it now */
 
 /* ---------- input ---------- */
 unsigned game_key_bit(unsigned code)
@@ -72,6 +80,67 @@ unsigned game_key_bit(unsigned code)
     case 0x25: return IN_HELP;     /* H */
     }
     return 0;
+}
+
+unsigned game_joy_bits(unsigned j)
+{
+    return (j & A3_JOY_LEFT ? IN_LEFT : 0) | (j & A3_JOY_RIGHT ? IN_RIGHT : 0) | (j & A3_JOY_UP ? IN_UP : 0) |
+           (j & A3_JOY_DOWN ? IN_DOWN : 0) | (j & A3_JOY_FIRE ? IN_FIRE : 0);
+}
+
+/* ---------- sound: effects synthesised at start-up ---------- */
+void game_sound_init(void)
+{
+    static const int len[SFX_COUNT] = { 2048, 4096, 512, 2400, 2400, 320, 3600, 3000, 6000, 600 };
+    static const int pri[SFX_COUNT] = {   60,   60,  40,   30,   30,  30,   50,   50,   20,  10 };
+    static const int vol[SFX_COUNT] = {   64,   64,  44,   40,   40,  48,   44,   48,   36,  30 };
+    int k, i;
+    for (k = 0; k < SFX_COUNT; k++) {
+        int8_t *d = a3_sfx_define(k, len[k], vol[k], pri[k]);
+        int n = len[k];
+        if (!d) continue;
+        switch (k) {
+        case SFX_CRASH:  a3_noise(d, n, 127, 2, 8); break;
+        case SFX_SPLASH: a3_noise(d, n, 127, 6, 600); break;
+        case SFX_SCRAPE:
+            a3_noise(d, n, 90, 1, 4);
+            for (i = 0; i < n; i++) if ((i / 6) & 1) d[i] = (int8_t)(d[i] / 2);
+            break;
+        case SFX_CHIME_ON:  a3_tone(d, n / 2, 660, 660, 90, 200); a3_tone(d + n / 2, n / 2, 990, 990, 90, 900); break;
+        case SFX_CHIME_OFF: a3_tone(d, n / 2, 990, 990, 90, 200); a3_tone(d + n / 2, n / 2, 660, 660, 90, 900); break;
+        case SFX_CONE:   a3_tone(d, n, 220, 90, 110, n); break;
+        case SFX_SAVE:
+            a3_tone(d, 1200, 523, 523, 90, 150);
+            a3_tone(d + 1200, 1200, 659, 659, 90, 150);
+            a3_tone(d + 2400, 1200, 784, 784, 100, 900);
+            break;
+        case SFX_ALERT:  a3_tone(d, 900, 1200, 1200, 110, 60); a3_tone(d + 1400, 900, 1200, 1200, 110, 60); break;
+        case SFX_SIREN:  a3_tone(d, n / 2, 620, 930, 100, 40); a3_tone(d + n / 2, n / 2, 930, 620, 100, 300); break;
+        case SFX_BLIP:   a3_tone(d, n, 1500, 1800, 80, n); break;
+        }
+    }
+}
+
+/* ---------- the colours ---------- */
+static uint16_t mix(uint16_t c, uint16_t to, int num, int den)
+{
+    int r = (c >> 8) & 15, g = (c >> 4) & 15, b = c & 15;
+    r += ((((to >> 8) & 15) - r) * num) / den;
+    g += ((((to >> 4) & 15) - g) * num) / den;
+    b += (((to & 15) - b) * num) / den;
+    return (uint16_t)((r << 8) | (g << 4) | b);
+}
+
+/* the route's colours; the low sun washes everything towards white */
+static void sc_palette(int route, int glare)
+{
+    uint16_t pal[32];
+    int i;
+    for (i = 0; i < 32; i++) {
+        pal[i] = route_palette[route][i];
+        if (glare > 0 && i >= 2) pal[i] = mix(pal[i], 0xFFE, glare * 10, 16 * 16);
+    }
+    plat_palette(pal);
 }
 
 /* ---------- bridge hooks ---------- */
@@ -230,6 +299,14 @@ static int hook_title(const char *args, char *buf, int bufsz)
 }
 
 static int test_pass, test_fail, selftest_pending;
+static int hook_activate(const char *args, char *buf, int bufsz)
+{
+    (void)args;
+    plat_activate();
+    reply(buf, bufsz, "window active");
+    return 0;
+}
+
 static void bridge_check(int cond, const char *name)
 {
     if (cond) test_pass++; else test_fail++;
@@ -306,6 +383,7 @@ static void register_bridge(void)
     ab_register_hook("pause",    "pause on/off (one still frame for screenshots)", hook_pause);
     ab_register_hook("help",     "help N: show rules page 1 to 3 (0 closes)", hook_help);
     ab_register_hook("selftest", "Run the unit and gameplay tests inside the game", hook_selftest);
+    ab_register_hook("activate", "The game's window to the front and active (injected keys go to it)", hook_activate);
 
     ab_register_memregion("route", world.seg, sizeof(world.seg), "Seg[560]: cx y dir side[2] flags closed ghost");
     ab_register_memregion("plan",  world.ai.plan, sizeof(world.ai.plan), "16 x LONG: planned offset (fine) per segment ahead");
@@ -341,6 +419,9 @@ static void handle_events(void)
 /* ---------- the frame ---------- */
 void game_init(void)
 {
+    if (!render_init()) AB_E("render_init failed");
+    title_img = g_image_load("PROGDIR:scairy_title.img");
+    if (title_img) AB_I("the painted title loaded");
     world_init(&world);
     register_bridge();
     t_fps = t_last = t_log = plat_ticks();
@@ -384,8 +465,11 @@ void game_update(unsigned in)
     t0 = plat_clock();
     /* on the title, the rules in turn between autopilot demos */
     if (world.state == GS_TITLE) {
-        int32_t t = now - title_t0, cycle = TITLE_DEMO_TICKS + HELP_PAGES * TITLE_PAGE_TICKS;
+        int32_t art = title_img ? TITLE_ART_TICKS : 0, t = now - title_t0, cycle = art + TITLE_DEMO_TICKS + HELP_PAGES * TITLE_PAGE_TICKS;
         if (t < 0 || t >= cycle) { title_t0 = now; t = 0; }
+        title_art = t < art;
+        t -= art;
+        if (t < 0) t = 0;
         if (!help_page || help_auto) {
             int p = t < TITLE_DEMO_TICKS ? 0 : 1 + (int)((t - TITLE_DEMO_TICKS) / TITLE_PAGE_TICKS);
             help_auto = p > 0;
@@ -393,6 +477,7 @@ void game_update(unsigned in)
         }
     } else {
         title_t0 = now;
+        title_art = 0;
         if (help_auto) help_page = help_auto = 0;
     }
 
@@ -414,14 +499,22 @@ void game_draw(Canvas *cv, int buf)
 {
     uint32_t t0;
     if (world.route != pal_route || world.glare != pal_glare) {
-        plat_palette(world.route, world.glare);
+        sc_palette(world.route, world.glare);
         pal_route = world.route;
         pal_glare = world.glare;
     }
     if (world.route != sky_route || world.view != sky_view) {
-        plat_sky(world.route, world.view);
+        plat_sky(PEN_SKY, route_sky[world.route][0], route_sky[world.route][1], render_horizon(world.view));
         sky_route = world.route;
         sky_view = world.view;
+    }
+    if (title_art && title_img && world.state == GS_TITLE && !help_page) {
+        /* the painted title, the demo running behind it */
+        g_image_draw(cv, title_img, 0, 0);
+        g_text_centre(cv, SCREEN_H - 26, PEN_WHITE, "PRESS FIRE TO START");
+        g_text_centre(cv, SCREEN_H - 12, PEN_GREY, "HELP OR H: HOW TO PLAY");
+        render_hud_reset();
+        return;
     }
     if (help_page) {
         t0 = plat_clock();

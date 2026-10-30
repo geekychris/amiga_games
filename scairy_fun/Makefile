@@ -1,51 +1,34 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
-# ScAIry Fun - a self-driving car game for the classic Amiga (68020+).
-#   make              game + on-Amiga test runner (Docker cross-compiler:
-#                     scripts/build-example-68k.sh scairy_fun)
-#   make host-test    the unit and gameplay tests built and run natively
+# ScAIry Fun - a self-driving car game for the classic Amiga (68020+) and
+# AmigaOS 4.1, on the shared engine in ../amiga3d.
+#   scripts/build-example-68k.sh scairy_fun      scairy_fun, scairy_fun_test
+#   scripts/build-example-ppc.sh scairy_fun      scairy_fun_os4
+#   make host-test                               the unit and gameplay tests on the host
+#   make host-trace                              tests/host_trace: a route driven, every event printed
+#   make art                                     the AmigaOS 4 pictures (scairy_title.img, scairy_horizon.img)
 #   make music        scairy.mod   (tools/modgen/scairy_fun.py)
 #   make voice        scairy.voc   (tools/modgen/scairy_voices.py, needs Kokoro)
 
-CORE = sc_math.c track.c world.c
-GAME = main.c game.c render.c models.c sound.c tests/test_cases.c $(CORE)
+NAME    = scairy_fun
+CORE    = track.c world.c
+GAME    = game.c render.c models.c tests/test_cases.c
+TESTS   = tests/test_cases.c
 HEADERS = sc.h render.h game.h sound.h models.h
 
-CC = m68k-amigaos-gcc
-AS = vasmm68k_mot
-CFLAGS = -noixemul -O2 -m68020 -Wall -I../../amiga-bridge/include
-ASFLAGS = -Fhunk -m68000 -no-opt -I/opt/m68k-amigaos/m68k-amigaos/ndk-include/hardware -I/opt/m68k-amigaos/m68k-amigaos/ndk-include/resources
-LDFLAGS = -noixemul -g -L../../amiga-bridge -lbridge -lamiga
-
-GAME_OBJS = $(GAME:.c=.o) ptplayer.o
-TEST_OBJS = tests/amiga_test_main.o tests/test_cases.o $(CORE:.c=.o)
-TRACE_OBJS = tests/trace_main.o $(CORE:.c=.o)
-
-all: scairy_fun scairy_fun_test scairy_fun_trace
-
-scairy_fun: $(GAME_OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS)
-
-scairy_fun_test: $(TEST_OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS)
-
-scairy_fun_trace: $(TRACE_OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS)
-
-ptplayer.o: ptplayer.asm
-	$(AS) $(ASFLAGS) -o $@ $<
-
-%.o: %.c $(HEADERS)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-HOSTCC ?= cc
-host-test:
-	$(HOSTCC) -O2 -Wall -o tests/host_tests tests/host_main.c tests/test_cases.c $(CORE)
-	./tests/host_tests
+include ../amiga3d/a3d.mk
 
 host-trace:
-	$(HOSTCC) -O2 -Wall -o tests/host_trace tests/trace_main.c $(CORE)
+	$(HOSTCC) -O2 -Wall -I. -I$(A3D) -o tests/host_trace tests/trace_main.c $(CORE) $(A3D)/a3d_math.c
+
+# AmigaOS 4's artwork (`make art`): the title picture, and the dusk
+# panorama (2 pi FOV x 2 = 2262 pixels round, the bottom edge the horizon)
+art title: scairy_title.img scairy_horizon.img
+scairy_title.img: assets/title_source.png
+	python3 $(A3D)/tools/make_image.py $< $@ 640 512
+scairy_horizon.img: assets/horizon.png
+	python3 $(A3D)/tools/make_image.py $< $@ 2262 288 --rows 0 0.78 --vscale 0.5 --align bottom --wrap 128 --fade-top 48
 
 music:
 	cd ../tools/modgen && python3 scairy_fun.py
@@ -53,7 +36,4 @@ music:
 voice:
 	cd ../tools/modgen && python3 scairy_voices.py
 
-clean:
-	rm -f *.o tests/*.o scairy_fun scairy_fun_test scairy_fun_trace tests/host_tests tests/host_trace
-
-.PHONY: all clean host-test music voice
+.PHONY: music voice host-trace title art

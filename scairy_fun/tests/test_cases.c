@@ -130,7 +130,7 @@ int sc_run_tests(sc_assert_fn check)
         memset(&c, 0, sizeof(c));
         cam_setup(&c);
         cam_xform(&c, 0, 0, 1000, &v);
-        cam_project(&v, &sx, &sy);
+        sc_project(&v, &sx, &sy);
         check(v.z == 1000 && sx == VIEW_CX && sy == VIEW_CY, "camera straight ahead");
         c.yaw = 16384;              /* facing +X */
         cam_setup(&c);
@@ -138,7 +138,7 @@ int sc_run_tests(sc_assert_fn check)
         check(v.z > 990 && v.x > -5 && v.x < 5, "camera yaw quarter turn");
         c.yaw = 0; c.pitch = 1000;
         cam_setup(&c);
-        check(cam_horizon(&c) < VIEW_CY, "horizon above centre when looking down");
+        check(sc_horizon(&c) < VIEW_CY, "horizon above centre when looking down");
     }
 
     /* the routes */
@@ -302,3 +302,7 @@ int sc_run_tests(sc_assert_fn check)
     check(w->route_bonus >= 100 * 50, "arrival bonus");
     return 0;
 }
+
+/* the shared engine's test runners (test_host.c, test_amiga.c) */
+const char test_client[] = "scairy_fun_test";
+int run_tests(sc_assert_fn check) { return sc_run_tests(check); }

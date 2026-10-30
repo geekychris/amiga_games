@@ -2,14 +2,15 @@
 // Copyright (c) 2026 Chris Collins <chris@hitorro.com>
 
 /*
- * sc_math.c - fixed-point trig with 16-bit angles, the camera transform,
- * projection and polygon clipping for ScAIry Fun (the clipping and the span
- * converter come from Terra Strike's ts_math.c).
+ * a3d_math.c - the shared 3D engine's maths: fixed-point trig with 16-bit
+ * angles, integer square roots, the camera transform and projection,
+ * polygon clipping and the span converter (from ScAIry Fun and Terra
+ * Strike). Integer only, so it runs on a 68020 without an FPU.
  */
-#include "sc.h"
+#include "a3d.h"
 
 /* sin(i * 2pi / 256) * 65536 */
-const int32_t sc_sin_tab[256] = {
+const int32_t a3_sin_tab[256] = {
         0,   1608,   3216,   4821,   6424,   8022,   9616,  11204,
     12785,  14359,  15924,  17479,  19024,  20557,  22078,  23586,
     25080,  26558,  28020,  29466,  30893,  32303,  33692,  35062,
@@ -59,24 +60,25 @@ static const uint16_t atan_tab[129] = {
     7856, 7899, 7942, 7984, 8026, 8068, 8110, 8151, 8192,
 };
 
-int32_t sc_sin(int a)
+int32_t a3_sin(int a)
 {
     int i = (a >> 8) & 255, f = a & 255;
-    int32_t s0 = sc_sin_tab[i], s1 = sc_sin_tab[(i + 1) & 255];
+    int32_t s0 = a3_sin_tab[i], s1 = a3_sin_tab[(i + 1) & 255];
     return s0 + (((s1 - s0) * f) >> 8);
 }
 
-int32_t sc_cos(int a)
+int32_t a3_cos(int a)
 {
-    return sc_sin(a + 16384);
+    return a3_sin(a + 16384);
 }
 
-int sc_atan_ratio(int32_t num, int32_t den)
+int a3_atan_ratio(int32_t num, int32_t den)
 {
     int32_t a = num < 0 ? -num : num, t, f;
     int r;
     if (den <= 0) return 0;
     if (a > den) a = den;
+    while (den > 0x7FFFF) { a >>= 1; den >>= 1; }      /* a * 2048 must fit */
     t = (a * 128 * 16) / den;          /* 1/16 steps of the table */
     f = t & 15;
     t >>= 4;
@@ -84,13 +86,13 @@ int sc_atan_ratio(int32_t num, int32_t den)
     return num < 0 ? -r : r;
 }
 
-uint32_t sc_rand(uint32_t *state)
+uint32_t a3_rand(uint32_t *state)
 {
     *state = *state * 1103515245UL + 12345UL;
     return (*state >> 16) & 0x7FFF;
 }
 
-uint32_t sc_hash(uint32_t x)
+uint32_t a3_hash(uint32_t x)
 {
     x ^= x >> 16;
     x *= 0x7feb352dUL;
@@ -100,12 +102,48 @@ uint32_t sc_hash(uint32_t x)
     return x;
 }
 
+
+/* atan2 over the whole circle: the angle of (x, y) measured from +y
+ * towards +x (so a3_atan2(dx, dz) is a yaw), 16-bit angle */
+int a3_atan2(int32_t x, int32_t y)
+{
+    int32_t ax = x < 0 ? -x : x, ay = y < 0 ? -y : y;
+    int a;
+    if (!ax && !ay) return 0;
+    if (ax <= ay) a = a3_atan_ratio(ax, ay);
+    else a = 16384 - a3_atan_ratio(ay, ax);
+    if (y < 0) a = 32768 - a;
+    if (x < 0) a = -a;
+    return a & 0xFFFF;
+}
+
+uint32_t a3_isqrt(uint32_t v)
+{
+    uint32_t r = 0, bit = 1UL << 30;
+    while (bit > v) bit >>= 2;
+    while (bit) {
+        if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; }
+        else r >>= 1;
+        bit >>= 2;
+    }
+    return r;
+}
+
+/* sqrt(x*x + y*y) without overflowing for |x|, |y| < 2^30 */
+int32_t a3_hypot(int32_t x, int32_t y)
+{
+    uint32_t ax = (uint32_t)(x < 0 ? -x : x), ay = (uint32_t)(y < 0 ? -y : y);
+    int sh = 0;
+    while ((ax | ay) >= 46000) { ax >>= 1; ay >>= 1; sh++; }
+    return (int32_t)(a3_isqrt(ax * ax + ay * ay) << sh);
+}
+
 void cam_setup(Cam *c)
 {
-    c->cy = sc_cos(c->yaw);
-    c->sy = sc_sin(c->yaw);
-    c->cp = sc_cos(c->pitch);
-    c->sp = sc_sin(c->pitch);
+    c->cy = a3_cos(c->yaw);
+    c->sy = a3_sin(c->yaw);
+    c->cp = a3_cos(c->pitch);
+    c->sp = a3_sin(c->pitch);
 }
 
 /* World point -> camera space. |delta| stays below 2^15 for anything the
@@ -122,15 +160,24 @@ void cam_xform(const Cam *c, int32_t wx, int32_t wy, int32_t wz, V3 *out)
     out->z = (rz * (c->cp >> 4) - dy * (c->sp >> 4)) >> 12;
 }
 
-void cam_project(const V3 *p, int32_t *sx, int32_t *sy)
+void cam_view(Cam *c, int vw, int vh, int cx, int cy, int fov)
 {
-    *sx = VIEW_CX + (p->x * FOV) / p->z;
-    *sy = VIEW_CY - (p->y * FOV) / p->z;
+    c->vw = vw;
+    c->vh = vh;
+    c->cx = cx;
+    c->cyc = cy;
+    c->fov = fov;
+}
+
+void cam_project(const Cam *c, const V3 *p, int32_t *sx, int32_t *sy)
+{
+    *sx = c->cx + (p->x * c->fov) / p->z;
+    *sy = c->cyc - (p->y * c->fov) / p->z;
 }
 
 int cam_horizon(const Cam *c)
 {
-    return VIEW_CY - (int)((FOV * (c->sp >> 4)) / (c->cp >> 4));
+    return c->cyc - (int)((c->fov * (c->sp >> 4)) / (c->cp >> 4));
 }
 
 int clip_near(V3 *in, int n, V3 *out)
