@@ -173,3 +173,26 @@ emberkeep/emberkeep_os4
 warden_keep/warden_keep_os4
 # release packages (tools/package_release.py)
 dist/
+# AmigaOS 4 builds of the classic games through the shared os4_compat layer
+# (make ARCH=ppc / scripts/build-example-ppc.sh <game>)
+ace_pilot/ace_pilot_os4
+boing_ball/boing_ball_os4
+bullion_dash/bullion_dash_os4
+canyon_rescue/canyon_rescue_os4
+dot_chase/dot_chase_os4
+frank_the_frog/frank_the_frog_os4
+jump_quest/jump_quest_os4
+lunar_rider/lunar_rider_os4
+miner_meteor/miner_meteor_os4
+nova_defense/nova_defense_os4
+orb_hunter/orb_hunter_os4
+orbital_patrol/orbital_patrol_os4
+pea_shooter_blast/pea_shooter_blast_os4
+plasma/plasma_os4
+rj_birthday/rj_birthday_os4
+rock_blaster/rock_blaster_os4
+sky_knights/sky_knights_os4
+stakattack/stakattack_os4
+starfield/starfield_os4
+uranus_lander/uranus_lander_os4
+void_trader/void_trader_os4

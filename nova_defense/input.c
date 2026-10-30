@@ -5,6 +5,11 @@
 #include <intuition/intuition.h>
 #include <hardware/cia.h>
 #include "input.h"
+#include <hardware/custom.h>
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
 /* Amiga raw key codes */
 #define RAW_ESC    0x45
@@ -23,7 +28,7 @@ static BOOL mouse_fire;     /* current mouse fire state */
 
 void input_init(void)
 {
-    volatile UWORD *joy0dat = (volatile UWORD *)0xDFF00A;
+    volatile UWORD *joy0dat = &OC_CUSTOM->joy0dat;
     last_mouse_x = (WORD)(*joy0dat & 0xFF);
     prev_fire = FALSE;
     kb_fire = FALSE;
@@ -60,8 +65,8 @@ void input_read(InputState *input, struct IntuiMessage *imsg)
 
 void input_read_mouse(InputState *input)
 {
-    volatile UWORD *joy0dat = (volatile UWORD *)0xDFF00A;
-    volatile UBYTE *ciaa_pra = (volatile UBYTE *)0xBFE001;
+    volatile UWORD *joy0dat = &OC_CUSTOM->joy0dat;
+    volatile UBYTE *ciaa_pra = &OC_CIAA->ciapra;
 
     /* Mouse X delta (bits 7-0 of JOY0DAT) */
     WORD mouse_x = (WORD)(*joy0dat & 0xFF);

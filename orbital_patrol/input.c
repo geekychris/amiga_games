@@ -54,11 +54,20 @@ static WORD bomb_edge = 0;
 static WORD hyper_edge = 0;
 
 /* Input handler function - called at interrupt level */
+#ifdef __amigaos4__
+/* AmigaOS 4 calls the handler as a C function */
+static struct InputEvent *
+handler_func(struct InputEvent *events, APTR data)
+{
+    struct InputEvent *ev;
+    (void)data;
+#else
 static struct InputEvent * __attribute__((used))
 handler_func(void)
 {
     register struct InputEvent *events __asm("a0");
     struct InputEvent *ev;
+#endif
 
     for (ev = events; ev; ev = ev->ie_NextEvent) {
         if (ev->ie_Class == IECLASS_RAWKEY) {

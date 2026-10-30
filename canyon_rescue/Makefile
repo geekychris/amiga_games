@@ -4,30 +4,16 @@
 # ARCH=m68k (default) — classic AmigaOS 3.x on 680x0 (FS-UAE / AmiKit)
 # ARCH=ppc            — AmigaOS 4.1 on PowerPC (sam460ex / QEMU)
 # Build for PPC via: scripts/build-example-ppc.sh canyon_rescue
-#
-# On PPC we swap modplay.c (direct Paula chip register access, no such
-# hardware on sam460ex) for arch_audio_stub_ppc.cpp which no-ops the
-# audio API. Game runs silent on OS4. sfx.cpp stays — it only touches
-# Paula indirectly via modplay_sfx() which is stubbed.
-#
-# render.cpp still uses direct-to-bitplane writes on 68k for speed; on
-# PPC those code paths are gated out with #ifdef __PPC__ and fall back
-# to graphics.library RectFill (slower but works without chip RAM).
+#   (canyon_rescue_os4, through the shared layer in ../os4_compat: the
+#   stand-in screen's bitmaps are planar, so render.cpp's direct bitplane
+#   writes and modplay.c's Paula registers work there as on the 68k)
 ARCH ?= m68k
 
 ifeq ($(ARCH),ppc)
-  CXX      = ppc-amigaos-g++
-  CC       = ppc-amigaos-gcc
-  CXXFLAGS = -mcrt=newlib -O2 -mcpu=440 -Wall -Wno-unused-function \
-             -fno-exceptions -fno-rtti \
-             -I../../amiga-bridge/include \
-             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
-  CFLAGS   = -mcrt=newlib -O2 -mcpu=440 -Wall -Wno-unused-function \
-             -I../../amiga-bridge/include \
-             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
-  # the bridge client is compiled in: ../../amiga-bridge/libbridge.a is a 68k build
-  LDFLAGS  = -mcrt=newlib -lauto
-  AUDIO_SRCS = arch_audio_stub_ppc.cpp bridge_client.c
+NAME = canyon_rescue
+CXXSRCS = main.cpp terrain.cpp render.cpp game.cpp pilots.cpp combat.cpp sfx.cpp
+SRCS = modplay.c
+include ../os4_compat/os4c.mk
 else
   CXX      = m68k-amigaos-g++
   CC       = m68k-amigaos-gcc
@@ -40,7 +26,6 @@ else
   # libm's floating-point printf, which needs LIBS:mathieeedoubbas.library on disk.
   LDFLAGS  = -noixemul -m68020 -L../../amiga-bridge -lbridge -lamiga -lnix
   AUDIO_SRCS = modplay.c
-endif
 
 TARGET   = canyon_rescue
 CPPSRCS  = main.cpp terrain.cpp render.cpp game.cpp pilots.cpp combat.cpp sfx.cpp
@@ -82,3 +67,5 @@ clean:
 	rm -f $(OBJS) $(TARGET)
 
 .PHONY: all clean
+
+endif

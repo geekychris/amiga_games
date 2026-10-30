@@ -7,15 +7,14 @@
 # ARCH=ppc            — AmigaOS 4.1 on PowerPC (sam460ex / QEMU)
 #
 # Build for PPC via: scripts/build-example-ppc.sh miner_meteor
+#   (miner_meteor_os4, through the shared layer in ../os4_compat)
 
 ARCH ?= m68k
 
 ifeq ($(ARCH),ppc)
-  CC       = ppc-amigaos-g++
-  CFLAGS   = -mcrt=newlib -O2 -mcpu=440 -Wall -Wno-unused-function \
-             -I../../amiga-bridge/include \
-             -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
-  LDFLAGS  = -mcrt=newlib -L../../amiga-bridge -lbridge -lauto
+NAME = miner_meteor
+CXXSRCS = main.cpp game.cpp levels.cpp render.cpp audio.cpp tilesheet_data.cpp
+include ../os4_compat/os4c.mk
 else
   CC       = m68k-amigaos-g++
   CFLAGS   = -noixemul -O2 -m68020 -Wall -Wno-unused-function \
@@ -23,7 +22,6 @@ else
   # -lnix before the libraries g++ adds (-lm): printf then comes from libnix, not
   # libm's floating-point printf, which needs LIBS:mathieeedoubbas.library on disk.
   LDFLAGS  = -noixemul -m68020 -L../../amiga-bridge -lbridge -lamiga -lnix
-endif
 
 TARGET = miner_meteor
 SRCS   = main.cpp game.cpp levels.cpp render.cpp audio.cpp tilesheet_data.cpp
@@ -54,3 +52,5 @@ clean:
 	rm -f *.o $(TARGET)
 
 .PHONY: all clean
+
+endif

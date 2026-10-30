@@ -9,14 +9,27 @@
  */
 #include "game.h"
 #include <string.h>
+#include <hardware/custom.h>
+#ifndef OC_CUSTOM   /* AmigaOS 4 (../os4_compat) has the registers in RAM */
+#define OC_CUSTOM ((volatile struct Custom *)0xDFF000)
+#define OC_CIAA   ((volatile struct CIA *)0xBFE001)
+#endif
 
 /* Paula audio hardware registers */
+#ifdef __amigaos4__
+#define CUSTOM_BASE     ((ULONG)OC_CUSTOM)
+#else
 #define CUSTOM_BASE     0xDFF000
+#endif
 #define AUD0            ((volatile UWORD *)(CUSTOM_BASE + 0x0A0))
 #define AUD1            ((volatile UWORD *)(CUSTOM_BASE + 0x0B0))
 #define AUD2            ((volatile UWORD *)(CUSTOM_BASE + 0x0C0))
 #define AUD3            ((volatile UWORD *)(CUSTOM_BASE + 0x0D0))
+#ifdef __amigaos4__
+#define DMACON          (OC_CUSTOM->dmacon)  /* into os4_compat's dmacon queue */
+#else
 #define DMACON          (*(volatile UWORD *)(CUSTOM_BASE + 0x096))
+#endif
 #define INTENA          (*(volatile UWORD *)(CUSTOM_BASE + 0x09A))
 
 /* Per-channel register offsets (in UWORD units) */

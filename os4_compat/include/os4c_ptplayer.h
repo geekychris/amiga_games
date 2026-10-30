@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Chris Collins <chris@hitorro.com>
+
+/*
+ * The C interface of Frank Wille's ptplayer, which the games call (on the
+ * 68k from assembly), here a C ProTracker player on the Paula emulation
+ * (ptplayer.c, from the Atari ST ports' st_port).  The custom base
+ * argument is accepted and ignored; the player ticks in the mixer task
+ * instead of a CIA interrupt.  The guard is the games' ptplayer.h's, so
+ * that header (68k register arguments) is skipped.
+ */
+#ifndef PTPLAYER_H
+#define PTPLAYER_H
+
+#include <exec/types.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct {
+    APTR sfx_ptr;       /* sample start */
+    WORD sfx_len;       /* length in words */
+    WORD sfx_per;       /* replay period */
+    WORD sfx_vol;       /* volume 0..64 */
+    BYTE sfx_cha;       /* channel 0..3, or -1 for auto */
+    BYTE sfx_pri;       /* priority (non-zero) */
+} SfxStructure;
+
+void mt_install_cia(void *custom, void *autovec, UBYTE pal);
+void mt_remove_cia(void *custom);
+void mt_init(void *custom, APTR module, APTR samples, UBYTE songpos);
+void mt_end(void *custom);
+void mt_soundfx(void *custom, APTR sample, UWORD length, UWORD period, UWORD volume);
+void mt_playfx(void *custom, SfxStructure *sfx);
+void mt_musicmask(void *custom, UBYTE mask);
+void mt_mastervol(void *custom, UWORD vol);
+void mt_music(void *custom);
+
+extern UBYTE mt_Enable;         /* 0: music paused */
+extern UBYTE mt_E8Trigger;      /* last E8x parameter */
+extern UBYTE mt_MusicChannels;  /* channels kept for music */
+
+int mt_sound_ok(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

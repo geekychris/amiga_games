@@ -14,7 +14,9 @@
 struct RastPort;
 
 /* Amiga sprintf returns char* not int */
+#ifndef __amigaos4__
 char *sprintf(char *buf, const char *fmt, ...);
+#endif
 
 /* Screen constants */
 #define SCREEN_W        320
