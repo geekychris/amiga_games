@@ -10,7 +10,14 @@ goal line before the 90 seconds run out. The top half of the screen is the
 computer's view, the bottom half yours. A goal scores 1, 2 or 3 points,
 depending on how far out the run started.
 
-![Rotoball on a 68k Amiga](screenshots/rotoball_68k.png)
+| | |
+|---|---|
+| ![Kick-off screen](screenshots/rotoball_kickoff_68k.png) | ![Playing](screenshots/rotoball_68k.png) |
+| Kick-off screen | Playing |
+| ![Full time](screenshots/rotoball_fulltime_68k.png) | |
+| Full time | |
+
+68k build on FS-UAE (AmiKit).
 
 ## Controls
 
