@@ -115,6 +115,27 @@ Deliberately out of scope for the initial cut, all tracked in code comments:
    Aseprite / Piskel snapping colours to the 16-slot palette is worth
    doing for full 8-bit crispness. Re-run the bake after.
 
+## Fixes to the original (2026-10-30)
+
+A search of every reachable position (done for the Atari Falcon and 3DO
+ports) showed that no cavern could be finished as first released:
+
+- **Jump:** `JUMP_IMPULSE` was -8, a 36 px rise, but the keys sit on
+  platforms 64 px up. It is now -12 (`game.h`), which makes caverns 1, 3, 4
+  and 5 winnable.
+- **Captions** on the title and end screens were drawn in pen 0 under the
+  default JAM2 draw mode, so they showed as solid black boxes. `render_open()`
+  now sets JAM1 on both buffers.
+
+Still unwinnable, waiting on a level-design decision:
+
+- **Cavern 2 (Hazard Bay):** no jump clears the four floor spikes in front of
+  the exit. Turning any one into floor fixes it, e.g. row 12
+  `#..P.....^^^^....E.#` → `#..P.....^.^^....E.#`.
+- **Cavern 6 (Full Ensemble):** everything above the floor is at least 80 px
+  up, beyond the jump, and one key stands on the row-3 conveyor. It needs new
+  platforms.
+
 ## License
 
 MIT. See `LICENSE` at the repo root.

@@ -116,6 +116,9 @@ LONG render_open(void)
 
     InitRastPort(&rp_buf[0]); rp_buf[0].BitMap = sbuf[0]->sb_BitMap;
     InitRastPort(&rp_buf[1]); rp_buf[1].BitMap = sbuf[1]->sb_BitMap;
+    /* JAM1: in the default JAM2, captions drawn in pen 0 on a coloured bar
+     * came out as solid black boxes (bug in the original). */
+    SetDrMd(&rp_buf[0], JAM1); SetDrMd(&rp_buf[1], JAM1);
 
     cur_buf = 1;
     rp = &rp_buf[cur_buf];

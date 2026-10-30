@@ -14,13 +14,25 @@
  * scales to 20+ chambers; more content is a follow-up.
  */
 
+/* Bug in the original: chamber 1's rune at (6,6) was sealed in a walled box,
+ * so the chamber could never be finished. Opening row 5 cols 17-18 joins it
+ * to the corridor above (the Falcon and 3DO ports make the same change).
+ * 0 restores the original layout. */
+#ifndef FIX_SEALED_RUNE
+#define FIX_SEALED_RUNE 1
+#endif
+
 static const char LVL0[] =
     "####################"
     "#..................#"
     "#..P..........R....#"
     "#..................#"
     "#..#############...#"
+#if FIX_SEALED_RUNE
+    "#..#............#..#"              /* opened: see FIX_SEALED_RUNE */
+#else
     "#..#............####"
+#endif
     "#..#..R............."
     "#..#............####"
     "#..#############...#"
