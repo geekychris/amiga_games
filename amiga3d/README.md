@@ -24,6 +24,18 @@ game's own `render.c`: **camera roll** (`cam_roll` in orbit_docking: a turn
 of camera space's x and y about the line of sight, after `cam_xform`) and
 **culling by grid cell** (`city` in drone_courier: visit only the grid
 cells round the camera out to a range, and draw only those ahead of it).
+ace_pilot2 also has its own `a3d_model` that draws a model with roll.
+
+**A camera that follows something moving** should be placed with
+`cam_place(&cam, x, y, z)` (16.16 positions) instead of whole units in
+`cam.x`/`cam.y`/`cam.z`. A whole-unit camera jumps 0, 1 or 2 units on
+uneven steps and the ground near it judders by up to 16 pixels; a placed
+camera keeps sixteenths of a unit (3 pixels at worst). Camera space is then
+16 times larger, so a game scales what it measures there: `CAM_NEAR(c)` in
+place of `NEAR_Z`, and radii or depth biases times `CAM_U(c)`.
+`cam_for(&cam, x, y, z, &oc)` gives the camera for a model at a 16.16
+position. ridge_runner, tank_duel and ace_pilot2 use it; the other games
+keep whole units and draw exactly as before.
 
 A limit to keep in mind: the bridge takes 32 variables and 16 hooks a
 client (`AB_MAX_VARS`, `AB_MAX_HOOKS` in `amiga-bridge/include/bridge_ipc.h`);
