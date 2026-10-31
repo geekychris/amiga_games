@@ -17,6 +17,7 @@ resolution in full colour. Used by:
 - [`orbit_docking`](../orbit_docking/README.md): docking with a spinning station (a camera with roll, see below)
 - [`drone_courier`](../drone_courier/README.md): deliveries across a city of towers (culling by grid cell, see below)
 - [`canyon_rail`](../canyon_rail/README.md): a rail shooter (hits found with the engine's own projection)
+- [`ace_pilot2`](../ace_pilot2/README.md): biplanes over a WWI-style front (a banking camera, models drawn with the roll, a precise chase camera)
 
 Two additions are proposed for the engine from these, each so far in its
 game's own `render.c`: **camera roll** (`cam_roll` in orbit_docking: a turn

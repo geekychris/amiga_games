@@ -70,6 +70,8 @@ EXTRA = [
      "Up/down: forward/back. Left/right: turn. Space / fire: climb. B: autopilot.", NEEDS_68K),
     ("canyon_rail", "Canyon Rail", "A rail shooter down a canyon: turrets, drones and their bolts, and a guardian at the end of each stage.",
      "Arrows / joystick: sight. Space / fire: fire. B: autopilot.", NEEDS_68K),
+    ("ace_pilot2", "Ace Pilot 2", "A biplane war in 3D: fly a Swallow scout of Larkspur Squadron over the river Sellen. Eight missions: patrols, balloons, an escort, a train, bombers, a supply depot, an enemy aerodrome and the Grey Falcon.",
+     "Left/right: bank. Up/down: nose down/up. Space / fire: guns. A / Z: throttle. V: chase / cockpit. I: invert. B: autopilot. Help: how to fly.", NEEDS_68K),
 ]
 
 # where each game's binaries are, if not <id>/<id> and <id>/<id>_os4 (the

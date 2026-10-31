@@ -168,6 +168,14 @@ canyon_rail/tests/host_tests_san
 canyon_rail/tests/trace
 canyon_rail/e2e_shots/
 canyon_rail/e2e_shots_os4/
+ace_pilot2/ace_pilot2
+ace_pilot2/ace_pilot2_test
+ace_pilot2/ace_pilot2_os4
+ace_pilot2/tests/host_tests
+ace_pilot2/tests/host_tests_san
+ace_pilot2/tests/trace
+ace_pilot2/e2e_shots/
+ace_pilot2/e2e_shots_os4/
 # AmigaOS 4 builds of the C++ games (both arches build to the same name: the PPC one is kept as _os4)
 emberkeep/emberkeep_os4
 warden_keep/warden_keep_os4
