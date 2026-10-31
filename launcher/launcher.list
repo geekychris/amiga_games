@@ -2,18 +2,52 @@
 # installed are left out of the menu. Deploy beside DH1:launcher.
 # Arguments may follow the program: FULLSCREEN gives a game a screen of
 # its own (F or F10 switches back to a window while playing).
-Planet Chomp|DH1:planet_chomp FULLSCREEN
-Rolling Steel|DH1:rolling_steel/rolling_steel FULLSCREEN
-Spectral Keep|DH1:spectral_keep/spectral_keep FULLSCREEN
-Terra Strike|DH1:terra_strike/terra_strike FULLSCREEN
-Boing Pinball|DH1:boing_pinball/boing_pinball FULLSCREEN
-Lander 3D|DH1:lander_3d/lander_3d FULLSCREEN
-Stack Tower|DH1:stack_tower/stack_tower FULLSCREEN
-ScAIry Fun|DH1:scairy_fun/scairy_fun FULLSCREEN
-Void Trader|DH1:void_trader
-Canyon Rescue|DH1:canyon_rescue
-Emberkeep|DH1:emberkeep
-Warden Keep|DH1:warden_keep
+# Games live in DH1:Games/<id>/ (the release zips' drawers, with their data).
+# Written by tools/install_os4_games.py from dist/release/manifest.json.
+# 3D games
+Block Breaker 3D|DH1:Games/block_breaker_3d/block_breaker_3d FULLSCREEN
+Boing Pinball|DH1:Games/boing_pinball/boing_pinball FULLSCREEN
+Canyon Rail|DH1:Games/canyon_rail/canyon_rail FULLSCREEN
+Drone Courier|DH1:Games/drone_courier/drone_courier FULLSCREEN
+Harbour Crane|DH1:Games/harbour_crane/harbour_crane FULLSCREEN
+Lander 3D|DH1:Games/lander_3d/lander_3d FULLSCREEN
+Marble Tilt|DH1:Games/marble_tilt/marble_tilt FULLSCREEN
+Orbit Docking|DH1:Games/orbit_docking/orbit_docking FULLSCREEN
+Planet Chomp|DH1:Games/planet_chomp/planet_chomp FULLSCREEN
+Ridge Runner|DH1:Games/ridge_runner/ridge_runner FULLSCREEN
+Rolling Steel|DH1:Games/rolling_steel/rolling_steel FULLSCREEN
+ScAIry Fun|DH1:Games/scairy_fun/scairy_fun FULLSCREEN
+Spectral Keep|DH1:Games/spectral_keep/spectral_keep FULLSCREEN
+Stack Tower|DH1:Games/stack_tower/stack_tower FULLSCREEN
+Tank Duel|DH1:Games/tank_duel/tank_duel FULLSCREEN
+Terra Strike|DH1:Games/terra_strike/terra_strike FULLSCREEN
+# Arcade and classic games
+Ace Pilot|DH1:Games/ace_pilot/ace_pilot
+Bullion Dash|DH1:Games/bullion_dash/bullion_dash
+Canyon Rescue|DH1:Games/canyon_rescue/canyon_rescue
+Dot Chase|DH1:Games/dot_chase/dot_chase
+Emberkeep|DH1:Games/emberkeep/emberkeep
+Frank the Frog|DH1:Games/frank_the_frog/frank_the_frog
+Jump Quest|DH1:Games/jump_quest/jump_quest
+Lunar Rider|DH1:Games/lunar_rider/lunar_rider
+Miner Meteor|DH1:Games/miner_meteor/miner_meteor
+Nova Defense|DH1:Games/nova_defense/nova_defense
+Orb Hunter|DH1:Games/orb_hunter/orb_hunter
+Orbital Patrol|DH1:Games/orbital_patrol/orbital_patrol
+Pea Shooter Blast|DH1:Games/pea_shooter_blast/pea_shooter_blast
+RJ's Birthday Bash|DH1:Games/rj_birthday/rj_birthday
+Rock Blaster|DH1:Games/rock_blaster/rock_blaster
+Rotoball|DH1:Games/rotoball/rotoball
+Sky Knights|DH1:Games/sky_knights/sky_knights
+StakAttack|DH1:Games/stakattack/stakattack
+Uranus Lander|DH1:Games/uranus_lander/uranus_lander
+Void Trader|DH1:Games/void_trader/void_trader
+Warden Keep|DH1:Games/warden_keep/warden_keep
+# Demos
+Boing Ball|DH1:Games/boing_ball/boing_ball
+Plasma|DH1:Games/plasma/plasma
+Starfield|DH1:Games/starfield/starfield
+# Tools
 Masterwork|DH1:masterwork
 Terrain Test|DH1:terrain_test
 Organizer|DH1:organizer
