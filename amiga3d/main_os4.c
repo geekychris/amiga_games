@@ -79,12 +79,36 @@ static uint64_t now_us(void)
 
 /* sleep on timer.device: WaitTOF() returns hundreds of times a second
  * under QEMU, so waiting on it keeps the CPU busy (and Delay isn't safe) */
+static uint32_t sleep_over_max;        /* worst oversleep in the last report, us */
 static void sleep_us(uint32 us)
 {
+    uint64_t t0 = now_us(), late;
     timer_req->Request.io_Command = TR_ADDREQUEST;
     timer_req->Time.Seconds = 0;
     timer_req->Time.Microseconds = us;
     DoIO((struct IORequest *)timer_req);
+    late = now_us() - t0;
+    late = late > us ? late - us : 0;
+    if (late > sleep_over_max) sleep_over_max = (uint32_t)late;
+}
+
+/* the frame timer, asynchronous: the loop Waits on it and the window together,
+ * so keys are handled as they come without waking every few ms */
+static int timer_pending;
+static void timer_start(uint32 us)
+{
+    timer_req->Request.io_Command = TR_ADDREQUEST;
+    timer_req->Time.Seconds = us / 1000000;
+    timer_req->Time.Microseconds = us % 1000000;
+    SendIO((struct IORequest *)timer_req);
+    timer_pending = 1;
+}
+static void timer_stop(void)
+{
+    if (!timer_pending) return;
+    if (!CheckIO((struct IORequest *)timer_req)) AbortIO((struct IORequest *)timer_req);
+    WaitIO((struct IORequest *)timer_req);
+    timer_pending = 0;
 }
 
 /* ---------- what the game gets ---------- */
@@ -168,7 +192,9 @@ int main(int argc, char **argv)
 {
     int scale = 2, full = 0, running = 1, bridge = 0, i, n;
     unsigned keys = 0, pressed = 0;
-    uint64_t next_frame;
+    uint64_t next_frame, tm_last = 0;
+    uint32_t tm_gap_sum = 0, tm_gap_max = 0, tm_gap_min = 0xFFFFFFFFu, tm_draw_sum = 0, tm_draw_max = 0;
+    int tm_frames = 0, tm_late = 0, tm_early = 0, tm_steps = 0;
     void *mod = 0;
     ULONG mod_size = 0;
     Canvas cv;
@@ -248,26 +274,39 @@ int main(int argc, char **argv)
         if (!game_input(keys | pressed)) running = 0;
         if (!running) break;
 
-        /* 25 frames a second on a fixed 40 ms schedule */
+        /* 25 game steps a second on a fixed 40 ms schedule. Sleep until the
+         * next one is due (one timer request, woken early by input); if we
+         * woke late, run the missed steps and draw once, so every frame
+         * shown is where the game is now. Drawing each missed step back to
+         * back instead showed as judder whenever the timer woke late. */
         {
             uint64_t t = now_us();
+            int steps;
             if (t < next_frame) {
-                uint64_t left = next_frame - t;
-                sleep_us(left > 10000 ? 10000 : (uint32)left);    /* still read keys every 10 ms */
+                if (!timer_pending) timer_start((uint32)(next_frame - t));
+                Wait((1UL << timer_port->mp_SigBit) | (1UL << disp_window()->UserPort->mp_SigBit) | SIGBREAKF_CTRL_C);
+                if (timer_pending && CheckIO((struct IORequest *)timer_req)) {
+                    WaitIO((struct IORequest *)timer_req);
+                    timer_pending = 0;
+                }
                 ahi_update();
                 continue;
             }
+            if (t - next_frame > sleep_over_max) sleep_over_max = (uint32_t)(t - next_frame);
+            steps = 1 + (int)((t - next_frame) / 40000);
+            if (steps > 5) { steps = 1; next_frame = t; }   /* fell far behind: don't fast-forward */
+            next_frame += (uint64_t)steps * 40000;
+            tm_steps += steps;
+            {
+                static int window10;
+                if (++window10 > 250) { window10 = 0; plat_in_keys = plat_in_joy = 0; }
+                plat_in_keys |= (int32_t)(keys | pressed);
+            }
+            while (steps-- > 0) {
+                game_update(keys | pressed);
+                pressed = 0;
+            }
         }
-        next_frame += 40000;
-        if (now_us() > next_frame + 200000) next_frame = now_us();   /* fell far behind */
-
-        {
-            static int window10;
-            if (++window10 > 250) { window10 = 0; plat_in_keys = plat_in_joy = 0; }
-            plat_in_keys |= (int32_t)(keys | pressed);
-        }
-        game_update(keys | pressed);
-        pressed = 0;
         {
             /* straight into the screen's format if possible (a blit shows it) */
             uint32_t *p;
@@ -275,7 +314,13 @@ int main(int argc, char **argv)
             uint32_t t0;
             if (direct) { cv.pix = p; cv.w = stride; a3_order = order; cv.bpp = A3_BPP(order); }
             else { cv.pix = argb; cv.w = PHYS_W; a3_order = 0; cv.bpp = 4; }
-            game_draw(&cv, 0);
+            {
+                uint32_t td = plat_clock();
+                game_draw(&cv, 0);
+                td = (uint32_t)plat_us_since(td);
+                tm_draw_sum += td;
+                if (td > tm_draw_max) tm_draw_max = td;
+            }
             t0 = plat_clock();
             us_convert = direct;                /* 1: drawn in the screen's format */
             if (direct) disp_end(); else disp_present(argb);
@@ -283,7 +328,33 @@ int main(int argc, char **argv)
         }
         ahi_update();
         game_after_frame();
+        {
+            /* frame pacing report: uneven gaps between shown frames are
+             * what makes a moving camera judder */
+            uint64_t now = now_us();
+            if (tm_last) {
+                uint32_t gap = (uint32_t)(now - tm_last);
+                tm_gap_sum += gap;
+                if (gap > tm_gap_max) tm_gap_max = gap;
+                if (gap < tm_gap_min) tm_gap_min = gap;
+                if (gap > 50000) tm_late++;
+                if (gap < 30000) tm_early++;
+            }
+            tm_last = now;
+            if (++tm_frames == 250) {
+                /* only when frames come unevenly: a guest whose timer wakes
+                 * late (seen on a busy QEMU) shows here */
+                if (tm_late + tm_early > 12)
+                AB_I("timing: gap avg %ld min %ld max %ld ms, %ld late >50 ms, %ld early <30 ms; draw avg %ld max %ld ms; woke late max %ld ms; %ld steps in 250 frames",
+                     (long)(tm_gap_sum / 249000), (long)(tm_gap_min / 1000), (long)(tm_gap_max / 1000),
+                     (long)tm_late, (long)tm_early, (long)(tm_draw_sum / 250000), (long)(tm_draw_max / 1000),
+                     (long)(sleep_over_max / 1000), (long)tm_steps);
+                tm_frames = 0; tm_steps = 0; tm_gap_sum = tm_draw_sum = 0; tm_gap_max = tm_draw_max = 0;
+                tm_gap_min = 0xFFFFFFFFu; tm_late = tm_early = 0; tm_last = 0; sleep_over_max = 0;
+            }
+        }
     }
+    timer_stop();
     AB_I("%s shutting down (%s)", game_title, why);
 
 out:
