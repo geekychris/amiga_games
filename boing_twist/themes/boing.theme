@@ -1,0 +1,21 @@
+# Boing Twist room theme: the room the ball sits in.
+#
+#   name       = what the game calls it
+#   background = colour behind everything (RRGGBB hex)
+#   shadow     = wall|floor <darkness 0-100> | off
+#                (wall: on the back wall, up and to the right, as in the 1984 demo)
+#   back, floor, left, right, ceiling = the faces of the box:
+#       <colour> <grid colour | none> <grid square> [texture.btx]
+#     or "off" (left out: the background shows there). A texture (from
+#     tools/make_texture.py, in this drawer) is stretched over the part of
+#     the face that can be seen; the grid is drawn over it.
+#
+# The classic: grey room, purple grid on the back wall and the floor.
+name = Boing Room
+background = AAAAAA
+shadow = wall 45
+back = AAAAAA A000A0 0.5
+floor = AAAAAA A000A0 0.5
+left = off
+right = off
+ceiling = off

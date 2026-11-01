@@ -1,0 +1,12 @@
+# built: make (PPC), make host-test, make data
+/boing_twist
+/boing_twist.stripped
+/objppc/
+/tests/host_tests
+/tests/host_tests_san
+/tests/vectors.h.new
+# made from images/ and themes/src/ by tools/make_texture.py (make data)
+/data/
+/themes/*.btx
+# the end-to-end test's own screenshots (the README's are in screenshots/)
+/screenshots/e2e/
