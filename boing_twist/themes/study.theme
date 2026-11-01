@@ -1,0 +1,9 @@
+# made by tools/import_art.py from room_study_back.png room_study_floor.png
+name = Study
+background = 110B07
+shadow = floor 50
+back = 312014 none 0 study_back.btx
+floor = BD7F3A none 0 study_floor.btx 3
+left = 21150C none 0 study_left.btx
+right = 1A110A none 0 study_right.btx
+ceiling = 110A06 none 0

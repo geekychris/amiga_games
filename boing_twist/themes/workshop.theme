@@ -1,0 +1,9 @@
+# made by tools/import_art.py from room_workshop_back.png room_workshop_floor.png
+name = Workshop
+background = 130B05
+shadow = floor 50
+back = 362010 none 0 workshop_back.btx
+floor = 7C5233 none 0 workshop_floor.btx 3
+left = 1F1108 none 0 workshop_left.btx
+right = 1B0F06 none 0 workshop_right.btx
+ceiling = 130B05 none 0

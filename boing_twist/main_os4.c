@@ -44,6 +44,10 @@
 #include "os4_display.h"
 #include "tests/vectors.h"
 
+/* stb_impl.c */
+extern unsigned char *stbi_load_from_memory(const unsigned char *buf, int len, int *x, int *y, int *comp, int req);
+extern void stbi_image_free(void *p);
+
 /* Mesa's software rasteriser keeps whole spans on the stack */
 static const char __attribute__((used)) stack_cookie[] = "$STACK:2097152";
 static const char __attribute__((used)) version_tag[] = "$VER: boing_twist 1.0 (31.10.2026)";
@@ -64,17 +68,18 @@ enum { SC_TITLE, SC_SELECT, SC_PLAY, SC_SOLVED, SC_HELP };
 static int32_t screen = SC_TITLE, help_back = SC_TITLE;
 
 /* ---------------- levels ---------------- */
-static const int grids[][2] = { { 4, 8 }, { 6, 12 }, { 8, 16 } };
-static const char *grid_name[] = { "4 X 8  (32 TILES)", "6 X 12  (72 TILES)", "8 X 16  (128 TILES)" };
-static const int scrambles[] = { 6, 14, 30, 60 };
-static const char *scramble_name[] = { "GENTLE", "MIXED", "TANGLED", "CHAOS" };
-#define NGRIDS 3
-#define NSCRAMBLES 4
-static int32_t sel_grid = 0, sel_scr = 1, sel_row = 0;
+/* bt_levels: Easy 4x8 + 8 moves, Medium 6x12 + 20, Hard 8x16 + 40, Expert 8x16 + 80 */
+static int32_t sel_level = BT_EASY, play_level = BT_EASY, sel_row = 1;
 
 /* ---------------- pictures ---------------- */
-#define MAX_PICS 64
-typedef struct { char file[48]; char title[32]; } Pic;
+#define MAX_PICS 128
+#define THUMB_W 128
+#define THUMB_H 64
+typedef struct {
+    char file[48], title[32], room[24];
+    int level;                           /* the lowest level it suits */
+    uint8_t *thumb;                      /* THUMB_W x THUMB_H R G B, or 0 */
+} Pic;
 static Pic pics[MAX_PICS];
 static int32_t npics, sel_pic;
 static uint8_t *pic_rgb;                 /* the loaded picture */
@@ -82,7 +87,7 @@ static int pic_w, pic_h, loaded_pic = -1, loaded_b, loaded_s;
 static uint32_t sigs[BT_MAX_T][2];
 
 /* ---------------- themes ---------------- */
-#define MAX_THEMES 16
+#define MAX_THEMES 48
 static char theme_file[MAX_THEMES][48], theme_title[MAX_THEMES][32];
 static int32_t nthemes, cur_theme;
 static uint8_t *face_tex[NFACES];
@@ -116,6 +121,7 @@ static int32_t frame_w, frame_h;
 static int quit;
 static const char *quit_why = "Esc";
 static int dirty = 1;
+static int esc_armed;                   /* Esc went down on the title */
 static void unpause(void);
 
 /* ---------------- timing ---------------- */
@@ -197,43 +203,101 @@ static void *load_file(const char *path, int32 *size)
 
 static int pot(int v) { return v >= 8 && v <= 4096 && (v & (v - 1)) == 0; }
 
-/* a .btx: "BTX1", width and height (16-bit big-endian), a 32-byte title,
- * then R G B rows, top (north) first. *title may be 0. */
+/* a .btx (tools/make_texture.py): "BTX2", width and height (16-bit
+ * big-endian), a 32-byte title, the level, 3 spare bytes, a 24-byte room,
+ * the thumbnail's width and height, the thumbnail and the picture as R G B
+ * rows, top (north) first; or the older "BTX1": size, title, picture. */
+typedef struct { int w, h, level, tw, th, jpeg; long pix_at; char title[32], room[24]; } BtxHead;
+static int32_t us_decode;                /* the last JPEG decode, us */
+
+static int btx_head(BPTR f, BtxHead *b)
+{
+    uint8_t hd[72];
+    int i;
+    memset(b, 0, sizeof(*b));
+    if (Read(f, hd, 40) != 40) return 0;
+    b->w = hd[4] << 8 | hd[5];
+    b->h = hd[6] << 8 | hd[7];
+    for (i = 0; i < 31; i++) b->title[i] = (char)hd[8 + i];
+    if (memcmp(hd, "BTX1", 4) == 0) b->pix_at = 40;
+    else if (memcmp(hd, "BTX2", 4) == 0 || memcmp(hd, "BTX3", 4) == 0) {
+        b->jpeg = hd[3] == '3';
+        if (Read(f, hd + 40, 32) != 32) return 0;
+        b->level = hd[40] < BT_NLEVELS ? hd[40] : 0;
+        for (i = 0; i < 23; i++) b->room[i] = (char)hd[44 + i];
+        b->tw = hd[68] << 8 | hd[69];
+        b->th = hd[70] << 8 | hd[71];
+        if (b->tw > 512 || b->th > 512) return 0;
+        b->pix_at = 72 + (long)b->tw * b->th * 3;
+    } else return 0;
+    return pot(b->w) && pot(b->h);
+}
+
+/* the picture, read straight into its buffer (no big copies) */
 static uint8_t *load_btx(const char *path, int *w, int *h, char *title)
 {
-    int32 n;
-    uint8_t *d = (uint8_t *)load_file(path, &n), *rgb;
-    int ww, hh, i;
-    if (!d) return 0;
-    if (n < 40 || memcmp(d, "BTX1", 4) != 0) { free(d); return 0; }
-    ww = d[4] << 8 | d[5];
-    hh = d[6] << 8 | d[7];
-    if (!pot(ww) || !pot(hh) || n < 40 + ww * hh * 3) { free(d); return 0; }
-    if (title) { for (i = 0; i < 31; i++) title[i] = (char)d[8 + i]; title[31] = 0; }
-    rgb = (uint8_t *)malloc((size_t)ww * hh * 3);
-    if (rgb) {
-        const uint8_t *s = d + 40;
-        for (i = 0; i < ww * hh * 3; i++) rgb[i] = s[i];   /* a loop: newlib's memcpy is unsafe for big copies */
+    BPTR f = Open((CONST_STRPTR)path, MODE_OLDFILE);
+    BtxHead b;
+    uint8_t *rgb = 0;
+    if (!f) return 0;
+    if (btx_head(f, &b) && ChangeFilePosition(f, b.pix_at, OFFSET_BEGINNING)) {
+        if (b.jpeg) {
+            /* BTX3: a JPEG, decoded by stb_image */
+            uint8_t ln[4], *jp = 0;
+            int32 n;
+            if (Read(f, ln, 4) == 4 && (n = ln[0] << 24 | ln[1] << 16 | ln[2] << 8 | ln[3]) > 0 && n < 0x1000000 &&
+                (jp = (uint8_t *)malloc((size_t)n)) != 0 && Read(f, jp, n) == n) {
+                int w, h, c;
+                uint64_t t0 = now_us();
+                unsigned char *px = stbi_load_from_memory(jp, n, &w, &h, &c, 3);
+                us_decode = (int32_t)(now_us() - t0);
+                if (px && w == b.w && h == b.h) rgb = px;     /* stb_image allocates with malloc */
+                else if (px) stbi_image_free(px);
+            }
+            free(jp);
+        } else if ((rgb = (uint8_t *)malloc((size_t)b.w * b.h * 3)) != 0) {
+            int32 n = b.w * b.h * 3;
+            if (Read(f, rgb, n) != n) { free(rgb); rgb = 0; }
+        }
     }
-    free(d);
-    *w = ww;
-    *h = hh;
+    Close(f);
+    if (!rgb) return 0;
+    if (title) strcpy(title, b.title);
+    *w = b.w;
+    *h = b.h;
     return rgb;
 }
 
-static int btx_title(const char *path, char *title)
+/* the header and thumbnail only: the select list's */
+static int btx_info(const char *path, Pic *p)
 {
     BPTR f = Open((CONST_STRPTR)path, MODE_OLDFILE);
-    uint8_t hd[40];
-    int i, ok = 0;
+    BtxHead b;
+    int ok = 0;
     if (!f) return 0;
-    if (Read(f, hd, 40) == 40 && memcmp(hd, "BTX1", 4) == 0) {
-        for (i = 0; i < 31; i++) title[i] = (char)hd[8 + i];
-        title[31] = 0;
+    if (btx_head(f, &b)) {
         ok = 1;
+        strcpy(p->title, b.title);
+        strcpy(p->room, b.room);
+        p->level = b.level;
+        p->thumb = 0;
+        if (b.tw == THUMB_W && b.th == THUMB_H && (p->thumb = (uint8_t *)malloc(THUMB_W * THUMB_H * 3)) != 0)
+            if (Read(f, p->thumb, THUMB_W * THUMB_H * 3) != THUMB_W * THUMB_H * 3) { free(p->thumb); p->thumb = 0; }
     }
     Close(f);
     return ok;
+}
+
+/* file names in order, a number at the front by its value: 2_x before 10_x */
+static int name_cmp(const char *a, const char *b)
+{
+    long na = 0, nb = 0;
+    int da = 0, db = 0;
+    while (a[da] >= '0' && a[da] <= '9') na = na * 10 + (a[da++] - '0');
+    while (b[db] >= '0' && b[db] <= '9') nb = nb * 10 + (b[db++] - '0');
+    if (da && db && na != nb) return na < nb ? -1 : 1;
+    if (da != db && (!da || !db)) return da ? -1 : 1;   /* numbered first */
+    return strcasecmp(a, b);
 }
 
 /* the names in a drawer that end in ext, sorted */
@@ -252,7 +316,7 @@ static int list_dir(const char *dir, const char *ext, char names[][48], int max)
     }
     ReleaseDirContext(ctx);
     for (i = 1; i < n; i++)
-        for (j = i; j > 0 && strcasecmp(names[j - 1], names[j]) > 0; j--) {
+        for (j = i; j > 0 && name_cmp(names[j - 1], names[j]) > 0; j--) {
             char t[48];
             strcpy(t, names[j]); strcpy(names[j], names[j - 1]); strcpy(names[j - 1], t);
         }
@@ -263,8 +327,8 @@ static void scan_pictures(void)
 {
     static char names[MAX_PICS][48];
     int n, i;
-    strcpy(pics[0].file, "");
-    strcpy(pics[0].title, "BOING BALL");
+    memset(&pics[0], 0, sizeof(pics[0]));
+    strcpy(pics[0].title, "BOING BALL (WARM-UP)");
     npics = 1;
     n = list_dir("PROGDIR:data", ".btx", names, MAX_PICS - 1);
     for (i = 0; i < n; i++) {
@@ -272,10 +336,28 @@ static void scan_pictures(void)
         Pic *p = &pics[npics];
         snprintf(path, sizeof(path), "PROGDIR:data/%.40s", names[i]);
         strcpy(p->file, names[i]);
-        if (!btx_title(path, p->title)) continue;
+        if (!btx_info(path, p)) { AB_W("not a picture: %.40s", names[i]); continue; }
         if (!p->title[0]) { strncpy(p->title, names[i], 31); p->title[31] = 0; }
         npics++;
     }
+}
+
+/* the pictures a level offers: the checkerboard only on Easy (its tiles
+ * look alike, so it is a warm-up), the rest from the level they suit up */
+static int pic_allowed(int i, int level)
+{
+    if (i <= 0) return level == BT_EASY;
+    return i < npics && pics[i].level <= level;
+}
+
+static int next_allowed(int from, int d, int level)
+{
+    int k, i = from;
+    for (k = 0; k < npics; k++) {
+        i = (i + d + npics) % npics;
+        if (pic_allowed(i, level)) return i;
+    }
+    return from;
 }
 
 /* the Boing ball: red and white squares, one per tile of this grid */
@@ -309,6 +391,7 @@ static int ensure_picture(int pic, int bands, int segs)
             snprintf(path, sizeof(path), "PROGDIR:data/%s", pics[pic].file);
             rgb = load_btx(path, &w, &h, 0);
             if (!rgb) AB_W("can't load %.40s", path);
+            else AB_I("picture %.40s %ldx%ld decoded in %ld ms", pics[pic].file, (long)w, (long)h, (long)(us_decode / 1000));
         }
         if (!rgb) { rgb = boing_picture(bands, segs, &w, &h); pic = 0; }
         if (!rgb) return 0;
@@ -390,11 +473,11 @@ static int load_theme(int idx)
             for (f = 0; f < NFACES; f++)
                 if (strcasecmp(key, face_key[f]) == 0) {
                     RdFace *fc = &t.face[f];
-                    char w[4][48];
+                    char w[5][48];
                     int nw = 0;
                     const char *s = val;
                     memset(w, 0, sizeof(w));
-                    while (*s && nw < 4) {
+                    while (*s && nw < 5) {
                         int k = 0;
                         while (*s == ' ' || *s == '\t') s++;
                         while (*s && *s != ' ' && *s != '\t' && k < 47) w[nw][k++] = *s++;
@@ -413,6 +496,7 @@ static int load_theme(int idx)
                         face_tex[f] = load_btx(tp, &fc->tw, &fc->th, 0);
                         fc->tex = face_tex[f];
                         if (!fc->tex) AB_W("theme texture %.40s missing", w[3]);
+                        fc->repeat = nw > 4 ? (float)atof(w[4]) : 1.0f;
                     }
                     break;
                 }
@@ -454,9 +538,17 @@ static void scan_themes(void)
         }
         nthemes++;
     }
-    /* the classic Boing room first */
+    /* the classic Boing room first in the list, and the room to start in */
     for (i = 0; i < nthemes; i++)
-        if (strcasecmp(theme_file[i], "boing.theme") == 0) { cur_theme = i; break; }
+        if (strcasecmp(theme_file[i], "boing.theme") == 0) {
+            char f[48], t[32];
+            int k;
+            strcpy(f, theme_file[i]); strcpy(t, theme_title[i]);
+            for (k = i; k > 0; k--) { strcpy(theme_file[k], theme_file[k - 1]); strcpy(theme_title[k], theme_title[k - 1]); }
+            strcpy(theme_file[0], f); strcpy(theme_title[0], t);
+            break;
+        }
+    cur_theme = 0;
 }
 
 /* ---------------- best scores ---------------- */
@@ -468,8 +560,7 @@ static int nbest;
 
 static void best_key(char *k, int n)
 {
-    snprintf(k, n, "%s|%ldx%ld|%ld", loaded_pic > 0 ? pics[loaded_pic].file : "boing",
-             (long)P.bands, (long)P.segs, (long)scrambles[sel_scr]);
+    snprintf(k, n, "%s|%s", loaded_pic > 0 ? pics[loaded_pic].file : "boing", bt_levels[play_level].name);
 }
 
 static Best *find_best(const char *k)
@@ -638,17 +729,16 @@ static float ease(float t) { return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t);
 
 static void start_game(uint32_t seed)
 {
-    int b = grids[sel_grid][0], s = grids[sel_grid][1], i, tries;
+    int lv = sel_level, b = bt_levels[lv].bands, s = bt_levels[lv].segs, i;
     BtPuzzle tmp;
+    if (!pic_allowed(sel_pic, lv)) sel_pic = next_allowed(sel_pic, 1, lv);
+    play_level = lv;
     ensure_picture(sel_pic, b, s);
     bt_init(&P, b, s);
     for (i = 0; i < b * s; i++) bt_set_sig(&P, i, sigs[i][0], sigs[i][1]);
-    /* a scramble that leaves the ball solved (a checkerboard can) is no puzzle */
+    /* the scramble (one that leaves a checkerboard solved is retried), shown move by move */
     tmp = P;
-    for (tries = 0; tries < 40; tries++) {
-        bt_scramble(&tmp, seed + (uint32_t)tries * 7919u, scrambles[sel_scr]);
-        if (!bt_solved(&tmp)) break;
-    }
+    seed = bt_start_level(&tmp, lv, seed, -1);
     nq = 0;
     anim_move = -1;
     auto_solve = 0;
@@ -664,8 +754,8 @@ static void start_game(uint32_t seed)
     view.x = 0; view.y = 0; view.roll = 0; view.dist = 3.6f;
     target_yaw = -180.0f;
     target_pitch = 12.0f;
-    AB_I("play: %.31s %ldx%ld scramble %ld seed %lu", pics[sel_pic].title, (long)b, (long)s,
-         (long)scrambles[sel_scr], (unsigned long)seed);
+    AB_I("play: %.31s %s %ldx%ld scramble %ld seed %lu", pics[sel_pic].title, bt_levels[lv].name, (long)b, (long)s,
+         (long)bt_levels[lv].moves, (unsigned long)seed);
     dirty = 1;
 }
 
@@ -723,13 +813,34 @@ static void play_key(UWORD code)
     dirty = 1;
 }
 
+/* a picture chosen: its room comes with it, if it names one */
+static uint64_t pic_chosen_at;
+static void choose_picture(int i)
+{
+    int t;
+    if (i < 0 || i >= npics) return;
+    sel_pic = i;
+    pic_chosen_at = now_us();
+    if (pics[i].room[0])
+        for (t = 0; t < nthemes; t++) {
+            int l = (int)strlen(pics[i].room);
+            if (strncasecmp(theme_file[t], pics[i].room, l) == 0 && strcasecmp(theme_file[t] + l, ".theme") == 0) {
+                if (t != cur_theme) { cur_theme = t; load_theme(t); }
+                break;
+            }
+        }
+    dirty = 1;
+}
+
 static void change_row(int d)
 {
     switch (sel_row) {
-    case 0: sel_pic = (sel_pic + d + npics) % npics; break;
-    case 1: sel_grid = (sel_grid + d + NGRIDS) % NGRIDS; break;
-    case 2: sel_scr = (sel_scr + d + NSCRAMBLES) % NSCRAMBLES; break;
-    case 3: if (nthemes > 0) { cur_theme = (cur_theme + d + nthemes) % nthemes; load_theme(cur_theme); } break;
+    case 0:
+        sel_level = (sel_level + d + BT_NLEVELS) % BT_NLEVELS;
+        if (!pic_allowed(sel_pic, sel_level)) choose_picture(next_allowed(sel_pic, 1, sel_level));
+        break;
+    case 1: choose_picture(next_allowed(sel_pic, d, sel_level)); break;
+    case 2: if (nthemes > 0) { cur_theme = (cur_theme + d + nthemes) % nthemes; load_theme(cur_theme); } break;
     }
 }
 
@@ -743,15 +854,18 @@ static void key_down(UWORD code)
     }
     switch (screen) {
     case SC_TITLE:
-        if (code == 0x45) { quit = 1; quit_why = "Esc"; }
+        /* Esc quits when it is let go: the whole key press is ours, so the
+         * window that is active after ours closes (the launcher's, which
+         * also quits on Esc) never sees half of it */
+        if (code == 0x45) esc_armed = 1;
         else if (code == 0x40 || code == 0x44 || code == 0x43) screen = SC_SELECT;
         else if (code == 0x25) { help_back = SC_TITLE; screen = SC_HELP; }
         else if (code == 0x14 && nthemes > 0) { cur_theme = (cur_theme + 1) % nthemes; load_theme(cur_theme); }
         break;
     case SC_SELECT:
         if (code == 0x45) screen = SC_TITLE;
-        else if (code == 0x4C) sel_row = (sel_row + 3) % 4;
-        else if (code == 0x4D) sel_row = (sel_row + 1) % 4;
+        else if (code == 0x4C) sel_row = (sel_row + 2) % 3;
+        else if (code == 0x4D) sel_row = (sel_row + 1) % 3;
         else if (code == 0x4F) change_row(-1);
         else if (code == 0x4E) change_row(1);
         else if (code == 0x40 || code == 0x44 || code == 0x43) start_game((uint32_t)now_us());
@@ -881,19 +995,19 @@ static int hk_selftest(const char *args, char *res, int len)
 
 static int hk_scramble(const char *args, char *res, int len)
 {
-    long seed = 1, n = scrambles[sel_scr], g = -1;
-    int i;
-    if (args) sscanf(args, "%ld %ld %ld", &seed, &n, &g);
-    if (g >= 0 && g < NGRIDS) sel_grid = (int32_t)g;
-    for (i = 0; i < NSCRAMBLES; i++) if (scrambles[i] == n) sel_scr = i;
+    long seed = 1, n = -1, lv = -1;
+    if (args) sscanf(args, "%ld %ld %ld", &seed, &n, &lv);
+    if (lv >= 0 && lv < BT_NLEVELS) sel_level = (int32_t)lv;
+    if (!pic_allowed(sel_pic, sel_level)) sel_pic = next_allowed(sel_pic, 1, sel_level);
     start_game((uint32_t)seed);
-    if (n != scrambles[sel_scr]) {           /* any length: straight to the state, no animation */
+    if (n >= 0 && n != bt_levels[sel_level].moves) {   /* another length: straight to the state, no animation */
         BtPuzzle tmp = P;
         bt_scramble(&tmp, (uint32_t)seed, (int)n);
         nq = 0;
         P = tmp;
     }
-    snprintf(res, len, "scramble seed %ld len %ld grid %ldx%ld", seed, n, (long)P.bands, (long)P.segs);
+    snprintf(res, len, "scramble seed %ld len %ld level %s %ldx%ld", seed, n < 0 ? (long)bt_levels[sel_level].moves : n,
+             bt_levels[sel_level].name, (long)P.bands, (long)P.segs);
     return 0;
 }
 
@@ -942,8 +1056,10 @@ static int hk_picture(const char *args, char *res, int len)
 {
     int i = args ? atoi(args) : 0;
     if (i < 0 || i >= npics) { snprintf(res, len, "0..%ld", (long)npics - 1); return -1; }
-    sel_pic = i;
-    snprintf(res, len, "picture %ld %.31s", (long)i, pics[i].title);
+    if (!pic_allowed(i, sel_level)) sel_level = i == 0 ? BT_EASY : pics[i].level;   /* a level that offers it */
+    choose_picture(i);
+    snprintf(res, len, "picture %ld %.31s level %s room %.23s", (long)i, pics[i].title, bt_levels[pics[i].level].name,
+             pics[i].room[0] ? pics[i].room : "-");
     dirty = 1;
     return 0;
 }
@@ -973,6 +1089,20 @@ static int hk_screen(const char *args, char *res, int len)
         }
     snprintf(res, len, "title select play solved help");
     return -1;
+}
+
+/* everything the tests read, in one reply from this client (devbench's
+ * variables are looked up by name alone, so another game's "screen" or
+ * "solved" could answer instead) */
+static int hk_state(const char *args, char *res, int len)
+{
+    (void)args;
+    snprintf(res, len, "screen=%ld solved=%ld moves=%ld secs=%ld anim=%ld level=%ld pic=%ld npics=%ld theme=%ld "
+             "nthemes=%ld bands=%ld sel_band=%ld sel_half=%ld width=%ld height=%ld paused=%ld",
+             (long)screen, (long)bt_solved(&P), (long)P.moves, (long)secs, (long)(anim_move >= 0 || nq > 0 || auto_solve),
+             (long)sel_level, (long)sel_pic, (long)npics, (long)cur_theme, (long)nthemes, (long)P.bands,
+             (long)sel_band, (long)sel_half, (long)frame_w, (long)frame_h, (long)paused);
+    return 0;
 }
 
 static int hk_undo(const char *args, char *res, int len)
@@ -1072,44 +1202,80 @@ static void draw_hud(int W, int H)
         hud_ctext(H - 3 * L, buf, U, C_DIM);
         break;
     case SC_SELECT: {
-        static const char *rows[] = { "PICTURE", "GRID", "SCRAMBLE", "ROOM" };
+        /* level, then the pictures that level offers (a scrolling list), then the room */
+        static const char *level_tip[BT_NLEVELS] = {
+            "BIG TILES - BOLD PICTURES", "MORE TILES, A LONGER SCRAMBLE",
+            "THE BOING BALL'S OWN 128 TILES", "128 TILES, TWICE THE SCRAMBLE" };
+        const BtLevel *lv = &bt_levels[sel_level];
         char k[64];
         Best *b;
-        int i, y0 = H / 10;
+        int list[MAX_PICS], n = 0, at = 0, first, i, rows = 7, x0 = 16 * U, x1 = W * 9 / 20;
+        int y0 = H / 10, rh = 18 * U, tw = 32 * U, th = 16 * U, yl, yr, small = 1;
         hud_ctext(y0 - 3 * L / 2, "CHOOSE A PUZZLE", 2 * U, C_YELLOW);
-        hud_shade(16 * U, y0 + L, W * 9 / 20, y0 + 11 * L, 45);
-        for (i = 0; i < 4; i++) {
-            const char *v = i == 0 ? pics[sel_pic].title : i == 1 ? grid_name[sel_grid]
-                          : i == 2 ? scramble_name[sel_scr] : (nthemes ? theme_title[cur_theme] : "BOING");
-            int y = y0 + 2 * L + i * 2 * L;
-            hud_text(24 * U, y, i == sel_row ? ">" : " ", U, C_YELLOW);
-            if (i == 0) snprintf(buf, sizeof(buf), "PICTURE  %ld OF %ld", (long)sel_pic + 1, (long)npics);
-            else snprintf(buf, sizeof(buf), "%s", rows[i]);
-            hud_text(36 * U, y, buf, U, i == sel_row ? C_YELLOW : C_DIM);
-            if (i == 2) snprintf(buf, sizeof(buf), "%s (%ld MOVES)", v, (long)scrambles[sel_scr]);
-            else snprintf(buf, sizeof(buf), "%s", v);
-            hud_text(36 * U, y + L, buf, U, i == sel_row ? C_WHITE : C_DIM);
+        hud_shade(x0, y0 + L / 2, x1, H - 3 * L, 45);
+        /* level */
+        yl = y0 + L;
+        hud_text(x0 + 4 * U, yl, sel_row == 0 ? ">" : " ", U, C_YELLOW);
+        hud_text(x0 + 16 * U, yl, "LEVEL", U, sel_row == 0 ? C_YELLOW : C_DIM);
+        snprintf(buf, sizeof(buf), "< %s >", lv->name);
+        hud_text(x0 + 16 * U + hud_width("LEVEL  ", U), yl, buf, U, sel_row == 0 ? C_WHITE : C_DIM);
+        snprintf(buf, sizeof(buf), "%ld X %ld TILES, SCRAMBLED %ld MOVES", (long)lv->bands, (long)lv->segs, (long)lv->moves);
+        hud_text(x0 + 16 * U, yl + L, buf, small, C_DIM);
+        hud_text(x0 + 16 * U, yl + L + 10, level_tip[sel_level], small, C_DIM);
+        /* the pictures */
+        for (i = 0; i < npics; i++)
+            if (pic_allowed(i, sel_level)) { if (i == sel_pic) at = n; list[n++] = i; }
+        yr = yl + 2 * L + L / 2;
+        snprintf(buf, sizeof(buf), "PICTURE  %ld OF %ld", (long)at + 1, (long)n);
+        hud_text(x0 + 4 * U, yr, sel_row == 1 ? ">" : " ", U, C_YELLOW);
+        hud_text(x0 + 16 * U, yr, buf, U, sel_row == 1 ? C_YELLOW : C_DIM);
+        yr += L + L / 2;
+        first = at - rows / 2;
+        if (first > n - rows) first = n - rows;
+        if (first < 0) first = 0;
+        if (first > 0) hud_text(x0 + 3 * U, yr, "^", U, C_DIM);                     /* more above */
+        if (first + rows < n) hud_text(x0 + 3 * U, yr + (rows - 1) * rh, "v", U, C_DIM);  /* more below */
+        for (i = first; i < n && i < first + rows; i++) {
+            const Pic *p = &pics[list[i]];
+            int y = yr + (i - first) * rh, sel = list[i] == sel_pic, maxc = (x1 - (x0 + 16 * U + tw + 8 * U)) / 8 - 1;
+            char tt[40];
+            if (sel) hud_frame(x0 + 10 * U, y - 2 * U, x1 - 4 * U, y + th + 2 * U, U, sel_row == 1 ? C_YELLOW : C_DIM);
+            if (list[i] == 0) {                       /* the checkerboard has no file: draw its squares */
+                int cx, cy;
+                for (cy = 0; cy < 4; cy++)
+                    for (cx = 0; cx < 8; cx++)
+                        hud_fill(x0 + 16 * U + cx * tw / 8, y + cy * th / 4, x0 + 16 * U + (cx + 1) * tw / 8 - 1,
+                                 y + (cy + 1) * th / 4 - 1, (cx + cy) & 1 ? 0xE01818 : 0xF4F4F4);
+            } else if (p->thumb) hud_picture(p->thumb, THUMB_W, THUMB_H, x0 + 16 * U, y, tw, th);
+            else hud_fill(x0 + 16 * U, y, x0 + 16 * U + tw - 1, y + th - 1, 0x404050);
+            snprintf(tt, sizeof(tt), "%.*s", maxc > 0 && maxc < 39 ? maxc : 39, p->title);
+            hud_text(x0 + 16 * U + tw + 8 * U, y + (th - 8) / 2 - (list[i] ? 4 * U / 2 : 0), tt, small, sel ? C_WHITE : C_DIM);
+            if (list[i]) {
+                snprintf(tt, sizeof(tt), "%s AND UP%s", bt_levels[p->level].name, p->room[0] ? "  + ROOM" : "");
+                hud_text(x0 + 16 * U + tw + 8 * U, y + (th - 8) / 2 + 4 * U / 2 + 2, tt, small, 0x8088A0);
+            }
         }
-        snprintf(k, sizeof(k), "%s|%ldx%ld|%ld", sel_pic > 0 ? pics[sel_pic].file : "boing",
-                 (long)grids[sel_grid][0], (long)grids[sel_grid][1], (long)scrambles[sel_scr]);
+        /* the room */
+        yr += rows * rh + L / 2;
+        hud_text(x0 + 4 * U, yr, sel_row == 2 ? ">" : " ", U, C_YELLOW);
+        snprintf(buf, sizeof(buf), "ROOM  %s", nthemes ? theme_title[cur_theme] : "BOING");
+        hud_text(x0 + 16 * U, yr, buf, U, sel_row == 2 ? C_YELLOW : C_DIM);
+        /* the best for this picture and level */
+        snprintf(k, sizeof(k), "%s|%s", sel_pic > 0 ? pics[sel_pic].file : "boing", lv->name);
         b = find_best(k);
         if (b) { fmt_time(t, sizeof(t), b->secs); snprintf(buf, sizeof(buf), "BEST %ld MOVES  %s", (long)b->moves, t); }
         else snprintf(buf, sizeof(buf), "NOT SOLVED YET");
-        hud_text(24 * U, y0 + 12 * L, buf, U, C_CYAN);
-        if (pic_rgb && loaded_pic == sel_pic) {
-            int pw = W * 9 / 20 - 16 * U, ph = pw / 2, px = 16 * U, py = H - ph - 4 * L;
-            if (py > y0 + 14 * L) {
-                hud_frame(px - 2, py - 2, px + pw + 1, py + ph + 1, 2, C_WHITE);
-                hud_picture(pic_rgb, pic_w, pic_h, px, py, pw, ph);
-            }
-        }
+        hud_text(x0 + 16 * U, yr + 3 * L / 2, buf, U, C_CYAN);
+        if (sel_pic == 0) hud_text(x0 + 16 * U, yr + 3 * L, "WARM-UP: SQUARES OF ONE COLOUR LOOK ALIKE", small, C_YELLOW);
         hud_ctext(H - 2 * L, "ARROWS CHOOSE  RETURN PLAY  ESC BACK", U, C_DIM);
+        (void)x;
         break;
     }
     case SC_PLAY:
     case SC_SOLVED:
         hud_shade(0, 0, W - 1, 2 * L - 1, 50);
-        hud_text(8 * U, L / 2, pics[loaded_pic >= 0 ? loaded_pic : 0].title, U, C_WHITE);
+        snprintf(buf, sizeof(buf), "%.20s  %s", pics[loaded_pic >= 0 ? loaded_pic : 0].title, bt_levels[play_level].name);
+        hud_text(8 * U, L / 2, buf, U, C_WHITE);
         fmt_time(t, sizeof(t), secs);
         snprintf(buf, sizeof(buf), "MOVES %ld  TIME %s", (long)P.moves, t);
         hud_text(W - hud_width(buf, U) - 8 * U, L / 2, buf, U, C_YELLOW);
@@ -1190,8 +1356,13 @@ static void scene(uint64_t t, const BtPuzzle **pz, int *flags)
         break;
     }
     case SC_SELECT:
-        ensure_picture(sel_pic, grids[sel_grid][0], grids[sel_grid][1]);
-        bt_init(&show, grids[sel_grid][0], grids[sel_grid][1]);
+        {
+            /* load a picture once the choice has stayed put a moment (1.5 MB each) */
+            int b = bt_levels[sel_level].bands, s = bt_levels[sel_level].segs;
+            if (loaded_pic < 0 || now_us() - pic_chosen_at > 250000) ensure_picture(sel_pic, b, s);
+            else if (loaded_b != b || loaded_s != s) ensure_picture(loaded_pic, b, s);
+            bt_init(&show, loaded_b, loaded_s);
+        }
         *pz = &show;
         view.x = 1.05f; view.y = 0.05f; view.roll = 0; view.pitch = 12.0f;
         view.yaw = fmodf(-secs_f * 25.0f, 360.0f);
@@ -1282,8 +1453,7 @@ int main(int argc, char **argv)
         ab_register_var("anim", AB_TYPE_I32, &anim_busy);
         ab_register_var("pic", AB_TYPE_I32, &sel_pic);
         ab_register_var("npics", AB_TYPE_I32, &npics);
-        ab_register_var("grid", AB_TYPE_I32, &sel_grid);
-        ab_register_var("scr", AB_TYPE_I32, &sel_scr);
+        ab_register_var("level", AB_TYPE_I32, &sel_level);
         ab_register_var("theme", AB_TYPE_I32, &cur_theme);
         ab_register_var("nthemes", AB_TYPE_I32, &nthemes);
         ab_register_var("sel_band", AB_TYPE_I32, &sel_band);
@@ -1321,6 +1491,7 @@ int main(int argc, char **argv)
         ab_register_hook("activate", "window to front and active", hk_activate);
         ab_register_hook("bench", "frames: render flat out and time it", hk_bench);
         ab_register_hook("peek", "on | off", hk_peek);
+        ab_register_hook("state", "screen solved moves ... as name=value", hk_state);
     }
     AB_I("ready %s %ldx%ld pictures=%ld themes=%ld sound=%ld", rd_renderer(), (long)W, (long)H,
          (long)npics, (long)nthemes, (long)1);
@@ -1354,6 +1525,8 @@ int main(int argc, char **argv)
                 }
                 if (code & IECODE_UP_PREFIX) {
                     if ((code & 0x7F) == 0x25) { peeking = 0; dirty = 1; }
+                    if ((code & 0x7F) == 0x45 && esc_armed && screen == SC_TITLE) { quit = 1; quit_why = "Esc"; }
+                    if ((code & 0x7F) == 0x45) esc_armed = 0;
                 } else if (!(qual & IEQUALIFIER_REPEAT) || code == 0x4C || code == 0x4D)
                     key_down(code);
             }

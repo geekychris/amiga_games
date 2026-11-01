@@ -1,0 +1,9 @@
+# made by tools/import_art.py from room_observatory_back.png room_observatory_floor.png
+name = Observatory
+background = 0B0A09
+shadow = floor 50
+back = 1E1B19 none 0 observatory_back.btx
+floor = 62605E none 0 observatory_floor.btx 3
+left = 120F0D none 0 observatory_left.btx
+right = 14110E none 0 observatory_right.btx
+ceiling = 0B0909 none 0

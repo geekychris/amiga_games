@@ -218,6 +218,55 @@ static void test_solved(void)
     CHECK(bt_solved(&p), "a plain ball is always solved");
 }
 
+static void test_levels(void)
+{
+    int l, prev_tiles = 0, prev_moves = 0, s;
+    for (l = 0; l < BT_NLEVELS; l++) {
+        const BtLevel *v = &bt_levels[l];
+        BtPuzzle p;
+        int tiles = v->bands * v->segs, unsolved = 0;
+        CHECK(bt_init(&p, v->bands, v->segs), "level %s: a size the core takes", v->name);
+        CHECK(tiles >= prev_tiles && v->moves > prev_moves, "level %s: harder than the one before", v->name);
+        prev_tiles = tiles;
+        prev_moves = v->moves;
+        CHECK(bt_level_from_name(v->name) == l, "level name %s", v->name);
+        for (s = 0; s < 30; s++) {
+            uint32_t used;
+            int i, n;
+            bt_init(&p, 2, 4);                         /* another size: bt_start_level sets its own */
+            used = bt_start_level(&p, l, (uint32_t)(s * 31 + 5), -1);
+            CHECK(p.bands == v->bands && p.segs == v->segs && p.nscramble == v->moves, "level %s seed %d: grid and length", v->name, s);
+            unsolved += !bt_solved(&p);
+            /* it is the scramble of the seed it says */
+            {
+                BtPuzzle q;
+                bt_init(&q, v->bands, v->segs);
+                bt_scramble(&q, used, v->moves);
+                CHECK(same(&p, &q), "level %s seed %d: scramble of the seed returned", v->name, s);
+            }
+            for (n = p.nhist - 1; n >= 0; n--) bt_apply(&p, bt_inverse(p.hist[n]));
+            CHECK(bt_identity(&p), "level %s seed %d: solvable", v->name, s);
+            (void)i;
+        }
+        CHECK(unsolved == 30, "level %s: every start is unsolved", v->name);
+    }
+    /* a checkerboard on Easy: the scramble is retried until it isn't solved */
+    {
+        BtPuzzle p;
+        int b, s2, k;
+        for (k = 0; k < 20; k++) {
+            bt_init(&p, 4, 8);
+            for (b = 0; b < 4; b++)
+                for (s2 = 0; s2 < 8; s2++) bt_set_sig(&p, b * 8 + s2, (b + s2) & 1, (b + s2) & 1);
+            bt_start_level(&p, BT_EASY, (uint32_t)k, -1);
+            CHECK(!bt_solved(&p), "checker on Easy, seed %d: not solved at the start", k);
+            CHECK(p.sig[1][0] == 1 && p.sig[0][0] == 0, "checker signatures kept");
+        }
+    }
+    CHECK(bt_level_from_name("Expert") == BT_EXPERT && bt_level_from_name("2") == BT_HARD &&
+          bt_level_from_name("nope") == -1 && bt_level_from_name(0) == -1, "level names");
+}
+
 static void test_vector(void)
 {
     uint32_t h = bt_vector_hash();
@@ -276,6 +325,7 @@ int main(int argc, char **argv)
     test_scramble_deterministic();
     test_undo();
     test_solved();
+    test_levels();
     test_vector();
     printf("%d passed, %d failed (vector hash %08lx)\n", passes, fails, (unsigned long)bt_vector_hash());
     return fails ? 1 : 0;

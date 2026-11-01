@@ -1,0 +1,9 @@
+# made by tools/import_art.py from room_retroroom_back.png room_retroroom_floor.png
+name = Retro Room
+background = 110C08
+shadow = floor 50
+back = 322418 none 0 retroroom_back.btx
+floor = 85837F none 0 retroroom_floor.btx 2
+left = 1E150C none 0 retroroom_left.btx
+right = 1D130B none 0 retroroom_right.btx
+ceiling = 110D08 none 0
