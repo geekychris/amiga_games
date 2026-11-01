@@ -72,7 +72,7 @@ EXTRA = [
      "Arrows / joystick: sight. Space / fire: fire. B: autopilot.", NEEDS_68K),
     ("ace_pilot2", "Ace Pilot 2", "A biplane war in 3D: fly a Swallow scout of Larkspur Squadron over the river Sellen. Eight missions: patrols, balloons, an escort, a train, bombers, a supply depot, an enemy aerodrome and the Grey Falcon.",
      "Left/right: bank. Up/down: nose down/up. Space / fire: guns. A / Z: throttle. V: chase / cockpit. I: invert. B: autopilot. Help: how to fly.", NEEDS_68K),
-    ("boing_twist", "Boing Twist", "A twisty puzzle on the Boing ball (AmigaOS 4 only): a picture wrapped round the ball is cut into tiles and jumbled. Twist bands round the ball and flip halves of it over to put the picture back. Four levels from 32 tiles to 128; the Earth, the Moon, Mars and Jupiter (and a Boing-ball warm-up); three rooms; add your own pictures and rooms.",
+    ("boing_twist", "Boing Twist", "A twisty puzzle on the Boing ball (AmigaOS 4 only): a picture wrapped round the ball is cut into tiles and jumbled. Twist bands round the ball and flip halves of it over to put the picture back. Four levels from 32 tiles to 128; 17 pictures, from a toy town and a coral reef to an old map, a circuit board and the planets (plus a Boing-ball warm-up), each in a matching room of its own among ten; add your own pictures and rooms.",
      "Up/down: band. Left/right: twist it. A/D: half. Space: flip it. U: undo. H: peek. Mouse: drag a band sideways to twist, up or down to flip; right-drag turns the ball. Help: how to play.", NEEDS_OS4),
 ]
 
