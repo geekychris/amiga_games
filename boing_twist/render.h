@@ -18,8 +18,9 @@ typedef struct {
     int on;
     uint32_t col, grid;        /* 0xRRGGBB; grid NO_GRID: none */
     float cell;                /* grid square, in ball radii */
-    const uint8_t *tex;        /* R G B rows or 0: stretched over the face's visible part */
+    const uint8_t *tex;        /* R G B rows or 0: over the face's visible part */
     int tw, th;
+    float repeat;              /* the texture this many times across (square tiles); 0 or 1: once, stretched */
 } RdFace;
 #define NO_GRID 0xFF000000UL
 

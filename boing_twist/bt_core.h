@@ -83,6 +83,21 @@ int      bt_identity(const BtPuzzle *p);          /* every piece home and uprigh
 uint32_t bt_hash(const BtPuzzle *p);
 uint32_t bt_rng(uint32_t *s);                     /* xorshift32 */
 
+/* the difficulty levels: each sets the grid and the scramble's length.
+ * A picture names the lowest level it suits (bold shapes: Easy; fine
+ * detail or big plain areas: Hard or Expert). */
+enum { BT_EASY, BT_MEDIUM, BT_HARD, BT_EXPERT, BT_NLEVELS };
+typedef struct {
+    const char *name;
+    int bands, segs, moves;
+} BtLevel;
+extern const BtLevel bt_levels[BT_NLEVELS];
+int bt_level_from_name(const char *s);            /* "easy".."expert" (any case) or 0..3; -1 not one */
+/* start a level's puzzle: its grid, scrambled by seed (n < 0: the level's
+ * length), retried with other seeds while the scramble happens to leave
+ * the ball solved. The signatures are kept. Returns the seed used. */
+uint32_t bt_start_level(BtPuzzle *p, int level, uint32_t seed, int n);
+
 /* the long deterministic run the host tests and the Amiga self-test share */
 uint32_t bt_vector_hash(void);
 

@@ -15,7 +15,7 @@ axis, as it did in the demo.
 | | |
 |---|---|
 | ![Choosing a puzzle](screenshots/select.png) | ![Jupiter, scrambled, in the Boing room](screenshots/scrambled.png) |
-| Choosing a puzzle: picture, grid, scramble and room | Jupiter on a 6 x 12 grid, scrambled. Yellow rings: the band a twist turns. Blue: the half a flip turns over |
+| Choosing a puzzle: the level, then the pictures it offers, then the room | Jupiter on a 6 x 12 grid, scrambled. Yellow rings: the band a twist turns. Blue: the half a flip turns over |
 | ![A flip half done](screenshots/mid_move.png) | ![Solved](screenshots/solved.png) |
 | A flip, half done | Solved: the ball bounces |
 | ![The Midnight Box room](screenshots/room_midnight.png) | ![The Deep Space room](screenshots/room_space.png) |
@@ -24,8 +24,7 @@ axis, as it did in the demo.
 ## The puzzle
 
 The ball is cut into **B bands** of latitude by **S segments** of
-longitude: 4 x 8 (32 tiles), 6 x 12 (72) or 8 x 16 (128, the Boing ball's
-own checkerboard). There are two moves:
+longitude, how many set by the level (below). There are two moves:
 
 - **Twist** a band one tile east or west round the ball's vertical axis.
   Pieces stay in their band. S twists of a band are no move at all.
@@ -43,9 +42,25 @@ the same (the Boing checkerboard's) count as the same piece, so the easy
 Boing ball puzzle is "make the checkerboard again". Upside-down pieces are
 not solved.
 
-Scrambles: Gentle (6 moves), Mixed (14), Tangled (30), Chaos (60). Your
-best moves and time for each picture, grid and scramble are kept in
-`boing_twist.best` beside the program.
+### Levels
+
+The level sets both the grid and how long the scramble is:
+
+| Level | Grid | Tiles | Scramble |
+|---|---|---|---|
+| Easy | 4 x 8 | 32 | 8 moves |
+| Medium | 6 x 12 | 72 | 20 moves |
+| Hard | 8 x 16 | 128 (the Boing ball's own) | 40 moves |
+| Expert | 8 x 16 | 128 | 80 moves |
+
+Each picture names the lowest level it suits (bold shapes and colours:
+Easy; fine detail, or large plain areas where tiles look alike: Hard or
+Expert), and a level offers the pictures that suit it or an easier one.
+The red and white Boing checkerboard is offered on Easy only, as a
+warm-up: its squares of one colour look alike, so it is really "make a
+checkerboard again", and the select screen says so. A scramble that leaves
+the ball solved is retried with another seed. Your best moves and time for
+each picture and level are kept in `boing_twist.best` beside the program.
 
 ## Controls
 
@@ -67,9 +82,12 @@ best moves and time for each picture, grid and scramble are kept in
 | Help | Help / F1 | |
 | Back, then quit | Esc | |
 
-On the title: Space or a click to choose a puzzle. On the select screen:
-Up/Down to choose picture, grid, scramble or room, Left/Right to change it,
-Return (or a click on the ball) to play.
+On the title: Space or a click to choose a puzzle. On the select screen,
+Up/Down moves between the level, the picture list and the room, and
+Left/Right changes the one chosen (the picture list scrolls; each picture
+shows its thumbnail, the lowest level it suits and whether a room comes
+with it, and choosing it changes to that room). Return (or a click on the
+ball) plays.
 
 ```
 boing_twist [RES=640|800|1024] [FULLSCREEN] [FLAT] [LINEAR]
@@ -82,40 +100,103 @@ below).
 
 ## Pictures
 
-| | Picture | Source | Licence |
-|---|---|---|---|
-| 1 | The Boing ball | made by the game, red and white, one square per tile | - |
-| 2 | Earth - Blue Marble | NASA Visible Earth, *Blue Marble: Land Surface, Shallow Water, and Shaded Topography* (Reto Stöckli, NASA Goddard): <https://visibleearth.nasa.gov/images/57752>, file <https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57752/land_shallow_topo_2048.jpg> | Public domain (NASA) |
-| 3 | The Moon | NASA Scientific Visualization Studio, *CGI Moon Kit* (LRO LROC colour mosaic): <https://svs.gsfc.nasa.gov/4720>, file `lroc_color_poles_2k.tif` | Public domain (NASA) |
-| 4 | Mars | Viking MDIM 2.1 colour mosaic, NASA / USGS Astrogeology, via Wikimedia Commons: <https://commons.wikimedia.org/wiki/File:Mars_Viking_MDIM21_ClrMosaic_1km.jpg> | Public domain (NASA/USGS) |
-| 5 | Jupiter | Cassini cylindrical map, December 2000, NASA/JPL/Space Science Institute (PIA07782): <https://photojournal.jpl.nasa.gov/catalog/PIA07782>, via <https://commons.wikimedia.org/wiki/File:Jupiter_Cylindrical_Map_-_Dec_2000_PIA07782.jpg> | Public domain (NASA) |
+| | Picture | Level | Source | Licence |
+|---|---|---|---|---|
+| 1 | The Boing ball (warm-up) | Easy only | made by the game, red and white, one square per tile | - |
+| 2 | Earth - Blue Marble | Easy | NASA Visible Earth, *Blue Marble: Land Surface, Shallow Water, and Shaded Topography* (Reto Stöckli, NASA Goddard): <https://visibleearth.nasa.gov/images/57752>, file <https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57752/land_shallow_topo_2048.jpg> | Public domain (NASA) |
+| 3 | The Moon | Hard | NASA Scientific Visualization Studio, *CGI Moon Kit* (LRO LROC colour mosaic): <https://svs.gsfc.nasa.gov/4720>, file `lroc_color_poles_2k.tif` | Public domain (NASA) |
+| 4 | Mars | Medium | Viking MDIM 2.1 colour mosaic, NASA / USGS Astrogeology, via Wikimedia Commons: <https://commons.wikimedia.org/wiki/File:Mars_Viking_MDIM21_ClrMosaic_1km.jpg> | Public domain (NASA/USGS) |
+| 5 | Jupiter | Medium | Cassini cylindrical map, December 2000, NASA/JPL/Space Science Institute (PIA07782): <https://photojournal.jpl.nasa.gov/catalog/PIA07782>, via <https://commons.wikimedia.org/wiki/File:Jupiter_Cylindrical_Map_-_Dec_2000_PIA07782.jpg> | Public domain (NASA) |
 
 `images/` holds them at 2048 x 1024 (resized from the sources, JPEG).
 
-### Adding your own
+### Adding your own: the import tool
 
-1. Make an **equirectangular** picture: twice as wide as it is high,
-   longitude across (0 at the left edge, 360 at the right, the two edges
-   meeting at the back of the ball), north at the top. Anything else is
-   stretched to 2:1. Ask an image generator for "an equirectangular
-   360-degree map / panorama, 2:1"; detail near the poles is squeezed into
-   small tiles, so keep the interesting things nearer the equator. Pictures
-   with lots of plain areas (oceans, sky) make harder puzzles.
-2. Put it in `images/` as PNG, JPEG, TIFF or WebP. The game lists pictures
-   in file-name order, so a number in front (`5_my_picture.png`) puts it in
-   place; the number is left out of the title.
-3. Give it a title in `images/titles.txt` (`5_my_picture = My Picture`,
-   31 characters at most, shown in capitals), or the file name is used.
-4. `make data` (or `python3 tools/make_texture.py --all`) writes
-   `data/<name>.btx` for each. One picture by hand:
-   `python3 tools/make_texture.py in.png data/name.btx --title "NAME" --size 1024x512`.
-5. Copy `data/` beside the program (`boing_twist/data/`). The game finds
-   whatever is there when it starts; no rebuild.
+`tools/import_art.py` takes a folder of generated art (ChatGPT's 1536 x
+1024 and 1024 x 1024 PNGs, or anything else) and does the rest:
 
-A `.btx` is `"BTX1"`, width and height (16-bit big-endian, powers of two),
-a 32-byte title, then R G B bytes, rows top to bottom: 1024 x 512 is
-1.5 MB. 512 x 256 works too (`--size 512x256`), and is what to use if
-memory is short; the speed is much the same.
+```
+python3 tools/import_art.py ~/Downloads/boing_art             # by file name
+python3 tools/import_art.py ~/Downloads/boing_art --manifest art.csv
+    [--seam 3] [--poles 0.05] [--sides crop|colour|off] [--repeat 4]
+    [--contact sheet.png] [--dry-run] [--no-make]
+```
+
+Name the files
+
+| | |
+|---|---|
+| `ball_<level>_<name>.png` | a ball picture; level `easy`, `medium`, `hard` or `expert`: the lowest it suits |
+| `room_<name>_back.png` | a room's back wall (landscape; 3:2 is fine) |
+| `room_<name>_floor.png` | its floor (square; it is made to tile) |
+
+or keep ChatGPT's own names and list them in a CSV:
+
+```
+file,kind,name,level,title,room
+"DALL-E 2026-10-31 12.00.00 - a pastel planet.png",ball,pastel,medium,Pastel Planet,neon
+neon wall.png,back,neon,,Neon Arcade,
+neon floor.png,floor,neon,,,
+```
+
+For a **ball picture** it
+
+- cuts the middle 2:1 out (a 3:2 picture loses a sixth at the top and
+  bottom; a square one a quarter: ask for the subject in the middle band),
+- cross-fades the left and right edges over `--seam` percent of the width
+  (default 3), so the join at the back of the ball doesn't show,
+- with `--poles 0.05`, fades the top and bottom 5% to each row's average
+  colour (the poles squeeze a whole row into a point),
+- writes `images/<n>_<name>.jpg` (2048 x 1024; the next free number, or
+  the old one when a name is imported again) and its line in
+  `images/titles.txt`: `<n>_<name> = Title | level | room`. A ball paired
+  with a room (the manifest's `room`, or a room of the same name in the
+  same import) changes the game to that room when it is chosen.
+
+For a **room** it writes `themes/src/<name>_back.png` and `<name>_floor.png`
+(the floor's opposite edges cross-faded so copies join), the side walls
+(`--sides crop`: the back wall's outer thirds, darkened; `colour`: its
+average colour; `off`: none) and `themes/<name>.theme`, with the floor
+tiled `--repeat` times across.
+
+Then it runs `make data` and writes a contact sheet (`import_contact.png`
+in the art folder): each picture flat and on a ball, from the front and
+from the back with the seam in the middle, and each room's walls with its
+floor tiled two by two. Check it, then copy `data/` and `themes/` beside
+the program; the game lists whatever is there when it starts, no rebuild.
+
+![The import tool's contact sheet, on stand-in art](screenshots/import_contact.png)
+
+| | |
+|---|---|
+| ![A long picture list](screenshots/import_select_list.png) | ![An imported room](screenshots/import_room_neon.png) |
+| 15 pictures on Hard: the list scrolls (stand-in art from `tests/make_sample_art.py`) | An imported room: back wall, cropped side walls, tiled floor (stand-in art) |
+
+**Tips for prompts.** Ask for "an equirectangular 360-degree map,
+seamless left to right" and keep the interesting things in the middle
+band, away from the top and bottom (they are cropped, and the poles are
+squeezed). Bold shapes and strong colours make Easy pictures; for Hard and
+Expert, fine detail everywhere, so no two tiles look alike. For a room's
+back wall, a landscape picture seen square-on; for its floor, a square,
+seamless tile.
+
+By hand, without the import tool: put a 2:1 picture in `images/`, add its
+`titles.txt` line, `make data` (or `python3 tools/make_texture.py --all`).
+One file: `python3 tools/make_texture.py in.png data/name.btx --title
+"NAME" --level medium --room neon`.
+
+### The .btx files
+
+`make data` writes `data/<name>.btx` (BTX2): `"BTX2"`, width and height
+(16-bit big-endian, powers of two), a 32-byte title, the level (0-3), 3
+spare bytes, a 24-byte room name, the thumbnail's size (128 x 64) and its
+R G B bytes, then the picture's, rows top to bottom. The game reads only
+the header and thumbnail of each when it starts (24 KB each, for the
+list) and loads one picture at a time when it is chosen and left chosen a
+quarter of a second (1.5 MB at 1024 x 512), so many pictures cost little
+memory. 512 x 256 (`--size 512x256`) halves the memory again and draws a
+little faster (27-29 fps against 25 at 800 x 600), looking softer close
+up. The older BTX1 (no level, room or thumbnail) still loads.
 
 ## Rooms (themes)
 
@@ -138,13 +219,17 @@ ceiling = off
 The grid square is in ball radii. A texture is a `.btx` in `themes/`
 (made by `tools/make_texture.py`; pictures in `themes/src/` are converted
 by `make data`, at 512 x 512), stretched over the part of that face that
-can be seen; a grid is drawn over it unless it is `none`. Three rooms come
+can be seen, or tiled when a fifth number follows (`floor = 101018 none 0
+neon_floor.btx 4`: four squares across); a grid is drawn over it unless it
+is `none`. Three rooms come
 with the game: **Boing Room** (the demo's), **Midnight Box** (all five
 faces, a cyan grid, the shadow on the floor) and **Deep Space**
 (`stars.btx`, made by `make_texture.py --stars`, on the back wall). To map
-your own pictures onto the box, make one per face (the back wall is seen
-square-on and about 4:3; the floor, walls and ceiling in perspective), put
-them in `themes/src/`, `make data`, and name them in a new `.theme`.
+your own pictures onto the box, `tools/import_art.py` makes the room from
+a back wall and a floor (above), or make one per face by hand (the back
+wall is seen square-on and about 4:3; the floor, walls and ceiling in
+perspective), put them in `themes/src/`, `make data`, and name them in a
+new `.theme`.
 
 The room is drawn once, when it is chosen, into a background picture; it
 costs nothing while playing, so textures there can be any size.
@@ -215,9 +300,10 @@ filtering) takes the slow path again and is only there to compare.
 ## Tests
 
 ```
-make host-test     # the puzzle core on the host (18,150 checks)
+make host-test     # the puzzle core on the host (18,567 checks)
 make ubsan         # the same under UBSan and ASan
 make vectors       # regenerate tests/vectors.h
+make test-tools    # import_art.py and make_texture.py on stand-in art (26 checks)
 python3 tests/e2e_devbench.py --deploy [--readme] [--bench-res 640,1024]
 ```
 
@@ -226,27 +312,42 @@ test, a xorshift RNG) has no Amiga headers. The host tests check that S
 twists, four quarter turns and two flips are no move, that every move
 followed by its inverse is none, that moves are permutations that turn the
 right pieces, that scrambles replayed backwards solve the ball, the solved
-test (a spun ball, a checkerboard, an upside-down ball), undo, and a long
+test (a spun ball, a checkerboard, an upside-down ball), undo, the levels
+(each a valid grid, harder than the one before, every start unsolved and
+solvable, a checkerboard's scramble retried), and a long
 deterministic run folded into one hash (`tests/vectors.h`). The game's
 `selftest` hook runs the same run on the Amiga and must get the same hash.
 
+`tests/test_import.py` makes stand-in art (`tests/make_sample_art.py`:
+1536 x 1024 and 1024 x 1024 pictures, rooms, a ChatGPT-style file name and
+a manifest) and imports it into a scratch folder: 2:1 crops, the seam
+blended (edge difference 55 -> 2), titles.txt lines with levels and rooms,
+re-imports keeping their numbers, the room's theme with its cropped walls
+and a floor that tiles, `--poles`, and the BTX2 headers `make data` writes.
+
 `tests/e2e_devbench.py` drives the game on the OS4 guest through devbench
 (it takes the emulator lock, pushes to `RAM:boing_twist/`, never the HDF):
-the self-test; scrambles and moves through the hooks, the keys and undo,
+the self-test; levels (a picture an easier level doesn't offer is swapped,
+Expert is 8 x 16), a picture bringing its room, the picture list scrolled
+(with more than nine pictures), best scores kept per picture and level;
+scrambles and moves through the hooks, the keys and undo,
 each state's hash checked against the host core (`tests/host_tests --hash`);
 peek, the three rooms, an animated and an instant solve, a solve by the
 player's moves, a 6 x 12 ball; a frame-rate bench; and Esc quitting from
 the title with the launcher left running. Screenshots come from QEMU's
 monitor; `--readme` takes the ones in `screenshots/`.
 
-Bridge (client `boing_twist`): hooks `selftest`, `scramble` (seed length
-[grid]; a length that isn't one of the four is set at once), `move`
+Bridge (client `boing_twist`): hooks `selftest`, `scramble` (seed
+[length [level]]; length -1 or the level's own is animated, any other is
+set at once), `state` (screen, solved, moves, level, picture ... as
+name=value: devbench's variables are found by name alone, so the tests
+read these, which can't be another game's), `move`
 (`T<band>+`, `T<band>-`, `F<half>`, `!` for no animation), `hash`, `solve`
-(`anim` or `now`), `undo`, `picture`, `theme`, `screen`, `view` (yaw pitch
+(`anim` or `now`), `undo`, `picture` (moving to a level that offers it), `theme`, `screen`, `view` (yaw pitch
 distance band half), `peek`, `pause` (freezes a move half done, no
 overlay), `bench` (frames), `activate`, `quit`; variables `screen`,
 `moves`, `secs`, `solved`, `hash`, `anim`, `bands`, `pic`, `npics`,
-`grid`, `scr`, `theme`, `nthemes`, `sel_band`, `sel_half`, `peeks`,
+`level`, `theme`, `nthemes`, `sel_band`, `sel_half`, `peeks`,
 `paused`, `fps10`, `bench_fps10`, `bench_left`, `ms_bg`, `ms_ball`,
 `ms_shade`, `ms_hud`, `ms_blit`, `tris`, `width`, `height`, and the
 render options `lit`, `linear`, `detail` and `zbuf` (settable).
@@ -262,6 +363,8 @@ render options `lit`, `linear`, `detail` and `zbuf` (settable).
 | `os4_display.c/h` | window / full screen (planet_chomp's, with the mouse) |
 | `sound_ahi.c/h` | the bounce, click, whoosh and chord, synthesised, through AHI |
 | `tools/make_texture.py` | pictures and room textures to `.btx` |
+| `tools/import_art.py` | generated art to pictures and rooms |
+| `tests/make_sample_art.py`, `tests/test_import.py` | stand-in art; the tools' tests |
 | `images/`, `themes/` | the pictures' sources; the rooms |
 
 MIT licence (the code). The pictures are NASA's / USGS's, public domain,

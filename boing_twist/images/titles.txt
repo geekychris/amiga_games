@@ -1,6 +1,10 @@
-# titles for the pictures in this folder: file name (no extension) = title
-# (the game shows them in capitals; 31 characters at most)
-1_earth = Earth - Blue Marble
-2_moon = The Moon
-3_mars = Mars
-4_jupiter = Jupiter
+# titles for the pictures in this folder:
+#   file name (no extension) = Title | level | room
+# Title: 31 characters at most, shown in capitals. Level: the lowest level
+# the picture suits (easy, medium, hard, expert; easy if left out): bold
+# shapes and colours suit Easy, fine detail or big plain areas Hard or
+# Expert. Room: a .theme in themes/ (without .theme) chosen with it, or empty.
+1_earth = Earth - Blue Marble | easy
+2_moon = The Moon | hard
+3_mars = Mars | medium
+4_jupiter = Jupiter | medium

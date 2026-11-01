@@ -61,11 +61,17 @@ class Bench:
         return self.tool("amiga_call_hook", client=CLIENT, hook=name, args=str(args))
 
     def var(self, name):
-        out = self.tool("amiga_get_var", name=name)
-        try:
-            return int(out.split("=")[1].split()[0])
-        except (IndexError, ValueError):
-            return None
+        """one of the game's values, from its state hook (devbench's own
+        variables are found by name alone, and another game may have one
+        of the same name)"""
+        out = self.hook("state")
+        for kv in out.split():
+            if kv.startswith(name + "="):
+                try:
+                    return int(kv.split("=", 1)[1])
+                except ValueError:
+                    return None
+        return None
 
     def key(self, code, hold=0.08):
         self.hook("activate")
@@ -252,6 +258,10 @@ def readme_shots(b, npics):
     for mv in subprocess.run([exe, "--undo", "4", "8", "4", "3"], capture_output=True, text=True).stdout.split():
         b.hook("move", mv)                   # played back as the player's moves
     b.check(b.wait(lambda: b.var("screen") == 3, 15), "solved by the player's moves")
+    local = os.path.join("/tmp", f"boing_twist_best_{os.getpid()}.txt")
+    b.tool("amiga_pull_file", amiga_path="RAM:boing_twist/boing_twist.best", local_path=local)
+    best = open(local).read() if os.path.exists(local) else ""
+    b.check("1_earth.btx|EASY " in best, f"best scores kept per picture and level: {best.split()[:3]}")
     time.sleep(1.0)
     b.shot("solved")
     b.hook("screen", "title")
@@ -292,7 +302,37 @@ def run(b, a):
     b.check(b.var("screen") == 1, "on the select screen")
     b.shot("select")
 
+    b.step("levels, the picture list and rooms that come with pictures")
+    info = {}
+    for i in range(npics):
+        out = b.hook("picture", i)
+        info[i] = out
+    levels = {i: next((l for l in ("EASY", "MEDIUM", "HARD", "EXPERT") if f"level {l}" in s), None) for i, s in info.items()}
+    b.check(all(levels.values()), f"every picture has a level: {sorted(set(levels.values()))}")
+    paired = [i for i, s in info.items() if "room -" not in s and "room" in s]
+    hard = [i for i, l in levels.items() if l in ("HARD", "EXPERT") and i > 0]
+    if hard:
+        b.hook("picture", hard[0])
+        b.hook("scramble", "1 -1 0")                 # Easy: that picture isn't offered
+        b.check(b.var("level") == 0 and b.var("pic") != hard[0], f"Easy swaps picture {hard[0]} ({levels[hard[0]]}) for one it offers")
+        b.check(b.var("bands") == 4, "Easy is 4 x 8")
+        b.hook("picture", hard[0])
+        b.hook("scramble", "1 -1 3")
+        b.check(b.var("level") == 3 and b.var("pic") == hard[0] and b.var("bands") == 8, "Expert: 8 x 16, the picture kept")
+    if paired:
+        b.hook("theme", 0)
+        b.hook("picture", paired[0])
+        b.check(b.var("theme") != 0, f"picture {paired[0]} brings its room (theme 0 -> {b.var('theme')})")
+        b.hook("theme", 0)
+    if npics > 9:
+        b.hook("screen", "select")
+        b.hook("picture", npics - 2)
+        time.sleep(2.0)
+        b.shot("select_list")
+        b.check(b.var("screen") == 1, f"the select list scrolls to picture {npics - 2} of {npics}")
+
     b.step("scramble and moves, against the host's puzzle core")
+    b.hook("picture", 1)
     b.hook("scramble", "7 25 0")
     want, _ = host_hash(4, 8, 7, 25)
     b.check(game_hash(b) == want, f"scramble seed 7, 25 moves, 4x8: {want}")

@@ -205,6 +205,48 @@ uint32_t bt_hash(const BtPuzzle *p)
     return h;
 }
 
+const BtLevel bt_levels[BT_NLEVELS] = {
+    { "EASY",   4,  8,  8 },
+    { "MEDIUM", 6, 12, 20 },
+    { "HARD",   8, 16, 40 },
+    { "EXPERT", 8, 16, 80 },
+};
+
+int bt_level_from_name(const char *s)
+{
+    static const char *n[BT_NLEVELS] = { "easy", "medium", "hard", "expert" };
+    int i, j;
+    if (!s) return -1;
+    while (*s == ' ' || *s == '\t') s++;
+    if (*s >= '0' && *s <= '3' && (s[1] == 0 || s[1] == ' ' || s[1] == '\n')) return *s - '0';
+    for (i = 0; i < BT_NLEVELS; i++) {
+        for (j = 0; n[i][j]; j++) {
+            char ch = s[j];
+            if (ch >= 'A' && ch <= 'Z') ch = (char)(ch - 'A' + 'a');
+            if (ch != n[i][j]) break;
+        }
+        if (!n[i][j]) return i;
+    }
+    return -1;
+}
+
+uint32_t bt_start_level(BtPuzzle *p, int level, uint32_t seed, int n)
+{
+    uint32_t sig[BT_MAX_T][2];
+    int tries;
+    if (level < 0) level = 0;
+    if (level >= BT_NLEVELS) level = BT_NLEVELS - 1;
+    if (n < 0) n = bt_levels[level].moves;
+    if (p->bands == bt_levels[level].bands && p->segs == bt_levels[level].segs) memcpy(sig, p->sig, sizeof(sig));
+    else { bt_init(p, bt_levels[level].bands, bt_levels[level].segs); memcpy(sig, p->sig, sizeof(sig)); }
+    for (tries = 0; tries < 40; tries++) {
+        bt_scramble(p, seed + (uint32_t)tries * 7919u, n);
+        if (n == 0 || !bt_solved(p)) break;
+    }
+    memcpy(p->sig, sig, sizeof(sig));
+    return seed + (uint32_t)tries * 7919u;
+}
+
 /* scrambles on every size the game offers, a long random walk of the
  * player's moves with undos mixed in, and the solved test along the way:
  * all folded into one number */

@@ -9,6 +9,7 @@
 #   make ubsan                                 the same under UBSan and ASan
 #   make vectors                               regenerate tests/vectors.h
 #   make data                                  images/ and themes/ -> data/ (needs Pillow)
+#   make test-tools                            tools/import_art.py and make_texture.py on stand-in art
 #
 # -mcpu=powerpc, never 440/440fp: GCC then inlines string functions with
 # dlmzb, which only the 440/460 have (QEMU runs it; an X5000 or A1222 crashes).
@@ -57,7 +58,10 @@ vectors:
 data:
 	python3 tools/make_texture.py --all
 
+test-tools:
+	python3 tests/test_import.py
+
 clean:
 	rm -rf $(OBJDIR) $(TARGET) tests/host_tests tests/host_tests_san
 
-.PHONY: all clean host-test ubsan vectors data
+.PHONY: all clean host-test ubsan vectors data test-tools

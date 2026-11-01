@@ -376,9 +376,22 @@ static void face(const RdFace *f, const float c[4][3])
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
         glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST);
         glEnable(GL_TEXTURE_2D);
-        glBegin(GL_QUADS);
-        for (k = 0; k < 4; k++) { glTexCoord2f(uv[k][0], uv[k][1]); glVertex3fv(c[k]); }
-        glEnd();
+        {
+            /* repeat: that many squares across the face, as many as fit down it */
+            float ru = 1, rv = 1;
+            if (f->repeat > 1.0f) {
+                float a = 0, b = 0;
+                for (k = 0; k < 3; k++) {
+                    a += (c[1][k] - c[0][k]) * (c[1][k] - c[0][k]);
+                    b += (c[3][k] - c[0][k]) * (c[3][k] - c[0][k]);
+                }
+                ru = f->repeat;
+                rv = a > 0 ? f->repeat * sqrtf(b / a) : 1;
+            }
+            glBegin(GL_QUADS);
+            for (k = 0; k < 4; k++) { glTexCoord2f(uv[k][0] * ru, uv[k][1] * rv); glVertex3fv(c[k]); }
+            glEnd();
+        }
         glDisable(GL_TEXTURE_2D);
         glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
         glDeleteTextures(1, &t);
@@ -442,7 +455,7 @@ void rd_set_theme(const RdTheme *t)
         float bx0 = xl > -hx ? xl : -hx, bx1 = xr < hx ? xr : hx, by1 = yt < hy ? yt : hy;
         float fz = ROOM_Y / th;               /* where the floor leaves the bottom of the screen */
         float back[4][3]  = { { bx0, ROOM_Y, ROOM_Z }, { bx1, ROOM_Y, ROOM_Z }, { bx1, by1, ROOM_Z }, { bx0, by1, ROOM_Z } };
-        float floor_[4][3] = { { bx0 * fz / ROOM_Z, ROOM_Y, fz }, { bx1 * fz / ROOM_Z, ROOM_Y, fz }, { bx1, ROOM_Y, ROOM_Z }, { bx0, ROOM_Y, ROOM_Z } };
+        float floor_[4][3] = { { bx0, ROOM_Y, fz }, { bx1, ROOM_Y, fz }, { bx1, ROOM_Y, ROOM_Z }, { bx0, ROOM_Y, ROOM_Z } };
         float left[4][3]  = { { xl, ROOM_Y, zn }, { xl, ROOM_Y, ROOM_Z }, { xl, yt, ROOM_Z }, { xl, yt, zn } };
         float right[4][3] = { { xr, ROOM_Y, ROOM_Z }, { xr, ROOM_Y, zn }, { xr, yt, zn }, { xr, yt, ROOM_Z } };
         float ceil_[4][3] = { { xl, yt, ROOM_Z }, { xr, yt, ROOM_Z }, { xr, yt, zn }, { xl, yt, zn } };
