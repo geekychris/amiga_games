@@ -1,0 +1,10 @@
+# a texture on the back wall (stars.btx, made by tools/make_texture.py --all)
+# and a grid floor fading into space
+name = Deep Space
+background = 02030A
+shadow = floor 50
+back = 000000 none 0 stars.btx
+floor = 05060F 6040C0 0.5
+left = off
+right = off
+ceiling = off

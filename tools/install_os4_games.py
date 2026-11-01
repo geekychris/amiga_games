@@ -29,7 +29,7 @@ FULLSCREEN = {"planet_chomp", "rolling_steel", "spectral_keep", "terra_strike",
               "stack_tower", "lander_3d", "boing_pinball", "scairy_fun",
               "block_breaker_3d", "harbour_crane", "ridge_runner", "tank_duel",
               "marble_tilt", "orbit_docking", "drone_courier", "canyon_rail",
-              "ace_pilot2"}
+              "ace_pilot2", "boing_twist"}
 DEMOS = {"boing_ball", "starfield", "plasma"}
 # programs on DH1: that aren't games but belong in the menu
 TOOLS = [("Masterwork", "DH1:masterwork"), ("Terrain Test", "DH1:terrain_test"),

@@ -72,12 +72,15 @@ EXTRA = [
      "Arrows / joystick: sight. Space / fire: fire. B: autopilot.", NEEDS_68K),
     ("ace_pilot2", "Ace Pilot 2", "A biplane war in 3D: fly a Swallow scout of Larkspur Squadron over the river Sellen. Eight missions: patrols, balloons, an escort, a train, bombers, a supply depot, an enemy aerodrome and the Grey Falcon.",
      "Left/right: bank. Up/down: nose down/up. Space / fire: guns. A / Z: throttle. V: chase / cockpit. I: invert. B: autopilot. Help: how to fly.", NEEDS_68K),
+    ("boing_twist", "Boing Twist", "A twisty puzzle on the Boing ball (AmigaOS 4 only): a picture wrapped round the ball is cut into tiles and jumbled. Twist bands round the ball and flip halves of it over to put the picture back. The Boing ball, the Earth, the Moon, Mars and Jupiter, three grids, three rooms; add your own pictures.",
+     "Up/down: band. Left/right: twist it. A/D: half. Space: flip it. U: undo. H: peek. Mouse: drag a band sideways to twist, up or down to flip; right-drag turns the ball. Help: how to play.", NEEDS_OS4),
 ]
 
 # where each game's binaries are, if not <id>/<id> and <id>/<id>_os4 (the
 # C++ games build both to <id>: keep the PowerPC one as <id>_os4)
 BIN_68K = {"planet_chomp": "planet_chomp_68k", "rolling_steel": "rolling_steel_68k", "spectral_keep": "spectral_keep_68k"}
-BIN_OS4 = {"planet_chomp": "planet_chomp", "spectral_keep": "spectral_keep", "rolling_steel": "rolling_steel"}
+BIN_OS4 = {"planet_chomp": "planet_chomp", "spectral_keep": "spectral_keep", "rolling_steel": "rolling_steel",
+           "boing_twist": "boing_twist"}
 # what the games open at run time, besides what games.ini says (os4: AmigaOS 4 only)
 DATA = {
     "stack_tower": (["stack_tower.mod"], ["stack_title.img", "stack_backdrop.img"]),
@@ -92,6 +95,7 @@ DATA = {
     "pea_shooter_blast": (["music.mod"], []),
     "rolling_steel": (["data"], []),
     "spectral_keep": (["data"], []),
+    "boing_twist": ([], ["data", "themes"]),       # make -C boing_twist data first
 }
 
 

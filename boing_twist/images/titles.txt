@@ -1,0 +1,6 @@
+# titles for the pictures in this folder: file name (no extension) = title
+# (the game shows them in capitals; 31 characters at most)
+1_earth = Earth - Blue Marble
+2_moon = The Moon
+3_mars = Mars
+4_jupiter = Jupiter

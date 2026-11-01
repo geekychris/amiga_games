@@ -1,0 +1,9 @@
+# a closed box: all five faces, cyan grid on deep blue, the shadow on the floor
+name = Midnight Box
+background = 000010
+shadow = floor 60
+back = 0A1030 30C0E0 0.5
+floor = 081028 30C0E0 0.5
+left = 0C1438 2090B0 0.5
+right = 0C1438 2090B0 0.5
+ceiling = 060A20 205070 1.0
