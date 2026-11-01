@@ -175,7 +175,9 @@ def package(g, arch, out, stage_root):
     for f in files:
         s = os.path.join(src, f)
         if os.path.isdir(s):
-            shutil.copytree(s, os.path.join(drawer, f), dirs_exist_ok=True)
+            # src/: the sources a data folder is made from, not read at run time
+            shutil.copytree(s, os.path.join(drawer, f), dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("src"))
         else:
             shutil.copy2(s, os.path.join(drawer, os.path.basename(f)))
     files = [os.path.basename(f) for f in files]
