@@ -1,0 +1,9 @@
+# made by tools/import_art.py from room_arcade_back.png room_arcade_floor.png
+name = Arcade
+background = 080908
+shadow = floor 50
+back = 191A18 none 0 arcade_back.btx
+floor = 2C2028 none 0 arcade_floor.btx 3
+left = 10110E none 0 arcade_left.btx
+right = 10110E none 0 arcade_right.btx
+ceiling = 080909 none 0

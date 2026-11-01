@@ -1,0 +1,9 @@
+# made by tools/import_art.py from room_garden_back.png room_garden_floor.png
+name = Garden
+background = 0A0B06
+shadow = floor 50
+back = 1E2112 none 0 garden_back.btx
+floor = 7A7764 none 0 garden_floor.btx 3
+left = 10120A none 0 garden_left.btx
+right = 11120A none 0 garden_right.btx
+ceiling = 0E0E09 none 0

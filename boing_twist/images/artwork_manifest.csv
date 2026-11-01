@@ -1,0 +1,28 @@
+file,kind,name,level,title,room,crop_bottom,repeat,seam
+ball_easy_toytown.png,ball,toytown,easy,Toytown,,,,
+ball_easy_fruit.png,ball,fruit,easy,Fruit Bowl,,,,
+ball_easy_glass.png,ball,glass,easy,Stained Glass,,,,
+ball_easy_toyshop.png,ball,toyshop,easy,Toyshop,,,,
+ball_medium_reef.png,ball,reef,medium,Coral Reef,aquarium,,,
+ball_medium_seasons.png,ball,seasons,medium,Four Seasons,,,,12
+ball_medium_map.png,ball,map,medium,Old Map,study,,,
+ball_medium_steampunk.png,ball,steampunk,medium,Steampunk,workshop,,,
+ball_medium_alienworld.png,ball,alienworld,medium,Alien World,observatory,,,
+ball_hard_butterflies.png,ball,butterflies,hard,Butterflies,,,,
+ball_hard_mosaic.png,ball,mosaic,hard,Mosaic,,,,12
+ball_hard_circuit.png,ball,circuit,hard,Circuit Board,retroroom,,,
+ball_hard_garden.png,ball,garden,hard,Flower Garden,garden,,,
+room_aquarium_back.png,back,aquarium,,Aquarium,,,,
+room_aquarium_floor.png,floor,aquarium,,,,,3,
+room_workshop_back.png,back,workshop,,Workshop,,,,
+room_workshop_floor.png,floor,workshop,,,,,3,
+room_study_back.png,back,study,,Study,,,,
+room_study_floor.png,floor,study,,,,,3,
+room_observatory_back.png,back,observatory,,Observatory,,0.22,,
+room_observatory_floor.png,floor,observatory,,,,,3,
+room_retroroom_back.png,back,retroroom,,Retro Room,,,,
+room_retroroom_floor.png,floor,retroroom,,,,,2,0
+room_garden_back.png,back,garden,,Garden,,,,
+room_garden_floor.png,floor,garden,,,,,3,
+room_arcade_back.png,back,arcade,,Arcade,,,,
+room_arcade_floor.png,floor,arcade,,,,,3,

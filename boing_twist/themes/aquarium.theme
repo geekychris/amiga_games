@@ -1,0 +1,9 @@
+# made by tools/import_art.py from room_aquarium_back.png room_aquarium_floor.png
+name = Aquarium
+background = 021621
+shadow = floor 50
+back = 083F5E none 0 aquarium_back.btx
+floor = B59776 none 0 aquarium_floor.btx 3
+left = 021C2C none 0 aquarium_left.btx
+right = 011B2C none 0 aquarium_right.btx
+ceiling = 0B2F3E none 0

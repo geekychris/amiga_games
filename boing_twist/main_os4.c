@@ -44,6 +44,10 @@
 #include "os4_display.h"
 #include "tests/vectors.h"
 
+/* stb_impl.c */
+extern unsigned char *stbi_load_from_memory(const unsigned char *buf, int len, int *x, int *y, int *comp, int req);
+extern void stbi_image_free(void *p);
+
 /* Mesa's software rasteriser keeps whole spans on the stack */
 static const char __attribute__((used)) stack_cookie[] = "$STACK:2097152";
 static const char __attribute__((used)) version_tag[] = "$VER: boing_twist 1.0 (31.10.2026)";
@@ -203,7 +207,8 @@ static int pot(int v) { return v >= 8 && v <= 4096 && (v & (v - 1)) == 0; }
  * big-endian), a 32-byte title, the level, 3 spare bytes, a 24-byte room,
  * the thumbnail's width and height, the thumbnail and the picture as R G B
  * rows, top (north) first; or the older "BTX1": size, title, picture. */
-typedef struct { int w, h, level, tw, th; long pix_at; char title[32], room[24]; } BtxHead;
+typedef struct { int w, h, level, tw, th, jpeg; long pix_at; char title[32], room[24]; } BtxHead;
+static int32_t us_decode;                /* the last JPEG decode, us */
 
 static int btx_head(BPTR f, BtxHead *b)
 {
@@ -215,7 +220,8 @@ static int btx_head(BPTR f, BtxHead *b)
     b->h = hd[6] << 8 | hd[7];
     for (i = 0; i < 31; i++) b->title[i] = (char)hd[8 + i];
     if (memcmp(hd, "BTX1", 4) == 0) b->pix_at = 40;
-    else if (memcmp(hd, "BTX2", 4) == 0) {
+    else if (memcmp(hd, "BTX2", 4) == 0 || memcmp(hd, "BTX3", 4) == 0) {
+        b->jpeg = hd[3] == '3';
         if (Read(f, hd + 40, 32) != 32) return 0;
         b->level = hd[40] < BT_NLEVELS ? hd[40] : 0;
         for (i = 0; i < 23; i++) b->room[i] = (char)hd[44 + i];
@@ -234,10 +240,25 @@ static uint8_t *load_btx(const char *path, int *w, int *h, char *title)
     BtxHead b;
     uint8_t *rgb = 0;
     if (!f) return 0;
-    if (btx_head(f, &b) && ChangeFilePosition(f, b.pix_at, OFFSET_BEGINNING) &&
-        (rgb = (uint8_t *)malloc((size_t)b.w * b.h * 3)) != 0) {
-        int32 n = b.w * b.h * 3;
-        if (Read(f, rgb, n) != n) { free(rgb); rgb = 0; }
+    if (btx_head(f, &b) && ChangeFilePosition(f, b.pix_at, OFFSET_BEGINNING)) {
+        if (b.jpeg) {
+            /* BTX3: a JPEG, decoded by stb_image */
+            uint8_t ln[4], *jp = 0;
+            int32 n;
+            if (Read(f, ln, 4) == 4 && (n = ln[0] << 24 | ln[1] << 16 | ln[2] << 8 | ln[3]) > 0 && n < 0x1000000 &&
+                (jp = (uint8_t *)malloc((size_t)n)) != 0 && Read(f, jp, n) == n) {
+                int w, h, c;
+                uint64_t t0 = now_us();
+                unsigned char *px = stbi_load_from_memory(jp, n, &w, &h, &c, 3);
+                us_decode = (int32_t)(now_us() - t0);
+                if (px && w == b.w && h == b.h) rgb = px;     /* stb_image allocates with malloc */
+                else if (px) stbi_image_free(px);
+            }
+            free(jp);
+        } else if ((rgb = (uint8_t *)malloc((size_t)b.w * b.h * 3)) != 0) {
+            int32 n = b.w * b.h * 3;
+            if (Read(f, rgb, n) != n) { free(rgb); rgb = 0; }
+        }
     }
     Close(f);
     if (!rgb) return 0;
@@ -370,6 +391,7 @@ static int ensure_picture(int pic, int bands, int segs)
             snprintf(path, sizeof(path), "PROGDIR:data/%s", pics[pic].file);
             rgb = load_btx(path, &w, &h, 0);
             if (!rgb) AB_W("can't load %.40s", path);
+            else AB_I("picture %.40s %ldx%ld decoded in %ld ms", pics[pic].file, (long)w, (long)h, (long)(us_decode / 1000));
         }
         if (!rgb) { rgb = boing_picture(bands, segs, &w, &h); pic = 0; }
         if (!rgb) return 0;
@@ -516,9 +538,17 @@ static void scan_themes(void)
         }
         nthemes++;
     }
-    /* the classic Boing room first */
+    /* the classic Boing room first in the list, and the room to start in */
     for (i = 0; i < nthemes; i++)
-        if (strcasecmp(theme_file[i], "boing.theme") == 0) { cur_theme = i; break; }
+        if (strcasecmp(theme_file[i], "boing.theme") == 0) {
+            char f[48], t[32];
+            int k;
+            strcpy(f, theme_file[i]); strcpy(t, theme_title[i]);
+            for (k = i; k > 0; k--) { strcpy(theme_file[k], theme_file[k - 1]); strcpy(theme_title[k], theme_title[k - 1]); }
+            strcpy(theme_file[0], f); strcpy(theme_title[0], t);
+            break;
+        }
+    cur_theme = 0;
 }
 
 /* ---------------- best scores ---------------- */

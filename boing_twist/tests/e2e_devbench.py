@@ -13,7 +13,10 @@ Esc.
 --deploy pushes the binary (stripped, if boing_twist.stripped is newer),
 data/ and themes/ to RAM:boing_twist/ first (the HDF is never written while
 QEMU runs). Screenshots come from QEMU's monitor (--monitor host:port).
-The emulator lock (/tmp/amiga-emu.lock) is held throughout.
+The emulator lock (/tmp/amiga-emu.lock) is held throughout, with amiga_mcp's
+"CLAUDE IS TESTING" banner on the Amiga's screen (scripts/claude_busy.py).
+--art loads every picture and room, checks memory, and photographs the
+pictures that come with a room in it.
 """
 import argparse
 import fcntl
@@ -268,6 +271,70 @@ def readme_shots(b, npics):
     b.shots = keep
 
 
+def free_fast(b, newer_than=0.0, timeout=20):
+    """the Amiga's free fast memory from the bridge's next heartbeat"""
+    base = b.url.rsplit("/mcp", 1)[0]
+    end = time.time() + timeout
+    while time.time() < end:
+        with urllib.request.urlopen(f"{base}/api/status", timeout=10) as r:
+            s = json.load(r)
+        if (s.get("lastHeartbeatAt") or 0) > newer_than:
+            return s["lastHeartbeat"]["freeFast"]
+        time.sleep(1)
+    return None
+
+
+def all_art(b, npics, nthemes):
+    """every picture and every room loads"""
+    b.step("every picture and room loads")
+    t0 = time.time()
+    names = {}
+    for i in range(npics):
+        names[i] = b.hook("picture", i)
+        b.hook("screen", "select")
+        time.sleep(0.6)                      # loaded once the choice has stayed put 0.25 s
+    time.sleep(1.0)
+    logs = b.logs_since(t0)
+    decoded = [m for m in logs if "decoded in" in m]
+    ms = [int(m.split("decoded in ")[1].split()[0]) for m in decoded]
+    b.check(len(decoded) >= npics - 1, f"{len(decoded)} pictures decoded (of {npics - 1} files)"
+            + (f": {min(ms)}-{max(ms)} ms, average {sum(ms) // len(ms)} ms" if ms else ""))
+    b.check(not [m for m in logs if "can't load" in m or "not a picture" in m], "none failed to load")
+    t1 = time.time()
+    for i in range(nthemes):
+        out = b.hook("theme", i)
+        b.check(out.startswith("[ok]"), out.strip()[:60])
+        time.sleep(0.8)
+    missing = [m for m in b.logs_since(t1) if "missing" in m]
+    b.check(not missing, "every room's textures found" + (f": {missing[:2]}" if missing else ""))
+    b.hook("theme", 0)
+    return names
+
+
+def paired_shots(b, names, shots):
+    keep = b.shots
+    b.shots = shots
+    b.step("pictures in their rooms")
+    want = ["CORAL REEF", "STEAMPUNK", "OLD MAP", "ALIEN WORLD", "CIRCUIT BOARD", "FLOWER GARDEN"]
+    park_pointer(b)
+    for i, out in names.items():
+        title = next((w for w in want if f" {w} level" in out), None)
+        if not title:
+            continue
+        lv = {"EASY": 0, "MEDIUM": 1, "HARD": 2, "EXPERT": 3}[out.split(" level ")[1].split()[0]]
+        b.hook("theme", 0)
+        b.hook("picture", i)
+        room = b.var("theme")
+        b.check(room not in (None, 0), f"{title} brings its room (theme {room})")
+        b.hook("scramble", f"{i} -1 {lv}")
+        b.check(b.wait(lambda: b.var("anim") == 0, 60), f"{title} scrambled")
+        b.hook("view", "-160 20 3.6 1 2")
+        time.sleep(1.2)
+        b.shot("art_" + title.lower().replace(" ", "_"))
+    b.hook("theme", 0)
+    b.shots = keep
+
+
 def run(b, a):
     global FRAME
     res = int(a.res)
@@ -278,11 +345,26 @@ def run(b, a):
     b.step(f"launch RES={res}")
     if CLIENT in b.clients():
         quit_game(b)
+    mem0 = free_fast(b, time.time()) if a.art else None
     b.check(launch(b, f"RES={res}"), "the game registers with the bridge")
     b.check(b.var("width") == FRAME[0] and b.var("height") == FRAME[1], f"frame {FRAME[0]} x {FRAME[1]}")
     npics, nthemes = b.var("npics"), b.var("nthemes")
     b.check(npics is not None and npics >= 2, f"pictures listed from data/: {npics}")
     b.check(nthemes is not None and nthemes >= 1, f"themes listed from themes/: {nthemes}")
+
+    if a.art:
+        mem1 = free_fast(b, time.time())
+        names = all_art(b, npics, nthemes)
+        mem2 = free_fast(b, time.time())
+        all_art(b, npics, nthemes)                   # again: nothing should be left behind
+        mem2b = free_fast(b, time.time())
+        if mem0 and mem1 and mem2 and mem2b:
+            print(f"  info  free fast memory: {mem0 // 1024} KB before, {mem1 // 1024} KB with the game started "
+                  f"(it takes {(mem0 - mem1) // 1024} KB), {mem2 // 1024} KB after loading every picture and room "
+                  f"({(mem1 - mem2) // 1024} KB more: the allocator keeps its peak), {mem2b // 1024} KB after doing it again")
+        b.check(None not in (mem2, mem2b) and mem2 - mem2b < 1024 * 1024,
+                "a second pass over every picture and room takes no more memory (no leak)")
+        paired_shots(b, names, os.path.join(GAME, "screenshots"))
 
     b.step("self-test on the Amiga: the puzzle core's vector hash")
     out = b.hook("selftest")
@@ -291,6 +373,7 @@ def run(b, a):
     b.step("title screen")
     park_pointer(b)
     b.hook("theme", 0)
+    b.hook("screen", "title")
     b.check(b.var("screen") == 0, "on the title")
     time.sleep(1.0)
     b.shot("title")
@@ -441,6 +524,11 @@ def run(b, a):
     if not gone:
         quit_game(b)
     b.check("launcher" in b.clients(), "the launcher is still running")
+    if a.art and mem0:
+        time.sleep(3)
+        mem3 = free_fast(b, time.time())
+        b.check(mem3 is not None and mem3 >= mem0 - 2 * 1024 * 1024,
+                f"memory back after quitting: {mem3 // 1024 if mem3 else '?'} KB (before {mem0 // 1024} KB)")
 
     for r in [int(x) for x in a.bench_res.split(",") if x] if a.bench_res else []:
         b.step(f"bench RES={r}")
@@ -466,21 +554,43 @@ def main():
     ap.add_argument("--shots", default=os.path.join(GAME, "screenshots", "e2e"))
     ap.add_argument("--no-lock", action="store_true")
     ap.add_argument("--readme", action="store_true", help="also take the README's screenshots")
+    ap.add_argument("--art", action="store_true", help="load every picture and room, memory, paired-room shots")
     a = ap.parse_args()
-    lock = None
-    if not a.no_lock:
-        lock = open("/tmp/amiga-emu.lock", "w")
-        fcntl.flock(lock, fcntl.LOCK_EX)
     b = Bench(a.url, a.monitor, a.shots)
-    try:
-        run(b, a)
-    finally:
-        if CLIENT in b.clients():
-            quit_game(b)
-        if "launcher" not in b.clients():
-            b.tool("amiga_launch", command="DH1:launcher")
-        if lock:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+    busy = None
+    if not a.no_lock:
+        # amiga_mcp's claude_busy: the emulator lock and a "CLAUDE IS TESTING"
+        # banner on the Amiga's screen while this runs; or just the lock
+        for root in (os.environ.get("AMIGA_MCP", ""), os.path.dirname(os.path.dirname(GAME)),
+                     os.path.expanduser("~/code/claude_world/amiga_mcp")):
+            if root and os.path.exists(os.path.join(root, "scripts", "claude_busy.py")):
+                sys.path.insert(0, os.path.join(root, "scripts"))
+                from claude_busy import claude_testing
+                busy = claude_testing(a.url, "Boing Twist tests")
+                break
+        if busy is None:
+            import contextlib
+
+            @contextlib.contextmanager
+            def lock_only():
+                f = open("/tmp/amiga-emu.lock", "w")
+                fcntl.flock(f, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+            busy = lock_only()
+    else:
+        import contextlib
+        busy = contextlib.nullcontext()
+    with busy:
+        try:
+            run(b, a)
+        finally:
+            if CLIENT in b.clients():
+                quit_game(b)
+            if "launcher" not in b.clients():
+                b.tool("amiga_launch", command="DH1:launcher")
     print(f"\n{b.passes} passed, {b.failures} failed")
     return 1 if b.failures else 0
 

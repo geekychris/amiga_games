@@ -21,7 +21,7 @@ CFLAGS  = -mcrt=newlib -O2 -mcpu=powerpc -Wall -Wno-unused-function \
           -D__PPC__ -D__USE_INLINE__ -D__USE_OLD_TIMEVAL__
 LDFLAGS = -mcrt=newlib -L$(MESA)/lib -lOSMesa -lm -lauto
 TARGET  = boing_twist
-SRCS    = main_os4.c bt_core.c render.c hud.c os4_display.c sound_ahi.c ../../amiga-bridge/client/bridge_client.c
+SRCS    = main_os4.c bt_core.c render.c hud.c os4_display.c sound_ahi.c stb_impl.c ../../amiga-bridge/client/bridge_client.c
 OBJDIR  = objppc
 OBJS    = $(addprefix $(OBJDIR)/,$(notdir $(SRCS:.c=.o)))
 HEADERS = bt_core.h render.h hud.h os4_display.h sound_ahi.h tests/vectors.h
@@ -37,6 +37,9 @@ $(TARGET): $(OBJS)
 
 $(OBJDIR)/%.o: %.c $(HEADERS) | $(OBJDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/stb_impl.o: stb_impl.c stb_image.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -Wno-unused-but-set-variable -c -o $@ $<
 
 $(OBJDIR):
 	mkdir -p $@

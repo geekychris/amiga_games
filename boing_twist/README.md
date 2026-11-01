@@ -108,7 +108,45 @@ below).
 | 4 | Mars | Medium | Viking MDIM 2.1 colour mosaic, NASA / USGS Astrogeology, via Wikimedia Commons: <https://commons.wikimedia.org/wiki/File:Mars_Viking_MDIM21_ClrMosaic_1km.jpg> | Public domain (NASA/USGS) |
 | 5 | Jupiter | Medium | Cassini cylindrical map, December 2000, NASA/JPL/Space Science Institute (PIA07782): <https://photojournal.jpl.nasa.gov/catalog/PIA07782>, via <https://commons.wikimedia.org/wiki/File:Jupiter_Cylindrical_Map_-_Dec_2000_PIA07782.jpg> | Public domain (NASA) |
 
-`images/` holds them at 2048 x 1024 (resized from the sources, JPEG).
+And thirteen pictures made for the game with ChatGPT (the prompts are in
+the user's `amiga_knowledge/output/boing-twist-artwork/prompts.json`),
+imported with `tools/import_art.py` (`images/artwork_manifest.csv`):
+
+| | Picture | Level | Comes with the room |
+|---|---|---|---|
+| 5 | Toytown | Easy | |
+| 6 | Fruit Bowl | Easy | |
+| 7 | Stained Glass | Easy | |
+| 8 | Toyshop | Easy | |
+| 9 | Coral Reef | Medium | Aquarium |
+| 10 | Four Seasons | Medium | |
+| 11 | Old Map | Medium | Study |
+| 12 | Steampunk | Medium | Workshop |
+| 13 | Alien World | Medium | Observatory |
+| 14 | Butterflies | Hard | |
+| 15 | Mosaic | Hard | |
+| 16 | Circuit Board | Hard | Retro Room |
+| 17 | Flower Garden | Hard | Garden |
+
+Choosing a picture that comes with a room changes to it (T or the select
+screen's room line still change it). `images/` holds all the pictures at
+2048 x 1024 (JPEG, quality 90) and `themes/src/` the rooms' walls and
+floors; `make data` makes what the game reads from them.
+
+| | | |
+|---|---|---|
+| ![Coral Reef in the Aquarium](screenshots/art_coral_reef.png) | ![Steampunk in the Workshop](screenshots/art_steampunk.png) | ![Alien World in the Observatory](screenshots/art_alien_world.png) |
+| Coral Reef, in the Aquarium | Steampunk, in the Workshop | Alien World, in the Observatory |
+| ![Old Map in the Study](screenshots/art_old_map.png) | ![Circuit Board in the Retro Room](screenshots/art_circuit_board.png) | ![Flower Garden in the Garden](screenshots/art_flower_garden.png) |
+| Old Map, in the Study | Circuit Board, in the Retro Room | Flower Garden, in the Garden |
+
+The import, for the record: Mosaic and Four Seasons change colour from
+left to right, so their seams are cross-faded over 12% of the width
+rather than 3%; the Retro Room's checkerboard floor already tiles, so it
+is used as it is (blending its edges smeared the squares); and the
+Observatory's back wall has a floor painted into its bottom fifth, which
+is cut off (`crop_bottom 0.22`) so the room's own 3D floor meets the wall
+where the painted one began.
 
 ### Adding your own: the import tool
 
@@ -159,13 +197,19 @@ For a **room** it writes `themes/src/<name>_back.png` and `<name>_floor.png`
 average colour; `off`: none) and `themes/<name>.theme`, with the floor
 tiled `--repeat` times across.
 
+It also takes, per file in the manifest, `seam` (a ball picture's
+cross-fade width in percent, for one whose colours drift across it; for a
+floor, its edge blend, 0 to keep one that already tiles), `crop_bottom` (a
+back wall: cut a painted floor off its bottom) and `repeat` (a floor's
+tiles across).
+
 Then it runs `make data` and writes a contact sheet (`import_contact.png`
 in the art folder): each picture flat and on a ball, from the front and
 from the back with the seam in the middle, and each room's walls with its
 floor tiled two by two. Check it, then copy `data/` and `themes/` beside
 the program; the game lists whatever is there when it starts, no rebuild.
 
-![The import tool's contact sheet, on stand-in art](screenshots/import_contact.png)
+[The contact sheet of the ChatGPT artwork's import](screenshots/artwork_contact.jpg): each picture flat, on a ball from the front, and from the back with the seam in the middle; each room's walls and its floor tiled two by two.
 
 | | |
 |---|---|
@@ -187,16 +231,26 @@ One file: `python3 tools/make_texture.py in.png data/name.btx --title
 
 ### The .btx files
 
-`make data` writes `data/<name>.btx` (BTX2): `"BTX2"`, width and height
+`make data` writes `data/<name>.btx` (BTX3): `"BTX3"`, width and height
 (16-bit big-endian, powers of two), a 32-byte title, the level (0-3), 3
 spare bytes, a 24-byte room name, the thumbnail's size (128 x 64) and its
-R G B bytes, then the picture's, rows top to bottom. The game reads only
-the header and thumbnail of each when it starts (24 KB each, for the
-list) and loads one picture at a time when it is chosen and left chosen a
-quarter of a second (1.5 MB at 1024 x 512), so many pictures cost little
-memory. 512 x 256 (`--size 512x256`) halves the memory again and draws a
-little faster (27-29 fps against 25 at 800 x 600), looking softer close
-up. The older BTX1 (no level, room or thumbnail) still loads.
+R G B bytes, then the picture as a JPEG (its length, 32-bit big-endian,
+then the JPEG, quality 90), which the game decodes with Sean Barrett's
+`stb_image.h` (public domain / MIT, JPEG only): 17-31 ms a picture on the
+QEMU guest. Room textures are the same. Raw pixels made the game's drawer
+59 MB (a 41 MB zip); JPEG, 10.5 MB (8.6 MB zipped), with 17 pictures and
+10 rooms. `--raw` still writes the uncompressed BTX2, and BTX1 (no level,
+room or thumbnail) still loads.
+
+The game reads only the header and thumbnail of each picture when it
+starts (24 KB each, for the list) and decodes one picture at a time, when
+it is chosen and left chosen a quarter of a second (1.5 MB at 1024 x 512).
+On the guest the game takes 24 MB of fast memory at start (most of it
+OSMesa and the 800 x 600 frames); going through all 17 pictures and 10
+rooms takes up to 12 MB more (newlib's allocator keeps its peak), a
+second pass none, and quitting gives it all back. 512 x 256 (`--size
+512x256`) halves a picture's memory and draws a little faster (27-29 fps
+against 25 at 800 x 600), looking softer close up.
 
 ## Rooms (themes)
 
@@ -218,13 +272,17 @@ ceiling = off
 
 The grid square is in ball radii. A texture is a `.btx` in `themes/`
 (made by `tools/make_texture.py`; pictures in `themes/src/` are converted
-by `make data`, at 512 x 512), stretched over the part of that face that
+by `make data`: a back wall (`*_back`) at 1024 x 512, the rest at 512 x
+512), stretched over the part of that face that
 can be seen, or tiled when a fifth number follows (`floor = 101018 none 0
 neon_floor.btx 4`: four squares across); a grid is drawn over it unless it
-is `none`. Three rooms come
-with the game: **Boing Room** (the demo's), **Midnight Box** (all five
-faces, a cyan grid, the shadow on the floor) and **Deep Space**
-(`stars.btx`, made by `make_texture.py --stars`, on the back wall). To map
+is `none`. Ten rooms come with the game: **Boing Room** (the demo's,
+always first, and the one the game starts in), **Midnight Box** (all five
+faces, a cyan grid, the shadow on the floor), **Deep Space** (`stars.btx`,
+made by `make_texture.py --stars`, on the back wall), and seven from the
+ChatGPT artwork: **Aquarium**, **Arcade**, **Garden**, **Observatory**,
+**Retro Room**, **Study** and **Workshop** (a painted back wall, side walls
+cropped from it and darkened, a tiled floor). To map
 your own pictures onto the box, `tools/import_art.py` makes the room from
 a back wall and a floor (above), or make one per face by hand (the back
 wall is seen square-on and about 4:3; the floor, walls and ceiling in
@@ -303,8 +361,8 @@ filtering) takes the slow path again and is only there to compare.
 make host-test     # the puzzle core on the host (18,567 checks)
 make ubsan         # the same under UBSan and ASan
 make vectors       # regenerate tests/vectors.h
-make test-tools    # import_art.py and make_texture.py on stand-in art (26 checks)
-python3 tests/e2e_devbench.py --deploy [--readme] [--bench-res 640,1024]
+make test-tools    # import_art.py and make_texture.py on stand-in art (28 checks)
+python3 tests/e2e_devbench.py --deploy [--art] [--readme] [--bench-res 640,1024]
 ```
 
 The puzzle core (`bt_core.c`: state, moves, scrambles, undo, the solved
@@ -323,10 +381,15 @@ deterministic run folded into one hash (`tests/vectors.h`). The game's
 a manifest) and imports it into a scratch folder: 2:1 crops, the seam
 blended (edge difference 55 -> 2), titles.txt lines with levels and rooms,
 re-imports keeping their numbers, the room's theme with its cropped walls
-and a floor that tiles, `--poles`, and the BTX2 headers `make data` writes.
+and a floor that tiles, `--poles`, the BTX3 files `make data` writes (the
+header, the thumbnail, a JPEG that decodes to the picture) and `--raw`.
 
 `tests/e2e_devbench.py` drives the game on the OS4 guest through devbench
-(it takes the emulator lock, pushes to `RAM:boing_twist/`, never the HDF):
+(it takes the emulator lock and shows amiga_mcp's "CLAUDE IS TESTING"
+banner, and pushes to `RAM:boing_twist/`, never the HDF). With `--art` it
+first loads every picture and room (each decoded, none missing), checks
+memory (a second pass takes none, quitting gives it all back) and
+photographs each picture that comes with a room in it. Then:
 the self-test; levels (a picture an easier level doesn't offer is swapped,
 Expert is 8 x 16), a picture bringing its room, the picture list scrolled
 (with more than nine pictures), best scores kept per picture and level;
@@ -364,6 +427,7 @@ render options `lit`, `linear`, `detail` and `zbuf` (settable).
 | `sound_ahi.c/h` | the bounce, click, whoosh and chord, synthesised, through AHI |
 | `tools/make_texture.py` | pictures and room textures to `.btx` |
 | `tools/import_art.py` | generated art to pictures and rooms |
+| `stb_impl.c`, `stb_image.h` | the JPEG decoder (stb_image v2.30, public domain / MIT) |
 | `tests/make_sample_art.py`, `tests/test_import.py` | stand-in art; the tools' tests |
 | `images/`, `themes/` | the pictures' sources; the rooms |
 

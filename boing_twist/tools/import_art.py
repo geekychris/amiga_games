@@ -17,14 +17,20 @@ Files in IN_DIR are recognised by name:
 
 or by a manifest (CSV with a header row; any file name, e.g. ChatGPT's own):
 
-  file,kind,name,level,title,room
-  "DALL-E 2026-10-31 a pastel planet.png",ball,pastel,medium,Pastel Planet,neon
-  neon wall.png,back,neon,,Neon Arcade,
-  neon floor.png,floor,neon,,,
+  file,kind,name,level,title,room,crop_bottom,repeat,seam
+  "DALL-E 2026-10-31 a pastel planet.png",ball,pastel,medium,Pastel Planet,neon,,,10
+  neon wall.png,back,neon,,Neon Arcade,,0.2,,
+  neon floor.png,floor,neon,,,,,3,0
 
   kind: ball, back or floor. title: shown in the game (default: the name).
   room (ball pictures): the room chosen with it (default: a room of the same
-  name, if this import has one).
+  name, if this import has one). crop_bottom (back walls): the fraction cut
+  off the bottom, e.g. a floor painted into the picture that the room's 3D
+  floor replaces. repeat (floors): tiles across, instead of --repeat.
+  seam: for a ball picture, its cross-fade width in percent instead of
+  --seam (wider for a picture whose colours drift from left to right); for
+  a floor, the edge blend in percent (default 8; 0 keeps a floor that
+  already tiles, such as a checkerboard, as it is).
 
 A ball picture is cut to 2:1 keeping the middle (a 3:2 picture loses a
 sixth at the top and at the bottom; a square one a quarter), its left and
@@ -34,8 +40,8 @@ back of the ball doesn't show, optionally softened towards the poles
 average colour), and written to images/<n>_<name>.jpg (2048 x 1024) with
 its line in images/titles.txt. Importing the same name again replaces it.
 
-A room's back wall and floor go to themes/src/<name>_back.png and
-<name>_floor.png (the floor's edges cross-faded so it tiles), the side
+A room's back wall and floor go to themes/src/<name>_back.jpg and
+<name>_floor.jpg (the floor's edges cross-faded so it tiles), the side
 walls (--sides crop: the back wall's outer thirds, darkened; colour: its
 average colour, darkened; off: none), and themes/<name>.theme naming them,
 the floor tiled --repeat times across.
@@ -135,6 +141,8 @@ def seam_error(im):
 # ---------------- rooms ----------------
 
 def tileable(im, pct=8):
+    if pct <= 0:
+        return im.resize((ROOM_SIZE, ROOM_SIZE), Image.LANCZOS)
     """cross-fade opposite edges (both ways) so copies side by side join"""
     S = ROOM_SIZE
     n = max(2, int(S * pct / 100.0))
@@ -159,7 +167,7 @@ def avg_colour(im, k=1.0):
     return f"{r:02X}{g:02X}{b:02X}"
 
 
-def room(name, title, back_src, floor_src, sides, repeat, game, dry):
+def room(name, title, back_src, floor_src, sides, repeat, game, dry, crop_bottom=0.0, floor_blend=8.0):
     src_dir = os.path.join(game, "themes", "src")
     os.makedirs(src_dir, exist_ok=True)
     out = {"name": name, "title": title}
@@ -171,9 +179,11 @@ def room(name, title, back_src, floor_src, sides, repeat, game, dry):
     lines.append(f"background = {avg_colour(base, 0.35) if base else '101018'}")
     lines.append("shadow = floor 50")
     if back:
+        if crop_bottom > 0:
+            back = back.crop((0, 0, back.width, int(back.height * (1 - crop_bottom))))
         back = back.resize((ROOM_SIZE, ROOM_SIZE * 2 // 3), Image.LANCZOS)
         if not dry:
-            back.save(os.path.join(src_dir, f"{name}_back.png"))
+            back.save(os.path.join(src_dir, f"{name}_back.jpg"), quality=90)
         lines.append(f"back = {avg_colour(back)} none 0 {name}_back.btx")
         out["back"] = back
     else:
@@ -181,10 +191,10 @@ def room(name, title, back_src, floor_src, sides, repeat, game, dry):
     if floor:
         w, h = floor.size
         s = min(w, h)
-        floor = tileable(floor.crop(((w - s) // 2, (h - s) // 2, (w - s) // 2 + s, (h - s) // 2 + s)))
+        floor = tileable(floor.crop(((w - s) // 2, (h - s) // 2, (w - s) // 2 + s, (h - s) // 2 + s)), floor_blend)
         if not dry:
-            floor.save(os.path.join(src_dir, f"{name}_floor.png"))
-        lines.append(f"floor = {avg_colour(floor)} none 0 {name}_floor.btx {repeat}")
+            floor.save(os.path.join(src_dir, f"{name}_floor.jpg"), quality=90)
+        lines.append(f"floor = {avg_colour(floor)} none 0 {name}_floor.btx {repeat:g}")
         out["floor"] = floor
     else:
         lines.append("floor = 202028 none 0")
@@ -193,7 +203,7 @@ def room(name, title, back_src, floor_src, sides, repeat, game, dry):
         for side, box in (("left", (0, 0, third, back.height)), ("right", (back.width - third, 0, back.width, back.height))):
             wall = darken(back.crop(box), 0.55)
             if not dry:
-                wall.save(os.path.join(src_dir, f"{name}_{side}.png"))
+                wall.save(os.path.join(src_dir, f"{name}_{side}.jpg"), quality=90)
             lines.append(f"{side} = {avg_colour(wall)} none 0 {name}_{side}.btx")
             out[side] = wall
         lines.append(f"ceiling = {avg_colour(back.crop((0, 0, back.width, back.height // 6)), 0.4)} none 0")
@@ -254,11 +264,20 @@ def collect(in_dir, manifest):
                 title = (r.get("title") or "").strip()
                 if kind == "ball":
                     lv = (r.get("level") or "easy").strip().lower()
-                    balls.append({"src": path, "name": name, "level": lv if lv in LEVELS else "easy",
-                                  "title": title or title_of(name), "room": slug(r["room"]) if (r.get("room") or "").strip() else ""})
+                    b = {"src": path, "name": name, "level": lv if lv in LEVELS else "easy",
+                         "title": title or title_of(name), "room": slug(r["room"]) if (r.get("room") or "").strip() else ""}
+                    if (r.get("seam") or "").strip():
+                        b["seam_pct"] = float(r["seam"])
+                    balls.append(b)
                 elif kind in ("back", "floor"):
                     rm = rooms.setdefault(name, {"title": title_of(name)})
                     rm[kind] = path
+                    if (r.get("crop_bottom") or "").strip():
+                        rm["crop_bottom"] = float(r["crop_bottom"])
+                    if (r.get("repeat") or "").strip():
+                        rm["repeat"] = float(r["repeat"])
+                    if kind == "floor" and (r.get("seam") or "").strip():
+                        rm["floor_blend"] = float(r["seam"])
                     if title:
                         rm["title"] = title
         return balls, rooms
@@ -368,11 +387,12 @@ def main():
 
     made_rooms = {}
     for name, r in rooms.items():
-        made_rooms[name] = room(name, r["title"], r.get("back"), r.get("floor"), a.sides, a.repeat, a.game, a.dry_run)
+        made_rooms[name] = room(name, r["title"], r.get("back"), r.get("floor"), a.sides, r.get("repeat", a.repeat),
+                                a.game, a.dry_run, r.get("crop_bottom", 0.0), r.get("floor_blend", 8.0))
         print(f"room  {name}: themes/{name}.theme")
     n = next_number(images)
     for b in balls:
-        im = ball_picture(b["src"], a.seam, a.poles)
+        im = ball_picture(b["src"], b.get("seam_pct", a.seam), a.poles)
         stem = existing_stem(images, b["name"])
         if not stem:
             stem = f"{n}_{b['name']}"

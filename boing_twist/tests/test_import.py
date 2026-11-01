@@ -73,7 +73,7 @@ def main():
     check("name = Neon" in theme and "back = " in theme and "neon_back.btx" in theme and "neon_floor.btx 4" in theme,
           "neon.theme names its textures, the floor tiled 4 times")
     check("neon_left.btx" in theme and "neon_right.btx" in theme, "side walls cropped from the back wall")
-    fl = Image.open(os.path.join(game, "themes", "src", "neon_floor.png")).convert("RGB")
+    fl = Image.open(os.path.join(game, "themes", "src", "neon_floor.jpg")).convert("RGB")
     rawfl = Image.open(os.path.join(art, "room_neon_floor.png")).convert("RGB").resize(fl.size)
     check(edge_diff(fl, "x") < edge_diff(rawfl, "x") / 3 and edge_diff(fl, "y") < edge_diff(rawfl, "y") / 3,
           f"the floor tiles: edges {edge_diff(rawfl, 'x'):.1f}/{edge_diff(rawfl, 'y'):.1f} -> {edge_diff(fl, 'x'):.1f}/{edge_diff(fl, 'y'):.1f}")
@@ -98,10 +98,21 @@ def main():
     r = run(os.path.join(GAME, "tools", "make_texture.py"), "--all", "--game", game, "--size", "512x256")
     check(r.returncode == 0, "make_texture ran")
     h = btx_head(os.path.join(game, "data", "3_pastel.btx"))
-    check(h[0] == b"BTX2" and h[1:3] == (512, 256), f"BTX2 512 x 256: {h[:3]}")
+    check(h[0] == b"BTX3" and h[1:3] == (512, 256), f"BTX3 512 x 256: {h[:3]}")
     check(h[3] == "PASTEL PLANET" and h[4] == 1 and h[5] == "neon", f"title, level, room in the header: {h[3:]}")
-    size = os.path.getsize(os.path.join(game, "data", "3_pastel.btx"))
-    check(size == 72 + 128 * 64 * 3 + 512 * 256 * 3, f"thumbnail and picture: {size} bytes")
+    path = os.path.join(game, "data", "3_pastel.btx")
+    size = os.path.getsize(path)
+    with open(path, "rb") as f:
+        d = f.read()
+    at = 72 + 128 * 64 * 3
+    jl = int.from_bytes(d[at:at + 4], "big")
+    check(size == at + 4 + jl and d[at + 4:at + 6] == b"\xff\xd8", f"thumbnail, then a {jl}-byte JPEG: {size} bytes")
+    import io
+    pic = Image.open(io.BytesIO(d[at + 4:])).convert("RGB")
+    check(pic.size == (512, 256), "the JPEG decodes to the picture's size")
+    r3 = run(os.path.join(GAME, "tools", "make_texture.py"), os.path.join(game, "images", "3_pastel.jpg"),
+             os.path.join(tmp, "raw.btx"), "--raw", "--size", "512x256")
+    check(r3.returncode == 0 and os.path.getsize(os.path.join(tmp, "raw.btx")) == at + 512 * 256 * 3, "--raw writes BTX2")
     for t in ("neon_back", "neon_floor"):
         check(os.path.exists(os.path.join(game, "themes", t + ".btx")), f"themes/{t}.btx")
     r2 = run(os.path.join(GAME, "tools", "make_texture.py"), "--all", "--game", game, "--size", "512x256")
