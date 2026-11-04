@@ -8,7 +8,8 @@
  * Scans DH2:Dev/ for executables, sorts by:
  *   1. New apps first (not seen in previous runs)
  *   2. Then by launch count (most used first)
- * Saves launch stats to DH2:Dev/launcher.stats
+ * or, in A-Z mode (the Sort cycle gadget or the O key), alphabetically.
+ * Saves launch stats and the sort mode to DH2:Dev/launcher.stats
  *
  * If APP_DIR holds a launcher.list file, the list comes from it instead
  * of the directory scan: one "Title|program path" per line (# comments).
@@ -22,6 +23,7 @@
  *   Double-click  Launch app
  *   Up/Down       Navigate list
  *   Enter         Launch selected
+ *   O             Toggle sort: most used / A-Z
  *   ESC           Quit
  */
 
@@ -97,6 +99,13 @@ struct Library       *GadToolsBase = NULL;
 #define GID_LIST    1
 #define GID_LAUNCH  2
 #define GID_QUIT    3
+#define GID_SORT    4
+
+/* The sort mode is kept in the stats file as a "#sort <n>" line; older
+ * launchers read it as an unknown app and ignore it. */
+#define SORT_KEY    "#sort"
+#define SORT_USED   0
+#define SORT_AZ     1
 
 /* Skip these extensions */
 static const char *skip_ext[] = {
@@ -222,6 +231,7 @@ static WORD app_count = 0;
 static struct List app_list;
 static WORD selected = 0;
 static WORD from_list = 0;
+static WORD sort_mode = SORT_USED;
 
 /* ---- Stats ---- */
 
@@ -263,7 +273,9 @@ static void stats_load(void)
         while (*p && *p != '\n') p++;
         if (*p == '\n') p++;
 
-        if (ni > 0) {
+        if (ni > 0 && strcmp(name, SORT_KEY) == 0) {
+            sort_mode = (count == SORT_AZ) ? SORT_AZ : SORT_USED;
+        } else if (ni > 0) {
             WORD i;
             /* Only update stats for apps we've actually discovered on disk.
              * Deleted apps must not consume MAX_APPS slots and block current
@@ -287,6 +299,8 @@ static void stats_save(void)
 
     fh = Open((STRPTR)STATS_FILE, MODE_NEWFILE);
     if (!fh) return;
+    sprintf(buf, SORT_KEY " %ld\n", (long)sort_mode);
+    Write(fh, buf, strlen(buf));
     for (i = 0; i < app_count; i++) {
         LONG slen;
         sprintf(buf, "%s %ld\n", apps[i].name, (long)apps[i].count);
@@ -440,6 +454,17 @@ static void scan_directory(void)
 
 /* ---- Sort ---- */
 
+/* strcmp ignoring case, so "ScAIry Fun" sorts among the S's */
+static int name_cmp(const char *a, const char *b)
+{
+    for (;; a++, b++) {
+        char ca = *a, cb = *b;
+        if (ca >= 'A' && ca <= 'Z') ca += 32;
+        if (cb >= 'A' && cb <= 'Z') cb += 32;
+        if (ca != cb || !ca) return (int)(UBYTE)ca - (int)(UBYTE)cb;
+    }
+}
+
 static void sort_apps(void)
 {
     WORD i, j;
@@ -448,7 +473,9 @@ static void sort_apps(void)
         j = i - 1;
         while (j >= 0) {
             WORD swap = 0;
-            if (tmp.is_new && !apps[j].is_new) {
+            if (sort_mode == SORT_AZ) {
+                if (name_cmp(tmp.name, apps[j].name) < 0) swap = 1;
+            } else if (tmp.is_new && !apps[j].is_new) {
                 swap = 1;
             } else if (tmp.is_new && apps[j].is_new) {
                 /* Both new: sort alphabetically */
@@ -509,6 +536,27 @@ static void build_list(void)
     }
 }
 
+/* Re-sort in the current mode, keeping the selected app selected */
+static void resort(struct Window *win, struct Gadget *list_gad)
+{
+    char sel[NAME_LEN];
+    WORD i;
+
+    sel[0] = 0;
+    if (selected >= 0 && selected < app_count) strcpy(sel, apps[selected].name);
+    GT_SetGadgetAttrs(list_gad, win, NULL, GTLV_Labels, ~0UL, TAG_DONE);
+    sort_apps();
+    build_list();
+    selected = 0;
+    for (i = 0; i < app_count; i++)
+        if (strcmp(apps[i].name, sel) == 0) { selected = i; break; }
+    GT_SetGadgetAttrs(list_gad, win, NULL,
+        GTLV_Labels,      (ULONG)&app_list,
+        GTLV_Selected,    (ULONG)selected,
+        GTLV_MakeVisible, (ULONG)selected,
+        TAG_DONE);
+}
+
 /* ---- Launch ---- */
 
 static void launch_app(WORD idx)
@@ -544,7 +592,9 @@ int main(int argc, char *argv[])
     struct Screen *wb_screen = NULL;
     APTR vi = NULL;
     struct Gadget *glist = NULL, *gad;
-    struct Gadget *list_gad = NULL;
+    struct Gadget *list_gad = NULL, *sort_gad = NULL;
+    static STRPTR sort_labels[] = { (STRPTR)"Most used", (STRPTR)"A-Z", NULL };
+    WORD bw = (WIN_W - 32) / 3;   /* three buttons along the bottom */
     struct Window *win = NULL;
     struct NewGadget ng;
     WORD running = 1;
@@ -608,15 +658,24 @@ int main(int argc, char *argv[])
 
     /* Launch button */
     ng.ng_TopEdge = WIN_H - 28;
-    ng.ng_Width = 120;
+    ng.ng_Width = bw;
     ng.ng_Height = 20;
     ng.ng_LeftEdge = 8;
     ng.ng_GadgetText = (UBYTE *)"Launch";
     ng.ng_GadgetID = GID_LAUNCH;
     gad = CreateGadget(BUTTON_KIND, gad, &ng, TAG_DONE);
 
+    /* Sort order: most used first, or A-Z */
+    ng.ng_LeftEdge = 16 + bw;
+    ng.ng_GadgetText = NULL;
+    ng.ng_GadgetID = GID_SORT;
+    sort_gad = gad = CreateGadget(CYCLE_KIND, gad, &ng,
+        GTCY_Labels, (ULONG)sort_labels,
+        GTCY_Active, (ULONG)sort_mode,
+        TAG_DONE);
+
     /* Quit button */
-    ng.ng_LeftEdge = WIN_W - 128;
+    ng.ng_LeftEdge = WIN_W - 8 - bw;
     ng.ng_GadgetText = (UBYTE *)"Quit";
     ng.ng_GadgetID = GID_QUIT;
     gad = CreateGadget(BUTTON_KIND, gad, &ng, TAG_DONE);
@@ -628,7 +687,7 @@ int main(int argc, char *argv[])
         WA_Top,         WIN_TOP,
         WA_Width,       WIN_W,
         WA_Height,      WIN_H,
-        WA_Title,       (ULONG)"Launcher  W/S=Nav Enter=Run",
+        WA_Title,       (ULONG)"Launcher  W/S Enter O=Sort",
 #ifdef __PPC__
         WA_ScreenTitle, (ULONG)"Game Launcher",
 #endif
@@ -694,6 +753,10 @@ int main(int argc, char *argv[])
                     }
                 } else if (igad->GadgetID == GID_LAUNCH) {
                     launch_app(selected);
+                } else if (igad->GadgetID == GID_SORT) {
+                    sort_mode = (code == SORT_AZ) ? SORT_AZ : SORT_USED;
+                    resort(win, list_gad);
+                    stats_save();
                 } else if (igad->GadgetID == GID_QUIT) {
                     running = 0;
                 }
@@ -710,6 +773,15 @@ int main(int argc, char *argv[])
 
                 /* ESC exits the launcher */
                 if (key_pop(0x45)) { running = 0; break; }
+
+                /* O toggles the sort order */
+                if (key_pop(0x18)) {
+                    sort_mode = (sort_mode == SORT_AZ) ? SORT_USED : SORT_AZ;
+                    GT_SetGadgetAttrs(sort_gad, win, NULL,
+                        GTCY_Active, (ULONG)sort_mode, TAG_DONE);
+                    resort(win, list_gad);
+                    stats_save();
+                }
 
                 /* Enter to launch */
                 if (key_pop(0x44) || key_pop(0x43)) want_launch = 1;
