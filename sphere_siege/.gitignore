@@ -1,0 +1,8 @@
+sphere_siege
+sphere_siege_os4
+sphere_siege_test
+obj68k/
+objppc/
+e2e_shots_os4/
+tests/host_tests
+tests/host_tests_san

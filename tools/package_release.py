@@ -70,6 +70,8 @@ EXTRA = [
      "Up/down: forward/back. Left/right: turn. Space / fire: climb. B: autopilot.", NEEDS_68K),
     ("canyon_rail", "Canyon Rail", "A rail shooter down a canyon: turrets, drones and their bolts, and a guardian at the end of each stage.",
      "Arrows / joystick: sight. Space / fire: fire. B: autopilot.", NEEDS_68K),
+    ("sphere_siege", "Sphere Siege", "A shooter inside a hollow sphere: ride the inside of the shell, fire through the centre at enemies spiralling out of the vortex, swooping at you and running along the shell. A siege wave of armoured wardens every fourth wave.",
+     "Arrows / joystick: slide over the shell. Space / fire: fire. B: autopilot. Help: how to play.", NEEDS_68K),
     ("ace_pilot2", "Ace Pilot 2", "A biplane war in 3D: fly a Swallow scout of Larkspur Squadron over the river Sellen. Eight missions: patrols, balloons, an escort, a train, bombers, a supply depot, an enemy aerodrome and the Grey Falcon.",
      "Left/right: bank. Up/down: nose down/up. Space / fire: guns. A / Z: throttle. V: chase / cockpit. I: invert. B: autopilot. Help: how to fly.", NEEDS_68K),
     ("boing_twist", "Boing Twist", "A twisty puzzle on the Boing ball (AmigaOS 4 only): a picture wrapped round the ball is cut into tiles and jumbled. Twist bands round the ball and flip halves of it over to put the picture back. Four levels from 32 tiles to 128; 17 pictures, from a toy town and a coral reef to an old map, a circuit board and the planets (plus a Boing-ball warm-up), each in a matching room of its own among ten; add your own pictures and rooms.",
