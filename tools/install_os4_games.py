@@ -6,7 +6,9 @@
 Reads dist/release/ (made by tools/package_release.py): unpacks each
 <id>-amigaos4.zip drawer (program + data) to DH1:Games/<id>/, writes
 launcher/launcher.list from the manifest and copies both it and
-launcher/launcher_os4 (as DH1:launcher) to the HDF.
+launcher/launcher_os4 (as DH1:launcher) to the HDF, with the picture
+view's pictures and descriptions (tools/launcher_pictures.py) in
+DH1:LauncherPics/.
 
 QEMU must not be running: the HDF is written directly with xdftool.
 
@@ -69,6 +71,7 @@ def main():
     ap.add_argument("--hdf", default=os.path.expanduser(os.environ.get("OS4_DEV_HDF", "~/AmigaOS4/amigaos4-dev.hdf")))
     ap.add_argument("--release", default=os.path.join(EXAMPLES, "dist", "release"))
     ap.add_argument("--list-only", action="store_true", help="only write launcher/launcher.list")
+    ap.add_argument("--pics", default=os.path.join(EXAMPLES, "dist", "launcher_pics"))
     opt = ap.parse_args()
 
     m = json.load(open(os.path.join(opt.release, "manifest.json")))
@@ -81,6 +84,9 @@ def main():
         return
     if subprocess.run(["pgrep", "-f", f"qemu-system-ppc.*{opt.hdf}"], capture_output=True).returncode == 0:
         sys.exit("QEMU has the HDF open; stop the emulator first")
+
+    subprocess.run([sys.executable, os.path.join(HERE, "launcher_pictures.py"),
+                    "--release", opt.release, "--out", opt.pics], check=True)
 
     stage = tempfile.mkdtemp(prefix="os4games")
     try:
@@ -100,6 +106,11 @@ def main():
                 cmd += ["+", "makedir", rel]
                 for f in sorted(files):
                     cmd += ["+", "write", os.path.join(root, f), f"{rel}/{f}"]
+        if "LauncherPics" in have:
+            cmd += ["+", "delete", "LauncherPics", "all"]
+        cmd += ["+", "makedir", "LauncherPics"]
+        for f in sorted(os.listdir(opt.pics)):
+            cmd += ["+", "write", os.path.join(opt.pics, f), "LauncherPics/" + f]
         for name in ("launcher.list", "launcher"):
             if name in have:
                 cmd += ["+", "delete", name]       # xdftool won't overwrite, even with -f

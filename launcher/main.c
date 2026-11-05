@@ -11,6 +11,11 @@
  * or, in A-Z mode (the Sort cycle gadget or the O key), alphabetically.
  * Saves launch stats and the sort mode to DH2:Dev/launcher.stats
  *
+ * AmigaOS 4 also has a picture view (the View cycle gadget or the V key):
+ * the list on the left and, beside it, a picture of the selected game with
+ * its description, from APP_DIR LauncherPics/<program>.png and .txt
+ * (written by tools/launcher_pictures.py, installed by install_os4_games.py).
+ *
  * If APP_DIR holds a launcher.list file, the list comes from it instead
  * of the directory scan: one "Title|program path" per line (# comments).
  * The AmigaOS 4 build (make ARCH=ppc) uses DH1: and expects a list,
@@ -24,6 +29,7 @@
  *   Up/Down       Navigate list
  *   Enter         Launch selected
  *   O             Toggle sort: most used / A-Z
+ *   V             Toggle the picture view (AmigaOS 4)
  *   ESC           Quit
  */
 
@@ -38,6 +44,8 @@
 #include <devices/input.h>
 #ifdef __PPC__
 #include <stdio.h>
+#include <proto/datatypes.h>
+#include <datatypes/pictureclass.h>
 #endif
 #include <devices/inputevent.h>
 #ifndef __PPC__
@@ -88,7 +96,11 @@ struct Library       *GadToolsBase = NULL;
 
 #ifdef __PPC__
 #define WIN_W       360
-#define WIN_H       380
+#define WIN_H       440
+#define PIC_W       320         /* tools/launcher_pictures.py: PIC_W, PIC_H */
+#define PIC_H       240
+#define PANEL_W     (PIC_W + 16)    /* the picture view widens the window by this */
+#define PIC_DIR     APP_DIR "LauncherPics/"
 #else
 #define WIN_W       320
 #define WIN_H       300
@@ -100,12 +112,16 @@ struct Library       *GadToolsBase = NULL;
 #define GID_LAUNCH  2
 #define GID_QUIT    3
 #define GID_SORT    4
+#define GID_VIEW    5
 
 /* The sort mode is kept in the stats file as a "#sort <n>" line; older
  * launchers read it as an unknown app and ignore it. */
 #define SORT_KEY    "#sort"
 #define SORT_USED   0
 #define SORT_AZ     1
+#define VIEW_KEY    "#view"
+#define VIEW_LIST   0
+#define VIEW_PICS   1
 
 /* Skip these extensions */
 static const char *skip_ext[] = {
@@ -232,6 +248,7 @@ static struct List app_list;
 static WORD selected = 0;
 static WORD from_list = 0;
 static WORD sort_mode = SORT_USED;
+static WORD view_mode = VIEW_LIST;
 
 /* ---- Stats ---- */
 
@@ -275,6 +292,8 @@ static void stats_load(void)
 
         if (ni > 0 && strcmp(name, SORT_KEY) == 0) {
             sort_mode = (count == SORT_AZ) ? SORT_AZ : SORT_USED;
+        } else if (ni > 0 && strcmp(name, VIEW_KEY) == 0) {
+            view_mode = (count == VIEW_PICS) ? VIEW_PICS : VIEW_LIST;
         } else if (ni > 0) {
             WORD i;
             /* Only update stats for apps we've actually discovered on disk.
@@ -300,6 +319,8 @@ static void stats_save(void)
     fh = Open((STRPTR)STATS_FILE, MODE_NEWFILE);
     if (!fh) return;
     sprintf(buf, SORT_KEY " %ld\n", (long)sort_mode);
+    Write(fh, buf, strlen(buf));
+    sprintf(buf, VIEW_KEY " %ld\n", (long)view_mode);
     Write(fh, buf, strlen(buf));
     for (i = 0; i < app_count; i++) {
         LONG slen;
@@ -557,6 +578,175 @@ static void resort(struct Window *win, struct Gadget *list_gad)
         TAG_DONE);
 }
 
+#ifdef __PPC__
+/* ---- Picture view (AmigaOS 4) ---- */
+
+static Object *pic_obj = NULL;      /* the picture datatype object */
+static struct BitMap *pic_bm = NULL;
+static WORD pic_w, pic_h;
+static WORD pic_idx = -1;           /* the app whose picture is loaded */
+static char pic_desc[640];
+static APTR panel_vi = NULL;
+static WORD panel_top = 0;
+
+/* The program's file name without its directory or arguments:
+ * "DH1:Games/tank_duel/tank_duel FULLSCREEN" -> "tank_duel" */
+static void prog_name(const AppEntry *a, char *out, LONG size)
+{
+    const char *p = a->path[0] ? a->path : a->name, *base = p, *q;
+    LONG n = 0;
+    for (q = p; *q && *q != ' '; q++)
+        if (*q == '/' || *q == ':') base = q + 1;
+    while (base < q && n < size - 1) out[n++] = *base++;
+    out[n] = 0;
+}
+
+static void pic_free(void)
+{
+    if (pic_obj) DisposeDTObject(pic_obj);
+    pic_obj = NULL;
+    pic_bm = NULL;
+}
+
+static void pic_load(struct Window *win, WORD idx)
+{
+    char name[NAME_LEN + 8], path[NAME_LEN + 40];
+    BPTR fh;
+    LONG len;
+
+    pic_free();
+    pic_desc[0] = 0;
+    pic_idx = idx;
+    if (idx < 0 || idx >= app_count) return;
+    prog_name(&apps[idx], name, NAME_LEN);
+
+    sprintf(path, PIC_DIR "%s.png", name);
+    pic_obj = NewDTObject((STRPTR)path,
+        DTA_GroupID,          GID_PICTURE,
+        PDTA_Screen,          (ULONG)win->WScreen,
+        PDTA_Remap,           TRUE,
+        PDTA_DestMode,        PMODE_V43,
+        PDTA_UseFriendBitMap, TRUE,
+        TAG_DONE);
+    if (pic_obj) {
+        struct BitMapHeader *bmh = NULL;
+        DoDTMethod(pic_obj, NULL, NULL, DTM_PROCLAYOUT, NULL, TRUE);
+        GetDTAttrs(pic_obj, PDTA_DestBitMap, (ULONG)&pic_bm,
+                            PDTA_BitMapHeader, (ULONG)&bmh, TAG_DONE);
+        if (!pic_bm || !bmh) {
+            pic_free();
+        } else {
+            pic_w = bmh->bmh_Width < PIC_W ? bmh->bmh_Width : PIC_W;
+            pic_h = bmh->bmh_Height < PIC_H ? bmh->bmh_Height : PIC_H;
+        }
+    }
+
+    sprintf(path, PIC_DIR "%s.txt", name);
+    if ((fh = Open((STRPTR)path, MODE_OLDFILE)) != 0) {
+        len = Read(fh, pic_desc, sizeof(pic_desc) - 1);
+        Close(fh);
+        pic_desc[len > 0 ? len : 0] = 0;
+    }
+}
+
+/* Draw lines of text word-wrapped to width w from (x, y), stopping at y_max */
+static WORD draw_wrapped(struct RastPort *rp, const char *s, WORD x, WORD y, WORD w, WORD y_max)
+{
+    struct TextExtent te;
+    WORD fh = rp->TxHeight + 2;
+
+    while (*s && y + fh <= y_max) {
+        LONG left = 0, fit, cut;
+        while (s[left] && s[left] != '\n') left++;
+        fit = TextFit(rp, (STRPTR)s, left, &te, NULL, 1, w, fh);
+        cut = fit;
+        if (fit < left) {                   /* break at the last space that fits */
+            while (cut > 0 && s[cut] != ' ') cut--;
+            if (cut == 0) cut = fit;
+        }
+        Move(rp, x, y + rp->TxBaseline);
+        Text(rp, (STRPTR)s, cut);
+        y += fh;
+        s += cut;
+        while (*s == ' ' || *s == '\n') s++;
+    }
+    return y;
+}
+
+static void draw_panel(struct Window *win)
+{
+    struct RastPort *rp = win->RPort;
+    struct DrawInfo *dri;
+    WORD x = WIN_W, y = panel_top;
+    WORD bottom = win->Height - win->BorderBottom - 8;
+    UWORD text = 1, back = 0;
+
+    if (view_mode != VIEW_PICS) return;
+    if ((dri = GetScreenDrawInfo(win->WScreen)) != NULL) {
+        text = dri->dri_Pens[TEXTPEN];
+        back = dri->dri_Pens[BACKGROUNDPEN];
+        FreeScreenDrawInfo(win->WScreen, dri);
+    }
+    SetDrMd(rp, JAM1);
+    SetAPen(rp, back);
+    RectFill(rp, x - 4, y - 4, x + PIC_W + 4, bottom);
+    if (panel_vi)
+        DrawBevelBox(rp, x - 2, y - 2, PIC_W + 4, PIC_H + 4,
+                     GT_VisualInfo, (ULONG)panel_vi, GTBB_Recessed, TRUE, TAG_DONE);
+    if (pic_bm) {
+        BltBitMapRastPort(pic_bm, 0, 0, rp, x + (PIC_W - pic_w) / 2,
+                          y + (PIC_H - pic_h) / 2, pic_w, pic_h, 0xC0);
+    } else {
+        static const char *none = "No picture";
+        SetAPen(rp, back);
+        RectFill(rp, x, y, x + PIC_W - 1, y + PIC_H - 1);
+        SetAPen(rp, text);
+        Move(rp, x + (PIC_W - TextLength(rp, (STRPTR)none, strlen(none))) / 2,
+             y + PIC_H / 2 + rp->TxBaseline / 2);
+        Text(rp, (STRPTR)none, strlen(none));
+    }
+    y += PIC_H + 10;
+    SetAPen(rp, text);
+    if (pic_idx >= 0 && pic_idx < app_count) {
+        SetSoftStyle(rp, FSF_BOLD, FSF_BOLD);
+        y = draw_wrapped(rp, apps[pic_idx].name, x, y, PIC_W, bottom);
+        SetSoftStyle(rp, 0, FSF_BOLD);
+        y += 4;
+    }
+    draw_wrapped(rp, pic_desc, x, y, PIC_W, bottom);
+}
+
+/* Switch between the list and the picture view: widen or narrow the window */
+static void set_view(struct Window *win, WORD mode)
+{
+    WORD w = WIN_W + (mode == VIEW_PICS ? PANEL_W : 0);
+    view_mode = mode;
+    if (mode == VIEW_PICS) pic_load(win, selected);
+    else pic_free();
+    if (win->Width != w) {
+        WORD left = win->LeftEdge;
+        if (left + w > win->WScreen->Width) left = win->WScreen->Width - w;
+        if (left < 0) left = 0;
+        ChangeWindowBox(win, left, win->TopEdge, w, win->Height);   /* IDCMP_NEWSIZE redraws */
+    } else {
+        draw_panel(win);
+    }
+}
+#endif
+
+/* Show the selected app's picture (picture view only) */
+static void show_pic(struct Window *win)
+{
+#ifdef __PPC__
+    if (view_mode == VIEW_PICS) {
+        pic_load(win, selected);
+        draw_panel(win);
+    }
+#else
+    (void)win;
+#endif
+}
+
 /* ---- Launch ---- */
 
 static void launch_app(WORD idx)
@@ -594,7 +784,15 @@ int main(int argc, char *argv[])
     struct Gadget *glist = NULL, *gad;
     struct Gadget *list_gad = NULL, *sort_gad = NULL;
     static STRPTR sort_labels[] = { (STRPTR)"Most used", (STRPTR)"A-Z", NULL };
+#ifdef __PPC__
+    struct Gadget *view_gad = NULL;
+    static STRPTR view_labels[] = { (STRPTR)"List", (STRPTR)"Pictures", NULL };
+    WORD bw = (WIN_W - 24) / 2;   /* two rows of two along the bottom */
+    WORD rows = 2;
+#else
     WORD bw = (WIN_W - 32) / 3;   /* three buttons along the bottom */
+    WORD rows = 1;
+#endif
     struct Window *win = NULL;
     struct NewGadget ng;
     WORD running = 1;
@@ -645,7 +843,7 @@ int main(int argc, char *argv[])
     ng.ng_LeftEdge = 8;
     ng.ng_TopEdge = top_edge + 4;
     ng.ng_Width = WIN_W - 16;
-    ng.ng_Height = WIN_H - top_edge - 40;
+    ng.ng_Height = WIN_H - top_edge - 16 - 24 * rows;
     ng.ng_GadgetText = NULL;
     ng.ng_GadgetID = GID_LIST;
     ng.ng_VisualInfo = vi;
@@ -666,13 +864,29 @@ int main(int argc, char *argv[])
     gad = CreateGadget(BUTTON_KIND, gad, &ng, TAG_DONE);
 
     /* Sort order: most used first, or A-Z */
+#ifdef __PPC__
+    ng.ng_LeftEdge = 8;
+    ng.ng_TopEdge = WIN_H - 52;
+#else
     ng.ng_LeftEdge = 16 + bw;
+#endif
     ng.ng_GadgetText = NULL;
     ng.ng_GadgetID = GID_SORT;
     sort_gad = gad = CreateGadget(CYCLE_KIND, gad, &ng,
         GTCY_Labels, (ULONG)sort_labels,
         GTCY_Active, (ULONG)sort_mode,
         TAG_DONE);
+
+#ifdef __PPC__
+    /* View: the list alone, or the list with the selected game's picture */
+    ng.ng_LeftEdge = WIN_W - 8 - bw;
+    ng.ng_GadgetID = GID_VIEW;
+    view_gad = gad = CreateGadget(CYCLE_KIND, gad, &ng,
+        GTCY_Labels, (ULONG)view_labels,
+        GTCY_Active, (ULONG)view_mode,
+        TAG_DONE);
+    ng.ng_TopEdge = WIN_H - 28;
+#endif
 
     /* Quit button */
     ng.ng_LeftEdge = WIN_W - 8 - bw;
@@ -685,11 +899,14 @@ int main(int argc, char *argv[])
     win = OpenWindowTags(NULL,
         WA_Left,        WIN_LEFT,
         WA_Top,         WIN_TOP,
-        WA_Width,       WIN_W,
         WA_Height,      WIN_H,
-        WA_Title,       (ULONG)"Launcher  W/S Enter O=Sort",
 #ifdef __PPC__
+        WA_Width,       WIN_W + (view_mode == VIEW_PICS ? PANEL_W : 0),
+        WA_Title,       (ULONG)"Launcher  W/S Enter O=Sort V=View",
         WA_ScreenTitle, (ULONG)"Game Launcher",
+#else
+        WA_Width,       WIN_W,
+        WA_Title,       (ULONG)"Launcher  W/S Enter O=Sort",
 #endif
         WA_PubScreen,   (ULONG)wb_screen,
         WA_Gadgets,     (ULONG)glist,
@@ -699,7 +916,7 @@ int main(int argc, char *argv[])
         WA_Activate,    TRUE,
         WA_SmartRefresh,TRUE,
         WA_IDCMP,       IDCMP_CLOSEWINDOW | IDCMP_GADGETUP | IDCMP_REFRESHWINDOW | IDCMP_INTUITICKS |
-                        IDCMP_ACTIVEWINDOW,
+                        IDCMP_ACTIVEWINDOW | IDCMP_NEWSIZE,
         TAG_DONE);
 
     UnlockPubScreen(NULL, wb_screen);
@@ -707,6 +924,11 @@ int main(int argc, char *argv[])
 
     if (!win) goto cleanup;
     GT_RefreshWindow(win, NULL);
+#ifdef __PPC__
+    panel_vi = vi;
+    panel_top = top_edge + 4;
+#endif
+    show_pic(win);
 
     /* ---- Event loop ---- */
     while (running) {
@@ -736,12 +958,24 @@ int main(int argc, char *argv[])
 
             case IDCMP_REFRESHWINDOW:
                 GT_BeginRefresh(win);
+#ifdef __PPC__
+                draw_panel(win);
+#endif
                 GT_EndRefresh(win, TRUE);
+                break;
+
+            case IDCMP_NEWSIZE:
+#ifdef __PPC__
+                draw_panel(win);
+#endif
                 break;
 
             case IDCMP_GADGETUP:
                 if (igad->GadgetID == GID_LIST) {
                     selected = code;
+#ifdef __PPC__
+                    if (selected != pic_idx) show_pic(win);
+#endif
                     /* Double-click detection */
                     if (selected == last_click_item && DoubleClick(last_click_secs, last_click_micros, secs, micros)) {
                         launch_app(selected);
@@ -756,7 +990,13 @@ int main(int argc, char *argv[])
                 } else if (igad->GadgetID == GID_SORT) {
                     sort_mode = (code == SORT_AZ) ? SORT_AZ : SORT_USED;
                     resort(win, list_gad);
+                    show_pic(win);
                     stats_save();
+#ifdef __PPC__
+                } else if (igad->GadgetID == GID_VIEW) {
+                    set_view(win, code == VIEW_PICS ? VIEW_PICS : VIEW_LIST);
+                    stats_save();
+#endif
                 } else if (igad->GadgetID == GID_QUIT) {
                     running = 0;
                 }
@@ -780,8 +1020,19 @@ int main(int argc, char *argv[])
                     GT_SetGadgetAttrs(sort_gad, win, NULL,
                         GTCY_Active, (ULONG)sort_mode, TAG_DONE);
                     resort(win, list_gad);
+                    show_pic(win);
                     stats_save();
                 }
+
+#ifdef __PPC__
+                /* V toggles the picture view */
+                if (key_pop(0x34)) {
+                    set_view(win, view_mode == VIEW_PICS ? VIEW_LIST : VIEW_PICS);
+                    GT_SetGadgetAttrs(view_gad, win, NULL,
+                        GTCY_Active, (ULONG)view_mode, TAG_DONE);
+                    stats_save();
+                }
+#endif
 
                 /* Enter to launch */
                 if (key_pop(0x44) || key_pop(0x43)) want_launch = 1;
@@ -831,6 +1082,12 @@ int main(int argc, char *argv[])
                         GTLV_MakeVisible, (ULONG)selected,
                         TAG_DONE);
                 }
+#ifdef __PPC__
+                /* load the picture once the selection rests (not while a key repeats) */
+                if (view_mode == VIEW_PICS && selected != pic_idx &&
+                    !(key_held[0x11] || key_held[0x4C] || key_held[0x21] || key_held[0x4D]))
+                    show_pic(win);
+#endif
                 if (want_launch) {
                     launch_app(selected);
                 }
@@ -842,6 +1099,9 @@ int main(int argc, char *argv[])
 
 cleanup:
     input_handler_cleanup();
+#ifdef __PPC__
+    pic_free();
+#endif
     if (win) CloseWindow(win);
     if (glist) FreeGadgets(glist);
     if (vi) FreeVisualInfo(vi);
