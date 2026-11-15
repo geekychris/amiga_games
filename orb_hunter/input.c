@@ -74,23 +74,14 @@ UWORD input_read(void)
     /* Read joystick port 2 (JOY1DAT register) */
     joy = custom.joy1dat;
 
-    /* Joystick decoding for digital joystick:
-     * JOY1DAT low byte = X counter, high byte = Y counter.
-     * For a digital joystick:
-     *   Right: bit1=1, bit0=0  (low byte = 0x02)
-     *   Left:  bit1=0, bit0=1  (low byte = 0x01)
-     *   Down:  bit9=1, bit8=0  (high byte = 0x02)
-     *   Up:    bit9=0, bit8=1  (high byte = 0x01)
-     */
-    {
-        UWORD h = joy & 3;        /* horizontal bits */
-        UWORD v = (joy >> 8) & 3; /* vertical bits */
-
-        if (h == 2) result |= INPUT_RIGHT;
-        if (h == 1) result |= INPUT_LEFT;
-        if (v == 1) result |= INPUT_UP;
-        if (v == 2) result |= INPUT_DOWN;
-    }
+    /* Joystick: the standard JOY1DAT decoding (Hardware Reference Manual):
+     *   right = bit 1, left = bit 9, down = bit 1 ^ bit 0, up = bit 9 ^ bit 8
+     * fix: it compared the low/high bit pairs with 2 and 1, but right alone
+     * reads 3 (so did left), down alone read as LEFT and left+up as DOWN */
+    if (joy & 0x0002) result |= INPUT_RIGHT;
+    if (joy & 0x0200) result |= INPUT_LEFT;
+    if ((joy ^ (joy >> 1)) & 0x0001) result |= INPUT_DOWN;
+    if ((joy ^ (joy >> 1)) & 0x0100) result |= INPUT_UP;
 
     /* Fire button: CIA-A PRA bit 7, active low (port 2) */
     if (!(ciaa.ciapra & 0x80))

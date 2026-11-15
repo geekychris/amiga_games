@@ -49,6 +49,7 @@ static struct Window *window = NULL;
 static struct ScreenBuffer *sbuf[2] = { NULL, NULL };
 static struct RastPort rp_buf[2];    /* one RastPort per buffer */
 static WORD cur_buf = 0;             /* which buffer we're drawing to */
+static UWORD prev_inp = 0;           /* last frame's input, for presses */
 static struct MsgPort *db_port[2] = { NULL, NULL };
 static BOOL safe_to_write[2] = { TRUE, TRUE };
 
@@ -652,9 +653,10 @@ int main(void)
     AB_I("Entering main loop");
 
     /* Main loop */
+    prev_inp = 0;
     while (running) {
         struct IntuiMessage *msg;
-        UWORD inp;
+        UWORD inp, pressed;
 
         /* Process window messages */
         while ((msg = (struct IntuiMessage *)GetMsg(window->UserPort))) {
@@ -682,6 +684,10 @@ int main(void)
 
         /* Read input */
         inp = input_read();
+        /* fix: the title, item box and game over took a held FIRE as a
+           new press (FIRE held from play skipped the item box at once) */
+        pressed = inp & ~prev_inp;
+        prev_inp = inp;
 
         if (inp & INPUT_ESC) {
             running = 0;
@@ -695,7 +701,7 @@ int main(void)
             switch (gs.state) {
                 case STATE_TITLE:
                     draw_title(rp);
-                    if (inp & (INPUT_FIRE | INPUT_START)) {
+                    if (pressed & (INPUT_FIRE | INPUT_START)) {
                         game_init(&gs);
                     }
                     break;
@@ -713,9 +719,12 @@ int main(void)
                     break;
 
                 case STATE_ITEM_GET:
+                    /* fix: game_update runs its 90-frame timer (it was
+                       never called here, so the box waited for FIRE) */
+                    game_update(&gs, 0, 0, 0, 0, 0, 0);
                     draw_frame(rp, &gs);
                     draw_item_get(rp, &gs);
-                    if (inp & (INPUT_FIRE | INPUT_START)) {
+                    if (pressed & (INPUT_FIRE | INPUT_START)) {
                         gs.state = STATE_PLAYING;
                     }
                     break;
@@ -732,8 +741,11 @@ int main(void)
                     break;
 
                 case STATE_GAMEOVER:
-                    draw_gameover(rp);
-                    if (inp & (INPUT_FIRE | INPUT_START)) {
+                    /* fix: game_update runs its 180-frame timer back to
+                       the title (never called here before) */
+                    game_update(&gs, 0, 0, 0, 0, 0, 0);
+                    draw_gameover(rp, &gs);
+                    if (pressed & (INPUT_FIRE | INPUT_START)) {
                         gs.state = STATE_TITLE;
                     }
                     break;
@@ -747,7 +759,9 @@ int main(void)
         WaitTOF();
         swap_buffers();
 
-        gs.frame++;
+        /* fix: gs.frame was also incremented here, twice a loop with
+           game_update's, so draw_frame always saw it odd (enemies hidden,
+           the invulnerable hunter hidden); game_update's alone now */
     }
 
     AB_I("Shutting down");

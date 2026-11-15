@@ -420,11 +420,10 @@ static void draw_hunter(struct RastPort *rp, GameState *gs)
     sx = (WORD)(h->x >> 16);
     sy = (WORD)(h->y >> 16) + HUD_H;
 
-    /* Invulnerability flash: skip drawing every other pair of frames.
-       fix: was (g_frame & 1), but gs->frame goes up twice a loop (game_update
-       and main.c) so it is always odd here: the hunter vanished for the whole
-       of its invulnerability. invuln_timer goes down once a frame. */
-    if (h->invuln_timer > 0 && (h->invuln_timer & 2)) return;
+    /* Invulnerability flash: skip drawing every other frame.
+       (fix: gs->frame went up twice a loop, so this was always odd and the
+       hunter vanished for the whole of its invulnerability; main.c) */
+    if (h->invuln_timer > 0 && (g_frame & 1)) return;
 
     if (h->rolled) {
         draw_hunter_rolled(rp, sx, sy);
@@ -621,10 +620,10 @@ static void draw_enemies(struct RastPort *rp, GameState *gs)
         ex = (WORD)(e->x >> 16);
         ey = (WORD)(e->y >> 16) + HUD_H;
 
-        /* fix: a "flash when hit" test, (e->timer > 0 && (g_frame & 1)),
-           hid every enemy: e->timer is the behaviour timer, counting up
-           every frame, and g_frame is always odd here (gs->frame goes up
-           twice a loop). Enemies are always drawn now. */
+        /* Flash when hit. fix: tested e->timer, the AI's behaviour timer
+           (always running), with g_frame always odd (gs->frame went up
+           twice a loop): no enemy was ever drawn. Now its own hit timer. */
+        if (e->hit_timer > 0 && (g_frame & 1)) continue;
 
         switch (e->type) {
             case ENEMY_CRAWLER:
@@ -877,16 +876,11 @@ void draw_hud(struct RastPort *rp, GameState *gs)
         }
     }
 
-    /* Debug: show hunter Y pos */
-    {
-        char dbg[40];
-        LONG hy = (h->y >> 16);
-        LONG feet = hy + (LONG)HUNTER_H;
-        snprintf(dbg, sizeof(dbg), "Y%ld F%ld R%ld,%ld",
-                 (long)hy, (long)feet, (long)gs->room_x, (long)gs->room_y);
-        SetAPen(rp, COL_WHITE);
-        draw_string(rp, 170, 9, dbg, 1);
-    }
+    /* Score. fix: kept but never shown; here was a leftover debug line
+       (the hunter's Y, feet and room) */
+    sprintf(buf, "SC %06ld", (long)gs->score);
+    SetAPen(rp, COL_WHITE);
+    draw_string(rp, 160, 9, buf, 1);
 
     /* Bottom HUD line separator */
     SetAPen(rp, COL_METAL2);
@@ -931,7 +925,9 @@ void draw_title(struct RastPort *rp)
     draw_string(rp, cx, 182, "UP - JUMP / AIM UP", 1);
     draw_string(rp, cx, 192, "DOWN - ROLL FORM", 1);
     draw_string(rp, cx, 202, "FIRE - SHOOT/BOMB", 1);
-    draw_string(rp, cx, 212, "START - MISSILE MODE", 1);
+    /* fix: said "START - MISSILE MODE"; a missile is UP + FIRE (game.c
+       update_hunter) and START does nothing in play */
+    draw_string(rp, cx, 212, "UP+FIRE - MISSILE", 1);
 
     /* Version */
     SetAPen(rp, COL_ROCK2);
@@ -978,9 +974,10 @@ void draw_item_get(struct RastPort *rp, GameState *gs)
 
 /* --- Game Over screen --- */
 
-void draw_gameover(struct RastPort *rp)
+void draw_gameover(struct RastPort *rp, GameState *gs)
 {
     WORD cx;
+    char buf[24];
 
     /* Advance our own frame counter so blinking prompt keeps toggling
        after the last draw_frame() call. */
@@ -996,6 +993,12 @@ void draw_gameover(struct RastPort *rp)
     /* Decorative line */
     SetAPen(rp, COL_LAVA2);
     RectFill(rp, cx, 107, cx + string_width("GAME OVER", 3), 108);
+
+    /* fix: the final score (it was never shown) */
+    sprintf(buf, "SCORE %06ld", (long)gs->score);
+    SetAPen(rp, COL_WHITE);
+    cx = (SCREEN_W - string_width(buf, 1)) / 2;
+    draw_string(rp, cx, 130, buf, 1);
 
     /* "PRESS FIRE TO CONTINUE" */
     if ((g_frame / 20) & 1) {
