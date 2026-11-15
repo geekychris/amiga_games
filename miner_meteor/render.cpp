@@ -50,7 +50,6 @@ extern struct GfxBase       *GfxBase;
 #endif
 
 static struct Screen         *scr;
-static struct DrawInfo       *drawinfo;
 static struct RastPort       *rp;
 
 /* Double-buffering. Two ScreenBuffers + two RastPorts; we draw into
@@ -335,7 +334,7 @@ static void draw_player(const Player &p)
 {
     /* Pick the appropriate sheet frame:
      *   - airborne: jump if rising, fall if descending
-     *   - grounded: walk cycle by direction, indexed by frame&3
+     *   - grounded: walk cycle by direction, indexed by frame&7
      */
     LONG row, col;
     if (!p.on_ground) {
