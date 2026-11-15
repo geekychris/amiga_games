@@ -96,8 +96,15 @@ static void start_level(int level_num) {
     /* Find player start */
     for (s = ld->entities; s->type != ENT_NONE; s++) {
         if (s->type == ENT_PLAYER_START) {
+            /* fix: player_init() resets score, lives and health, so every
+               life and level began at 0 points with 3 lives and the game
+               could never end. Keep them (the death code sets health 3). */
+            LONG score = p->score;
+            BYTE lives = p->lives, health = p->health;
             player_init(p, p->character, s->tx * TILE_SIZE, s->ty * TILE_SIZE - PLAYER_H + TILE_SIZE);
-            /* Preserve score and lives from previous level */
+            p->score = score;
+            p->lives = lives;
+            p->health = health;
             break;
         }
     }
@@ -143,6 +150,16 @@ static int check_level_end(Player *p) {
         }
     }
     return 0;
+}
+
+/* LONG copies of the BYTE fields the bridge reports */
+static LONG var_lives, var_health, var_level, var_state;
+
+static void bridge_vars_update(void) {
+    var_lives = game.player[0].lives;
+    var_health = game.player[0].health;
+    var_level = game.current_level;
+    var_state = game.state;
 }
 
 /* Bridge hooks */
@@ -201,11 +218,14 @@ int main(void) {
     input_init();
 
     /* Register bridge variables */
+    /* fix: lives, health, level and state are BYTEs; registered as I32
+       they read the 4 bytes from there (lives 3 read as 50331648).
+       LONG copies, updated every frame (bridge_vars_update) */
     ab_register_var("score", AB_TYPE_I32, &game.player[0].score);
-    ab_register_var("lives", AB_TYPE_I32, &game.player[0].lives);
-    ab_register_var("health", AB_TYPE_I32, &game.player[0].health);
-    ab_register_var("level", AB_TYPE_I32, &game.current_level);
-    ab_register_var("state", AB_TYPE_I32, &game.state);
+    ab_register_var("lives", AB_TYPE_I32, &var_lives);
+    ab_register_var("health", AB_TYPE_I32, &var_health);
+    ab_register_var("level", AB_TYPE_I32, &var_level);
+    ab_register_var("state", AB_TYPE_I32, &var_state);
     ab_register_hook("reset", "Reset to title screen", hook_reset);
     ab_register_hook("skip_level", "Skip to next level", hook_skip_level);
 
@@ -362,7 +382,11 @@ title:
             break;
 
         case STATE_GAMEOVER:
-            game.transition--;
+            /* fix: transition is a UWORD: it went 0 -> 65535 on the frame
+               after the wait ended, so the game-over screen read no input
+               (not even ESC) for another 65535 frames, about 22 minutes */
+            if (game.transition > 0)
+                game.transition--;
 
             /* Game over screen */
             SetAPen(rp, COL_BLACK);
@@ -404,7 +428,7 @@ title:
 
             hud_draw(rp, &game.player[0], game.current_level);
 
-            if (game.transition <= 0) {
+            if (game.transition == 0) {
                 /* Wait for input */
                 inp = input_read();
                 if (inp & (INP_JUMP | INP_START)) {
@@ -438,6 +462,7 @@ title:
             ab_push_var("state");
             ab_heartbeat();
         }
+        bridge_vars_update();
         ab_poll();
     }
 
