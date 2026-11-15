@@ -295,6 +295,7 @@ int main(void)
 {
     WORD running = 1;
     InputState input;
+    BOOL pressed = FALSE, was_held = FALSE;
 
     /* Init bridge FIRST so every subsequent exit path can safely call
      * cleanup_all() (which calls ab_cleanup()). */
@@ -364,12 +365,20 @@ int main(void)
             }
         }
 
+        /* fix: the title and GAME OVER took a held FIRE/UP as a press, so
+           one still held from play skipped GAME OVER and began a new game */
+        {
+            BOOL held = (input.fire || input.jump);
+            pressed = held && !was_held;
+            was_held = held;
+        }
+
         /* State machine */
         switch (gs.state) {
             case STATE_TITLE:
                 draw_title(rp, gs.frame);
                 gs.frame++;
-                if (input.fire || input.jump) {
+                if (pressed) {
                     game_init(&gs);
                     gs.state = STATE_PLAYING;
                 }
@@ -403,7 +412,7 @@ int main(void)
                 game_update(&gs, &input);
                 draw_game(rp, &gs);
                 draw_gameover(rp, gs.score);
-                if (input.fire || input.jump) {
+                if (pressed) {
                     gs.state = STATE_TITLE;
                 }
                 break;
