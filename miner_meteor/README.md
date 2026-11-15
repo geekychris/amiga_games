@@ -64,6 +64,34 @@ c   collapsing floor
 P   player spawn
 ```
 
+## Sound
+
+Sound effects, after the Atari Lynx port's (which plays them on Mikey):
+
+| Effect | When | Sound |
+|---|---|---|
+| jump | a jump starts | rising G4 C5 E5 square blip |
+| land | landing after a fall of 8 px or more (not in the Lynx port) | short low noise thud |
+| key | a key picked up | E6 A6 chirp |
+| death | a life lost (spikes, guardian, air, falling out) | decaying noise burst |
+| cavern cleared | the exit reached, more caverns to go | C5 E5 G5 C6 arpeggio |
+| game over | the last life lost (after the death noise) | falling G4 F4 Eb4 C4 |
+| win | the last cavern cleared | C5 E5 G5 C6, a rest, G5 C6 fanfare |
+
+They are 8-bit samples (15977 Hz, one Paula period) made by
+`tools/gen_sfx.py`, which renders the Lynx note lists at Mikey's quantised
+pitches, and its LFSR noise, into `sfx_data.{h,cpp}`. The output is checked
+in; after changing the script, run `make sfx` (Python 3, no packages).
+
+- **Classic 68k:** audio.device, one channel allocated per voice, samples
+  copied to chip RAM.
+- **AmigaOS 4:** ahi.device (the sam460ex has no Paula).
+
+There are three voices, as on the Lynx: jump and land share one, the
+jingles another, and the death noise has its own. If the device can't be
+opened, or no channel is free, the game runs silent. Every effect is also
+logged to the bridge as `sfx: <name>`.
+
 ## Bridge instrumentation
 
 The game registers these variables with the amiga-devbench bridge so you can
@@ -73,6 +101,12 @@ watch state live from the web UI (or `amiga_get_var`):
 - `level` — current cavern index (0-based)
 - `lives`, `score`, `air`, `keys_remaining`
 
+And two hooks for tests (`amiga_call_hook`, client `miner-meteor`):
+
+- `state` returns `mode=.. level=.. lives=.. keys=.. air=.. x=.. y=..`
+- `sfx` plays an effect by name (`jump`, `land`, `key`, `death`, `levelwin`,
+  `gameover`, `win`)
+
 ## Tile sheet
 
 Sprite + tile art lives in `art/tilesheet.png` — a 320×128 sheet
@@ -81,8 +115,11 @@ player-right / player-left / player-pose / guardian-A / guardian-B /
 guardian-C). Regenerate the C-baked data from the PNG with:
 
 ```sh
-python3 tools/bake_tilesheet.py
+make tilesheet            # python3 tools/bake_tilesheet.py; needs PIL
 ```
+
+A plain `make` never regenerates it (the cross-compiler images have no PIL,
+and a fresh clone's file times are arbitrary).
 
 The script downsamples the PNG to 320×128 with nearest-neighbour, snaps
 every pixel to the 16-colour palette, and emits `tilesheet_data.{h,cpp}`
@@ -96,9 +133,7 @@ To swap in updated art: replace the PNG, re-run the bake, rebuild.
 
 Deliberately out of scope for the initial cut, all tracked in code comments:
 
-1. **Real audio.** `audio.cpp` is a stub that logs SFX triggers to the bridge.
-   Wiring Paula 4-channel MOD playback + chip-tune SFX (jump / land / key /
-   death / levelwin) matches the pattern from `void_trader/{modplay,sfx}.c`.
+1. **Music.** The sound effects are in (see Sound); a MOD tune is not.
 2. **20+ cavern pack.** Six starter levels ship here; authoring the rest is
    pure content work.
 3. **AGA palette variant.** Palette is 16 entries at the top of the 8bpp
@@ -146,8 +181,10 @@ game code (3.0, 6.1, 17.1, 4.2, 5.3 and 6.0 s). Each changed row is marked
 
 Known, not fixed: the collision code snaps. A side hit moves the player to the
 tile edge (up to 14 px in one tick), and landing with an unaligned y can put
-them inside the block above. Check any level change with a reachability
-search, not by eye.
+them inside the block above. A landing at an unaligned y snaps the player
+16 px above the floor, where they drop and snap back every few frames until
+they jump or walk off (the land sound ignores these short drops). Check any
+level change with a reachability search, not by eye.
 
 ## License
 
