@@ -147,7 +147,11 @@ void game_init(GameState *gs)
 {
     WORD i;
 
-    memset(gs, 0, sizeof(GameState));
+    {
+        LONG hi = gs->hiscore;      /* fix: kept for the session */
+        memset(gs, 0, sizeof(GameState));
+        gs->hiscore = hi;
+    }
 
     gs->lives = 3;
     gs->score = 0;
@@ -362,7 +366,10 @@ static void update_bullets(GameState *gs)
         }
         /* Check if bullet hits a rock */
         {
-            WORD world_bx = (WORD)(gs->scroll_x / 100 + b->x);
+            /* fix: was a WORD, which overflows after 32768 px; 65536 is
+               not a multiple of TERRAIN_LEN (640), so from there on the
+               bullet tested the terrain 256 px away from the drawn rock */
+            LONG world_bx = gs->scroll_x / 100 + b->x;
             WORD tidx = (WORD)(world_bx % TERRAIN_LEN);
             if (tidx < 0) tidx += TERRAIN_LEN;
             if (gs->terrain[tidx] == TERRAIN_ROCK && b->y >= GROUND_Y - 12) {
@@ -713,4 +720,6 @@ void game_update(GameState *gs, InputState *inp)
             /* Handled in main loop */
             break;
     }
+
+    if (gs->score > gs->hiscore) gs->hiscore = gs->score;
 }
