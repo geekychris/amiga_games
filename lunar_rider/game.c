@@ -35,7 +35,11 @@ static void generate_terrain_chunk(GameState *gs, LONG start_x, LONG end_x)
         r = rng() % 100;
 
         /* Increase feature density with difficulty */
-        if (world_x > 30) {  /* leave initial area clear */
+        /* fix: leave the initial area clear. It was world_x > 30, but the
+           buggy stands at BUGGY_X..BUGGY_X + BUGGY_W (80..104), so most
+           games began with a crater, rock or mine under or just ahead of
+           it. Keep 30 px beyond its front clear (as the Atari port). */
+        if (world_x > BUGGY_X + BUGGY_W + 30) {
             if (r < 3 + gs->difficulty) {
                 /* Small crater */
                 WORD w, cx;
