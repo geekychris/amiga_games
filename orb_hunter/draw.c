@@ -420,8 +420,11 @@ static void draw_hunter(struct RastPort *rp, GameState *gs)
     sx = (WORD)(h->x >> 16);
     sy = (WORD)(h->y >> 16) + HUD_H;
 
-    /* Invulnerability flash: skip drawing every other frame */
-    if (h->invuln_timer > 0 && (g_frame & 1)) return;
+    /* Invulnerability flash: skip drawing every other pair of frames.
+       fix: was (g_frame & 1), but gs->frame goes up twice a loop (game_update
+       and main.c) so it is always odd here: the hunter vanished for the whole
+       of its invulnerability. invuln_timer goes down once a frame. */
+    if (h->invuln_timer > 0 && (h->invuln_timer & 2)) return;
 
     if (h->rolled) {
         draw_hunter_rolled(rp, sx, sy);
@@ -618,8 +621,10 @@ static void draw_enemies(struct RastPort *rp, GameState *gs)
         ex = (WORD)(e->x >> 16);
         ey = (WORD)(e->y >> 16) + HUD_H;
 
-        /* Flash when hit */
-        if (e->timer > 0 && (g_frame & 1)) continue;
+        /* fix: a "flash when hit" test, (e->timer > 0 && (g_frame & 1)),
+           hid every enemy: e->timer is the behaviour timer, counting up
+           every frame, and g_frame is always odd here (gs->frame goes up
+           twice a loop). Enemies are always drawn now. */
 
         switch (e->type) {
             case ENEMY_CRAWLER:
@@ -878,7 +883,7 @@ void draw_hud(struct RastPort *rp, GameState *gs)
         LONG hy = (h->y >> 16);
         LONG feet = hy + (LONG)HUNTER_H;
         snprintf(dbg, sizeof(dbg), "Y%ld F%ld R%ld,%ld",
-                 hy, feet, (long)gs->room_x, (long)gs->room_y);
+                 (long)hy, (long)feet, (long)gs->room_x, (long)gs->room_y);
         SetAPen(rp, COL_WHITE);
         draw_string(rp, 170, 9, dbg, 1);
     }
