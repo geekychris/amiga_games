@@ -89,12 +89,13 @@ UWORD input_read(void) {
 
     /* Standard JOY1DAT decoding:
      *   left  = bit 9
-     *   right = bit 0
+     *   right = bit 1
      *   up    = bit 9 XOR bit 8
      *   down  = bit 1 XOR bit 0
-     */
+     * fix: right was read from bit 0, so down alone read as down + right
+     * and down + right as down only */
     if (joy & 0x0200) result |= INP_LEFT;
-    if (joy & 0x0001) result |= INP_RIGHT;
+    if (joy & 0x0002) result |= INP_RIGHT;
     if (((joy >> 9) ^ (joy >> 8)) & 0x0001) result |= INP_UP;
     if (((joy >> 1) ^ (joy >> 0)) & 0x0001) result |= INP_DOWN;
 
