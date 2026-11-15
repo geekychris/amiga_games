@@ -84,6 +84,7 @@ struct Player {
     UBYTE  on_ground;
     UBYTE  frame;        /* 0..7 walk cycle frame, steps every 6 ticks */
     UBYTE  jump_lock;    /* prevents auto-jump if jump held from spawn */
+    LONG   apex_y;       /* highest point (smallest y) since last on the ground */
 };
 
 /* Top-level modes. */
@@ -126,7 +127,26 @@ struct GameState {
 
     /* Frame counter for animation timing. */
     ULONG     tick;
+
+    /* EV_* of the last tick(): main.cpp plays the sound effects. */
+    ULONG     events;
 };
+
+/* Events one tick() can raise (GameState::events). */
+#define EV_JUMP      0x01
+#define EV_LAND      0x02     /* came down onto a floor after a fall */
+#define EV_KEY       0x04
+#define EV_DIED      0x08
+#define EV_GAMEOVER  0x10     /* with EV_DIED: that was the last life */
+#define EV_LEVEL     0x20     /* a cavern cleared */
+#define EV_WON       0x40     /* with EV_LEVEL: it was the last one */
+
+/* A landing makes a sound only after a fall of at least this many px
+ * from the highest point since leaving the ground. This keeps quiet the
+ * drop at a (re)spawn and the bob the floor snap can cause (see the
+ * README's "Known, not fixed": after an unaligned landing the player can
+ * be put 16 px above the floor and drop back every few frames). */
+#define LAND_MIN_FALL  8
 
 /* Air drains 1 unit per this many frames. Game runs ~25 fps so
  * 1000 / (25 / AIR_DRAIN_FRAMES) seconds of oxygen. AIR_DRAIN_FRAMES=6

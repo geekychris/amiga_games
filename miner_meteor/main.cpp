@@ -30,6 +30,7 @@
 #include <proto/dos.h>
 
 #include <string.h>
+#include <stdio.h>
 
 extern "C" {
 #include "bridge_client.h"
@@ -109,6 +110,30 @@ static UBYTE read_input_flags(void)
     return f;
 }
 
+/* Bridge hooks for tests. */
+static GameState *hook_state;
+
+/* "sfx" hook: play an effect by name. */
+static int hook_sfx(const char *args, char *buf, int size)
+{
+    if (size < 16) return -1;
+    if (!sfx_by_name(args)) { strcpy(buf, "unknown sfx"); return -1; }
+    strcpy(buf, "ok");
+    return 0;
+}
+
+/* "state" hook: mode level lives keys air x y, read by tests. */
+static int hook_get_state(const char *args, char *buf, int size)
+{
+    (void)args;
+    if (size < 80 || !hook_state) return -1;
+    const GameState &s = *hook_state;
+    sprintf(buf, "mode=%ld level=%ld lives=%ld keys=%ld air=%ld x=%ld y=%ld",
+            (long)s.mode, (long)s.level_index, (long)s.lives, (long)s.keys_remaining,
+            (long)s.air, (long)s.player.x, (long)s.player.y);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     (void)argc; (void)argv;
@@ -167,6 +192,10 @@ int main(int argc, char *argv[])
 
     audio_init();
 
+    hook_state = &state;
+    ab_register_hook((char *)"sfx",   (char *)"play a sound effect: jump land key death levelwin gameover win", hook_sfx);
+    ab_register_hook((char *)"state", (char *)"mode level lives keys air x y", hook_get_state);
+
     AB_I("miner-meteor: entering main loop");
 
     LONG running = 1;
@@ -204,7 +233,16 @@ int main(int argc, char *argv[])
 
         game.tick(tick_input);
 
-        if (edge & INPUT_JUMP) sfx_jump();
+        /* Sound effects for what the tick did. */
+        ULONG ev = state.events;
+        if (ev & EV_JUMP)     sfx_jump();
+        if (ev & EV_LAND)     sfx_land();
+        if (ev & EV_KEY)      sfx_key();
+        if (ev & EV_DIED)     sfx_death();
+        if (ev & EV_GAMEOVER) sfx_gameover();
+        if (ev & EV_LEVEL) {
+            if (ev & EV_WON) sfx_win(); else sfx_levelwin();
+        }
 
         if (state.mode == GM_TITLE) {
             render_title(state);

@@ -97,6 +97,7 @@ void MinerGame::spawn_player()
     p.on_ground = 0;
     p.frame = 0;
     p.jump_lock = 1;    /* release jump before it counts */
+    p.apex_y = p.y;
 }
 
 UBYTE MinerGame::tile_at_pixel(LONG px, LONG py) const
@@ -131,8 +132,10 @@ bool MinerGame::player_touching_guardian() const
 
 void MinerGame::kill_player()
 {
+    gs->events |= EV_DIED;
     if (gs->lives > 0) gs->lives--;
     if (gs->lives <= 0) {
+        gs->events |= EV_GAMEOVER;
         gs->mode = GM_LOSE;
         gs->state_timer = 150;   /* ~6s at 25 fps */
     } else {
@@ -147,6 +150,8 @@ void MinerGame::kill_player()
 void MinerGame::update_player(UBYTE input)
 {
     Player &p = gs->player;
+    UBYTE was_on_ground = p.on_ground;
+    if (was_on_ground) p.apex_y = p.y;
 
     /* Input -> intended velocity. */
     p.vx = 0;
@@ -169,6 +174,8 @@ void MinerGame::update_player(UBYTE input)
         p.vy = JUMP_IMPULSE;
         p.on_ground = 0;
         p.jump_lock = 1;
+        was_on_ground = 0;
+        gs->events |= EV_JUMP;
     }
 
     /* --- X axis integration --- */
@@ -194,6 +201,7 @@ void MinerGame::update_player(UBYTE input)
         /* Falling — check floor at both feet corners. */
         if (solid_at(p.x + 1, new_y + 15) || solid_at(p.x + 14, new_y + 15)) {
             new_y = ((p.y / TILE_H) + 1) * TILE_H - 16;
+            if (!was_on_ground && new_y - p.apex_y >= LAND_MIN_FALL) gs->events |= EV_LAND;
             p.vy = 0;
             p.on_ground = 1;
         }
@@ -204,6 +212,7 @@ void MinerGame::update_player(UBYTE input)
         }
     }
     p.y = new_y;
+    if (!p.on_ground && p.y < p.apex_y) p.apex_y = p.y;
 
     /* Animation frame — every 6 ticks, when actually moving. */
     /* fix: wrapped & 3, but the sheet has 8 walk frames (render.cpp
@@ -219,6 +228,7 @@ void MinerGame::update_player(UBYTE input)
             t.kind = T_EMPTY;
             gs->keys_remaining--;
             gs->score += KEY_SCORE;
+            gs->events |= EV_KEY;
         } else if (t.kind == T_HAZARD) {
             kill_player();
             return;
@@ -226,7 +236,9 @@ void MinerGame::update_player(UBYTE input)
             /* Cavern complete. */
             gs->score += LEVEL_SCORE + (gs->air / 2);
             gs->level_index++;
+            gs->events |= EV_LEVEL;
             if (gs->level_index >= NUM_LEVELS) {
+                gs->events |= EV_WON;
                 gs->mode = GM_WIN;
                 gs->state_timer = 200;
             } else {
@@ -299,6 +311,7 @@ void MinerGame::drain_air()
 void MinerGame::tick(UBYTE input)
 {
     gs->tick++;
+    gs->events = 0;
 
     if (gs->mode == GM_TITLE) {
         if (input & INPUT_START) {
