@@ -200,7 +200,10 @@ void MinerGame::update_player(UBYTE input)
     if (p.vy > 0) {
         /* Falling — check floor at both feet corners. */
         if (solid_at(p.x + 1, new_y + 15) || solid_at(p.x + 14, new_y + 15)) {
-            new_y = ((p.y / TILE_H) + 1) * TILE_H - 16;
+            /* fix: was ((p.y / TILE_H) + 1) * TILE_H - 16, the tile row of
+               the old y; after an unaligned landing that put the player
+               16 px above the floor, and they bobbed there every 6 frames */
+            new_y = ((new_y + 15) / TILE_H) * TILE_H - 16;
             if (!was_on_ground && new_y - p.apex_y >= LAND_MIN_FALL) gs->events |= EV_LAND;
             p.vy = 0;
             p.on_ground = 1;

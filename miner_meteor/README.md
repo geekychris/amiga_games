@@ -173,18 +173,37 @@ ports) showed that no cavern could be finished as first released:
   default JAM2 draw mode, so they showed as solid black boxes. `render_open()`
   now sets JAM1 on both buffers.
 
-All six caverns are now winnable: a search over the real game state
-(guardians moving, floors collapsing, air draining; the collision snaps
-below included) finds a run through each, checked by replaying it with the
-game code (3.0, 6.1, 17.1, 4.2, 5.3 and 6.0 s). Each changed row is marked
-"bug in the original: unwinnable" in `levels.cpp`.
+- **Landing (2026-11-15):** a landing put the player on the tile row of
+  their old y, not of the floor they hit, so landing at a y that isn't a
+  multiple of 16 left them 16 px above the floor. They then dropped and
+  snapped back every 6 frames, bobbing until they jumped or walked off, and
+  could jump from 16 px higher than the floor. `game.cpp` now lands them
+  exactly on the floor. Every earlier route used that extra height, and
+  without it two caverns could not be finished, so their levels changed too:
+  - **Cavern 2 (Hazard Bay):** the top-left key needs the row-5 left ledge,
+    and the jump from the row-10 ledge peaked 14 px below it. That ledge is
+    now one row higher: row 9 `#..............##..#` →
+    `#....##........##..#`, row 10 `#....##............#` →
+    `#..................#`.
+  - **Cavern 5 (Collapsing Attic):** each ledge was out of jump reach of the
+    one below. The row-8 ledge and its key move left (row 7
+    `#..............K...#` → `#........K.........#`, row 8
+    `#............cccc..#` → `#.......cccc.......#`), and the top ledge
+    moves two columns left (row 3 `#........cccc......#` →
+    `#......cccc........#`).
 
-Known, not fixed: the collision code snaps. A side hit moves the player to the
-tile edge (up to 14 px in one tick), and landing with an unaligned y can put
-them inside the block above. A landing at an unaligned y snaps the player
-16 px above the floor, where they drop and snap back every few frames until
-they jump or walk off (the land sound ignores these short drops). Check any
-level change with a reachability search, not by eye.
+All six caverns are winnable: a search over the real game state (guardians
+moving, floors collapsing, air draining) finds a run through each, and
+`tools/route_check.sh` replays them with the game code (`tools/routes.json`;
+271, 252, 842, 256, 209 and 305 ticks). An exhaustive search, with the guard
+positions and collapse timers in the state, shows caverns 2 and 5 could not
+be finished with the old layouts. Each changed row is marked "bug in the
+original: unwinnable" in `levels.cpp`. `tools/route_check.sh search N` looks
+for a new route through cavern N.
+
+Known, not fixed: a side hit snaps the player to the tile edge (up to 14 px
+in one tick). Check any level change with a reachability search
+(`tools/route_check.sh`), not by eye.
 
 ## License
 

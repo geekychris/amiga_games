@@ -143,9 +143,7 @@ struct GameState {
 
 /* A landing makes a sound only after a fall of at least this many px
  * from the highest point since leaving the ground. This keeps quiet the
- * drop at a (re)spawn and the bob the floor snap can cause (see the
- * README's "Known, not fixed": after an unaligned landing the player can
- * be put 16 px above the floor and drop back every few frames). */
+ * short drop at a (re)spawn. */
 #define LAND_MIN_FALL  8
 
 /* Air drains 1 unit per this many frames. Game runs ~25 fps so
