@@ -126,11 +126,11 @@ static int hook_sfx(const char *args, char *buf, int size)
 static int hook_get_state(const char *args, char *buf, int size)
 {
     (void)args;
-    if (size < 80 || !hook_state) return -1;
+    if (size < 96 || !hook_state) return -1;
     const GameState &s = *hook_state;
-    sprintf(buf, "mode=%ld level=%ld lives=%ld keys=%ld air=%ld x=%ld y=%ld",
+    sprintf(buf, "mode=%ld level=%ld lives=%ld keys=%ld air=%ld x=%ld y=%ld tick=%ld",
             (long)s.mode, (long)s.level_index, (long)s.lives, (long)s.keys_remaining,
-            (long)s.air, (long)s.player.x, (long)s.player.y);
+            (long)s.air, (long)s.player.x, (long)s.player.y, (long)s.tick);
     return 0;
 }
 
@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
 
     hook_state = &state;
     ab_register_hook((char *)"sfx",   (char *)"play a sound effect: jump land key death levelwin gameover win", hook_sfx);
-    ab_register_hook((char *)"state", (char *)"mode level lives keys air x y", hook_get_state);
+    ab_register_hook((char *)"state", (char *)"mode level lives keys air x y tick", hook_get_state);
 
     AB_I("miner-meteor: entering main loop");
 

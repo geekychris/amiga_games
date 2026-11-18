@@ -23,10 +23,14 @@
 #include <string.h>
 
 /*
- * Renderer — RectFill-per-tile double-buffered draw over a 320x256
- * 8bpp screen. Same primitive path works on classic bitplanes and OS4
- * RTG. The player + guardian sprites are drawn as coloured rectangles
- * with a small facing-strip pixel indicator; sprite art is a follow-up.
+ * Renderer — double-buffered draw over a 320x256 screen (4 bitplanes
+ * on classic, 8 on OS4 through os4_compat). The baked tile sheet is drawn once into
+ * an off-screen BitMap and each tile or sprite is one BltBitMap from it.
+ * Each buffer remembers which sheet tile it holds in every cell and what
+ * its HUD shows, so a frame only redraws the cells that changed or that
+ * a sprite covered two frames ago, plus the HUD when a value changed.
+ * Redrawing all 300 tiles every frame as per-row RectFill runs cost
+ * ~12,800 RectFills a frame, about 0.3 frames/s on a 68020.
  *
  * Palette layout (16 entries — first 16 of the 256-slot AGA screen):
  *   0  black background
@@ -60,9 +64,41 @@ static struct ScreenBuffer   *sbuf[2];
 static struct RastPort        rp_buf[2];
 static UWORD                  cur_buf = 1;
 
-/* Chunky staging buffer for tiles that need per-pixel recolouring
- * (collapse tile dim-down). */
+/* The tile sheet as a BitMap, one extra column for the dimmed collapse
+ * tile (brown 3 -> dim 15) at SC_COLLAPSE_DIM. */
+#define SHEET_COLS   (TSHEET_TILES_W + 1)
+static struct BitMap          sheet_bmap;
+static struct BitMap         *sheet_bm;
+
+/* Chunky staging buffer for the dimmed collapse tile. */
 static UBYTE                  scratch_tile[TILE_H][TILE_W];
+
+/* What each buffer holds: the sheet tile (row << 8 | col) in each cell,
+ * CELL_STALE when a sprite or a title / end screen drew over it. */
+#define CELL_STALE   0xFFFF
+static UWORD                  drawn[2][GRID_H][GRID_W];
+
+struct HudShown {
+    LONG valid, score, fill, pen, level, keys_got, keys_total, lives;
+};
+static struct HudShown        hud_shown[2];
+
+#ifdef __PPC__
+#define SCREEN_DEPTH 8
+#else
+#define SCREEN_DEPTH 4     /* the palette has 16 entries: half the blits of 8 */
+#endif
+
+static LONG build_sheet(void);
+static void free_sheet(void);
+
+static void invalidate_buffer(UWORD b)
+{
+    for (LONG row = 0; row < GRID_H; row++)
+        for (LONG col = 0; col < GRID_W; col++)
+            drawn[b][row][col] = CELL_STALE;
+    hud_shown[b].valid = 0;
+}
 
 /* 16-entry palette in (r,g,b) 8-bit-per-channel; scaled to 32-bit on
  * classic via LoadRGB32 and passed directly to OS4's SetRGB32. */
@@ -108,7 +144,7 @@ LONG render_open(void)
     scr = OpenScreenTags(NULL,
         SA_Width,       SCREEN_W,
         SA_Height,      SCREEN_H,
-        SA_Depth,       8,
+        SA_Depth,       SCREEN_DEPTH,
         SA_Type,        CUSTOMSCREEN,
         SA_DisplayID,   0x00000L,     /* PAL:LORES on classic; RTG uses default on OS4 */
         SA_Title,       (ULONG)"miner-meteor",
@@ -139,7 +175,9 @@ LONG render_open(void)
     for (int i = 0; i < 2; i++) {
         SetAPen(&rp_buf[i], 0);
         RectFill(&rp_buf[i], 0, 0, SCREEN_W - 1, SCREEN_H - 1);
+        invalidate_buffer((UWORD)i);
     }
+    if (build_sheet() != 0) { render_close(); return 3; }
     return 0;
 }
 
@@ -152,6 +190,7 @@ void render_close(void)
         while (!ChangeScreenBuffer(scr, sbuf[0]) && ++tries < 5) WaitTOF();
         WaitTOF(); WaitTOF();
     }
+    free_sheet();
     if (sbuf[1]) { FreeScreenBuffer(scr, sbuf[1]); sbuf[1] = NULL; }
     if (sbuf[0]) { FreeScreenBuffer(scr, sbuf[0]); sbuf[0] = NULL; }
     if (scr)     { CloseScreen(scr); scr = NULL; }
@@ -173,57 +212,89 @@ struct Screen *render_get_screen(void)
     return scr;
 }
 
-/* Draw one 16x16 tile from the baked sheet to (dest_x, dest_y) using
- * per-pen RectFill runs. Groups consecutive same-pen pixels on each
- * row into a single RectFill — cheap on 68k because horizontal same-
- * row fills hit the Blitter's fastest path, and the tile data comes
- * pre-quantized to our 16-slot palette so pen changes tend to cluster
- * in runs (walls, sky, sprite silhouettes). */
-static void blit_tile_data(LONG dest_x, LONG dest_y,
+/* Write one tile of chunky pens into the planar sheet BitMap. */
+static void sheet_put_tile(struct BitMap *bm, LONG depth, LONG dest_x, LONG dest_y,
                            const UBYTE data[TILE_H][TILE_W])
 {
     for (LONG py = 0; py < TILE_H; py++) {
-        UBYTE run_pen = data[py][0];
-        LONG  run_start = 0;
-        for (LONG px = 1; px <= TILE_W; px++) {
-            UBYTE p = (px < TILE_W) ? data[py][px] : (UBYTE)(run_pen ^ 1);
-            if (p != run_pen) {
-                SetAPen(rp, run_pen);
-                RectFill(rp,
-                    dest_x + run_start, dest_y + py,
-                    dest_x + px - 1,    dest_y + py);
-                run_pen   = p;
-                run_start = px;
-            }
+        ULONG row_off = (ULONG)(dest_y + py) * bm->BytesPerRow;
+        for (LONG px = 0; px < TILE_W; px++) {
+            UBYTE pen = data[py][px];
+            ULONG off = row_off + ((dest_x + px) >> 3);
+            UBYTE bit = (UBYTE)(0x80 >> ((dest_x + px) & 7));
+            for (LONG d = 0; d < depth; d++)
+                if (pen & (1 << d)) bm->Planes[d][off] |= bit;
         }
     }
 }
 
-static inline void blit_sheet_tile(LONG dest_x, LONG dest_y,
-                                   LONG sheet_row, LONG sheet_col)
+/* Build the sheet BitMap from tilesheet_data: a plain planar BitMap
+ * (chip RAM on classic, for the blitter) the CPU writes directly. The
+ * screen's bitmaps are planar on both systems (os4_compat keeps them in
+ * RAM on OS4). Returns 0 on success. */
+static LONG build_sheet(void)
 {
-    blit_tile_data(dest_x, dest_y, tilesheet_data[sheet_row][sheet_col]);
+    const LONG w = SHEET_COLS * TILE_W, h = TSHEET_TILES_H * TILE_H;
+    InitBitMap(&sheet_bmap, SCREEN_DEPTH, w, h);
+    for (LONG d = 0; d < SCREEN_DEPTH; d++) {
+        sheet_bmap.Planes[d] = (PLANEPTR)AllocRaster(w, h);
+        if (!sheet_bmap.Planes[d]) return 1;
+        memset(sheet_bmap.Planes[d], 0, (size_t)sheet_bmap.BytesPerRow * h);
+    }
+    sheet_bm = &sheet_bmap;
+
+    /* The dimmed collapse tile. */
+    memcpy(scratch_tile, &tilesheet_data[0][3][0][0], sizeof(scratch_tile));
+    for (LONG py = 0; py < TILE_H; py++)
+        for (LONG px = 0; px < TILE_W; px++)
+            if (scratch_tile[py][px] == 3) scratch_tile[py][px] = 15;
+
+    for (LONG r = 0; r < TSHEET_TILES_H; r++)
+        for (LONG c = 0; c < TSHEET_TILES_W; c++)
+            sheet_put_tile(sheet_bm, SCREEN_DEPTH, c * TILE_W, r * TILE_H,
+                           tilesheet_data[r][c]);
+    sheet_put_tile(sheet_bm, SCREEN_DEPTH, TSHEET_TILES_W * TILE_W, 0, scratch_tile);
+    return 0;
 }
 
-static inline void blit_scratch_tile(LONG dest_x, LONG dest_y)
+static void free_sheet(void)
 {
-    blit_tile_data(dest_x, dest_y, scratch_tile);
+    WaitBlit();
+    for (LONG d = 0; d < SCREEN_DEPTH; d++) {
+        if (sheet_bmap.Planes[d])
+            FreeRaster(sheet_bmap.Planes[d], SHEET_COLS * TILE_W, TSHEET_TILES_H * TILE_H);
+        sheet_bmap.Planes[d] = NULL;
+    }
+    sheet_bm = NULL;
 }
 
-/* Copy a sheet tile into the scratch buffer so we can recolour it. */
-static inline void load_scratch_from_sheet(LONG sheet_row, LONG sheet_col)
+/* Copy sheet tile (sheet_row, sheet_col) to (dest_x, dest_y), clipped to
+ * the play area. */
+static void blit_sheet_tile(LONG dest_x, LONG dest_y, LONG sheet_row, LONG sheet_col)
 {
-    memcpy(scratch_tile,
-           &tilesheet_data[sheet_row][sheet_col][0][0],
-           sizeof(scratch_tile));
+    LONG sx = sheet_col * TILE_W, sy = sheet_row * TILE_H;
+    LONG w = TILE_W, h = TILE_H;
+    if (dest_x < 0) { sx -= dest_x; w += dest_x; dest_x = 0; }
+    if (dest_y < 0) { sy -= dest_y; h += dest_y; dest_y = 0; }
+    if (dest_x + w > PLAY_W) w = PLAY_W - dest_x;
+    if (dest_y + h > PLAY_H) h = PLAY_H - dest_y;
+    if (w <= 0 || h <= 0) return;
+    BltBitMap(sheet_bm, sx, sy, rp->BitMap, dest_x, dest_y, w, h, 0xC0, 0xFF, NULL);
 }
 
-static inline void fill_tile(LONG col, LONG row, UBYTE pen)
+/* A sprite was drawn at (x, y): the cells under it are stale in this
+ * buffer. */
+static void mark_sprite(LONG x, LONG y)
 {
-    LONG x = col * TILE_W;
-    LONG y = row * TILE_H;
-    SetAPen(rp, pen);
-    RectFill(rp, x, y, x + TILE_W - 1, y + TILE_H - 1);
+    LONG c0 = x >> 4, c1 = (x + TILE_W - 1) >> 4;
+    LONG r0 = y >> 4, r1 = (y + TILE_H - 1) >> 4;
+    if (c0 < 0) c0 = 0;
+    if (r0 < 0) r0 = 0;
+    if (c1 >= GRID_W) c1 = GRID_W - 1;
+    if (r1 >= GRID_H) r1 = GRID_H - 1;
+    for (LONG r = r0; r <= r1; r++)
+        for (LONG c = c0; c <= c1; c++)
+            drawn[cur_buf][r][c] = CELL_STALE;
 }
 
 static inline void fill_rect(LONG x, LONG y, LONG w, LONG h, UBYTE pen)
@@ -263,6 +334,7 @@ enum {
     SC_CONV_R      = 5,
     SC_HAZARD      = 6,
     SC_KEY         = 7,
+    SC_COLLAPSE_DIM = TSHEET_TILES_W,   /* built by build_sheet */
     /* Decor-row columns. */
     SC_EXIT_LOCKED = 0,
     SC_EXIT_OPEN   = 1,
@@ -273,60 +345,37 @@ enum {
     SC_POSE_CLIMB  = 3,
 };
 
-static void draw_tile(LONG col, LONG row, const TileState &t, ULONG tick,
-                      LONG keys_remaining)
+/* The sheet tile (row << 8 | col) a cell shows this frame. */
+static UWORD cell_tile(LONG col, LONG row, const TileState &t, ULONG tick,
+                       LONG keys_remaining)
 {
-    LONG x = col * TILE_W;
-    LONG y = row * TILE_H;
     switch (t.kind) {
-        case T_EMPTY:
-            blit_sheet_tile(x, y, SR_TERRAIN, SC_EMPTY);
-            break;
         case T_SOLID:
             /* Chequer between the two solid variants for texture. */
-            blit_sheet_tile(x, y, SR_TERRAIN,
-                            ((col + row) & 1) ? SC_SOLID_A : SC_SOLID_B);
-            break;
+            return (UWORD)((SR_TERRAIN << 8) |
+                           (((col + row) & 1) ? SC_SOLID_A : SC_SOLID_B));
         case T_KEY:
-            blit_sheet_tile(x, y, SR_TERRAIN, SC_KEY);
-            break;
+            return (UWORD)((SR_TERRAIN << 8) | SC_KEY);
         case T_EXIT:
             /* Two sheet variants so the player has clear visual feedback
              * on objective progress; blink the unlocked variant with the
-             * empty tile every 6 frames for a soft glow effect. */
-            if (keys_remaining == 0) {
-                blit_sheet_tile(x, y, SR_DECOR,
-                                ((tick / 6) & 1) ? SC_EXIT_OPEN : SC_EXIT_LOCKED);
-            } else {
-                blit_sheet_tile(x, y, SR_DECOR, SC_EXIT_LOCKED);
-            }
-            break;
+             * locked one every 6 frames for a soft glow effect. */
+            if (keys_remaining == 0 && ((tick / 6) & 1))
+                return (UWORD)((SR_DECOR << 8) | SC_EXIT_OPEN);
+            return (UWORD)((SR_DECOR << 8) | SC_EXIT_LOCKED);
         case T_COLLAPSE:
-            /* Recolour to darker on the second half of the collapse
-             * timer — swap palette index 3 (brown) with 15 (dim) in the
-             * scratch tile. */
-            load_scratch_from_sheet(SR_TERRAIN, SC_COLLAPSE);
-            if (t.timer > 0 && t.timer <= COLLAPSE_FRAMES / 2) {
-                for (LONG py = 0; py < TILE_H; py++) {
-                    for (LONG px = 0; px < TILE_W; px++) {
-                        if (scratch_tile[py][px] == 3) scratch_tile[py][px] = 15;
-                    }
-                }
-            }
-            blit_scratch_tile(x, y);
-            break;
+            /* Darker on the second half of the collapse timer. */
+            if (t.timer > 0 && t.timer <= COLLAPSE_FRAMES / 2)
+                return (UWORD)((SR_TERRAIN << 8) | SC_COLLAPSE_DIM);
+            return (UWORD)((SR_TERRAIN << 8) | SC_COLLAPSE);
         case T_CONV_L:
-            blit_sheet_tile(x, y, SR_TERRAIN, SC_CONV_L);
-            break;
+            return (UWORD)((SR_TERRAIN << 8) | SC_CONV_L);
         case T_CONV_R:
-            blit_sheet_tile(x, y, SR_TERRAIN, SC_CONV_R);
-            break;
+            return (UWORD)((SR_TERRAIN << 8) | SC_CONV_R);
         case T_HAZARD:
-            blit_sheet_tile(x, y, SR_TERRAIN, SC_HAZARD);
-            break;
+            return (UWORD)((SR_TERRAIN << 8) | SC_HAZARD);
         default:
-            blit_sheet_tile(x, y, SR_TERRAIN, SC_EMPTY);
-            break;
+            return (UWORD)((SR_TERRAIN << 8) | SC_EMPTY);
     }
 }
 
@@ -345,6 +394,7 @@ static void draw_player(const Player &p)
         col = p.frame & 7;
     }
     blit_sheet_tile(p.x, p.y, row, col);
+    mark_sprite(p.x, p.y);
 }
 
 static void draw_guardian(const Guardian &G)
@@ -359,10 +409,25 @@ static void draw_guardian(const Guardian &G)
     }
     LONG col = (G.frame >> 2) & 7;   /* animation phase */
     blit_sheet_tile(G.x, G.y, row, col);
+    mark_sprite(G.x, G.y);
 }
 
 static void draw_hud(const GameState &gs)
 {
+    LONG bar_w = 120;
+    LONG bar_x = 100;
+    LONG fill = (gs.air * bar_w) / AIR_MAX;
+    if (fill < 0) fill = 0;
+    if (fill > bar_w) fill = bar_w;
+    UBYTE pen = (gs.air < AIR_MAX / 4) ? 9 : 7;
+
+    /* Only when something it shows changed since this buffer's last HUD. */
+    struct HudShown now = { 1, gs.score, fill, pen, gs.level_index,
+                            gs.keys_total - gs.keys_remaining, gs.keys_total,
+                            gs.lives };
+    if (memcmp(&now, &hud_shown[cur_buf], sizeof(now)) == 0) return;
+    hud_shown[cur_buf] = now;
+
     /* HUD strip along the bottom 16 px. */
     fill_rect(0, PLAY_H, SCREEN_W, HUD_H, 15);
 
@@ -373,13 +438,7 @@ static void draw_hud(const GameState &gs)
     render_text(4, PLAY_H + 12, 1, buf);
 
     /* Air bar. */
-    LONG bar_w = 120;
-    LONG bar_x = 100;
     fill_rect(bar_x, PLAY_H + 4, bar_w, 8, 8);
-    LONG fill = (gs.air * bar_w) / AIR_MAX;
-    if (fill < 0) fill = 0;
-    if (fill > bar_w) fill = bar_w;
-    UBYTE pen = (gs.air < AIR_MAX / 4) ? 9 : 7;
     fill_rect(bar_x, PLAY_H + 4, fill, 8, pen);
 
     sprintf(buf, "LV%ld K%ld/%ld L%ld",
@@ -391,10 +450,15 @@ static void draw_hud(const GameState &gs)
 
 void render_frame(const GameState &gs)
 {
-    /* Play area — tiles. */
+    /* Play area — the tiles that differ from what this buffer holds. */
     for (LONG row = 0; row < GRID_H; row++) {
         for (LONG col = 0; col < GRID_W; col++) {
-            draw_tile(col, row, gs.grid[row][col], gs.tick, gs.keys_remaining);
+            UWORD t = cell_tile(col, row, gs.grid[row][col], gs.tick,
+                                gs.keys_remaining);
+            if (t != drawn[cur_buf][row][col]) {
+                blit_sheet_tile(col * TILE_W, row * TILE_H, t >> 8, t & 0xFF);
+                drawn[cur_buf][row][col] = t;
+            }
         }
     }
 
@@ -412,6 +476,7 @@ void render_frame(const GameState &gs)
 
 void render_title(const GameState &gs)
 {
+    invalidate_buffer(cur_buf);
     SetAPen(rp, 0);
     RectFill(rp, 0, 0, SCREEN_W - 1, SCREEN_H - 1);
 
@@ -434,6 +499,7 @@ void render_title(const GameState &gs)
 
 void render_endscreen(const GameState &gs)
 {
+    invalidate_buffer(cur_buf);
     SetAPen(rp, 0);
     RectFill(rp, 0, 0, SCREEN_W - 1, SCREEN_H - 1);
 
