@@ -89,7 +89,7 @@ struct Library       *GadToolsBase = NULL;
 #define STATS_FILE  APP_DIR "launcher.stats"
 #define LIST_FILE   APP_DIR "launcher.list"
 
-#define MAX_APPS    64
+#define MAX_APPS    128
 #define NAME_LEN    40
 #define PATH_LEN    120
 #define DISP_LEN    80
@@ -255,7 +255,7 @@ static WORD view_mode = VIEW_LIST;
 static void stats_load(void)
 {
     BPTR fh;
-    static char buf[2048];
+    static char buf[4096];
     LONG len;
     char *p;
 
@@ -356,7 +356,7 @@ static WORD has_skip_extension(const char *name)
 /* Read LIST_FILE ("Title|path" lines). Returns 1 if the file exists. */
 static WORD load_list(void)
 {
-    static char buf[4096];
+    static char buf[8192];
     BPTR fh;
     LONG len;
     char *p;

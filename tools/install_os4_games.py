@@ -37,7 +37,7 @@ DEMOS = {"boing_ball", "starfield", "plasma"}
 TOOLS = [("Masterwork", "DH1:masterwork"), ("Terrain Test", "DH1:terrain_test"),
          ("Organizer", "DH1:organizer"), ("TrapezePDF", "DH1:TrapezePDF"),
          ("NetSurf", "DH1:NetSurf/NetSurf")]
-MAX_APPS, LIST_BYTES = 64, 4095        # launcher/main.c: MAX_APPS, load_list's buffer
+MAX_APPS, LIST_BYTES = 128, 8191       # launcher/main.c: MAX_APPS, load_list's buffer
 
 
 def launcher_list(games):
