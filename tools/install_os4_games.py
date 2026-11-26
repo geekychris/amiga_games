@@ -8,7 +8,8 @@ Reads dist/release/ (made by tools/package_release.py): unpacks each
 launcher/launcher.list from the manifest and copies both it and
 launcher/launcher_os4 (as DH1:launcher) to the HDF, with the picture
 view's pictures and descriptions (tools/launcher_pictures.py) in
-DH1:LauncherPics/.
+DH1:LauncherPics/. Games other projects install (OTHERS) get menu lines too,
+with their pictures from launcher/other_pics/.
 
 QEMU must not be running: the HDF is written directly with xdftool.
 
@@ -37,6 +38,11 @@ DEMOS = {"boing_ball", "starfield", "plasma"}
 TOOLS = [("Masterwork", "DH1:masterwork"), ("Terrain Test", "DH1:terrain_test"),
          ("Organizer", "DH1:organizer"), ("TrapezePDF", "DH1:TrapezePDF"),
          ("NetSurf", "DH1:NetSurf/NetSurf")]
+# games other projects install (not in dist/release/); their pictures and descriptions are
+# launcher/other_pics/<program>.png and .txt
+OTHERS = [("Iso Blaster: The Null Crown", "DH0:IsoBlaster/NullCrown/IsoBlaster"),   # geekychris/iso-blaster
+          ("Stormlight", "DH0:IsoBlaster/Stormlight/Stormlight")]
+OTHER_PICS = os.path.join(EXAMPLES, "launcher", "other_pics")
 MAX_APPS, LIST_BYTES = 128, 8191       # launcher/main.c: MAX_APPS, load_list's buffer
 
 
@@ -57,6 +63,8 @@ def launcher_list(games):
     for head, gs in groups:
         out.append("# " + head)
         out += [line(g) for g in sorted(gs, key=by_title)]
+    out.append("# Games from other projects")
+    out += [f"{t}|{p}" for t, p in sorted(OTHERS, key=lambda o: o[0].lower())]
     out.append("# Tools")
     out += [f"{t}|{p}" for t, p in TOOLS]
     text = "\n".join(out) + "\n"
@@ -111,6 +119,8 @@ def main():
         cmd += ["+", "makedir", "LauncherPics"]
         for f in sorted(os.listdir(opt.pics)):
             cmd += ["+", "write", os.path.join(opt.pics, f), "LauncherPics/" + f]
+        for f in sorted(os.listdir(OTHER_PICS)):
+            cmd += ["+", "write", os.path.join(OTHER_PICS, f), "LauncherPics/" + f]
         for name in ("launcher.list", "launcher"):
             if name in have:
                 cmd += ["+", "delete", name]       # xdftool won't overwrite, even with -f
